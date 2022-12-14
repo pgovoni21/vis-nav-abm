@@ -19,11 +19,7 @@ def start(parallel=False, headless=False, agent_behave_param_list=None):
     window_pad = 30
     vscreen_width = int(float(envconf["ENV_WIDTH"])) + 2 * window_pad + 10
     vscreen_height = int(float(envconf["ENV_HEIGHT"])) + 2 * window_pad + 10
-    if headless:
-        # required to start pygame in headless mode
-        os.environ['SDL_VIDEODRIVER'] = 'dummy'
-        from xvfbwrapper import Xvfb
-    with ExitStack() if not headless else Xvfb(width=vscreen_width, height=vscreen_height) as xvfb:
+    with ExitStack():
         sim = Simulation(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
                          v_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
@@ -67,6 +63,8 @@ def start(parallel=False, headless=False, agent_behave_param_list=None):
 
 def start_headless():
     print("Start ABM in Headless Mode...")
+    os.environ['SDL_VIDEODRIVER'] = 'dummy'
+    envconf['WITH_VISUALIZATION'] = '0'
     start(headless=True)
 
 
