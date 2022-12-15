@@ -45,7 +45,7 @@ class Rescource(pygame.sprite.Sprite):
         self.resc_left_color = colors.DARK_GREY
         self.unit_per_timestep = quality  # saved
         self.is_clicked = False
-        self.show_stats = False
+        self.show_stats = True
 
         # Environment related parameters
         self.WIDTH = env_size[0]  # env width
@@ -82,17 +82,12 @@ class Rescource(pygame.sprite.Sprite):
             self.position[0] = mouse[0] - self.radius
             self.position[1] = mouse[1] - self.radius
             self.center = (self.position[0] + self.radius, self.position[1] + self.radius)
-            self.update()
+            self.draw_update()
         else:
             self.is_clicked = False
-            self.update()
+            self.draw_update()
 
-    def update(self):
-        """Updating the state variables of the resource patch and
-        redrawing it accordingly"""
-        self.draw_update()
-
-    def draw_update(self):
+    def draw_update(self): 
         """Drawing resource patch according to current state variables"""
         # Initial Visualization of rescource
         self.image = pygame.Surface([self.radius * 2, self.radius * 2])
