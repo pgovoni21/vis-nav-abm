@@ -39,7 +39,9 @@ setup(
             'abm-start-coopsig=abm.app_collective_signaling:start',
             'headless-abm-start=abm.app:start_headless',
             'playground-start=abm.app:start_playground',
-            'playground-start-coopsig=abm.app_collective_signaling:start_playground'
+            'playground-start-coopsig=abm.app_collective_signaling:start_playground',
+            'start_humanexp8=abm.app:start_humanexp8',
+            'start_current=abm.app:start_current'
         ]
     },
     classifiers=[

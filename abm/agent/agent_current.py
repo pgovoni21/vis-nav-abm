@@ -6,7 +6,7 @@ agent.py : including the main classes to create an agent. Supplementary calculat
 import pygame
 import numpy as np
 from abm.contrib import colors, decision_params, movement_params
-from abm.agent import supcalc
+from abm.agent import supcalc_current as supcalc
 from collections import OrderedDict
 import importlib
 
@@ -25,7 +25,7 @@ class Agent(pygame.sprite.Sprite):
         :param id: ID of agent (int)
         :param radius: radius of the agent in pixels
         :param position: position of the agent in env as (x, y)
-        :param orientation: absolute orientation of the agent (0: right, pi/2: up, pi: left, 3*pi/2: down)
+        :param orientation: absolute orientation of the agent
         :param env_size: environment size available for agents as (width, height)
         :param color: color of the agent as (R, G, B)
         :param v_field_res: resolution of the visual field of the agent in pixels
@@ -80,7 +80,7 @@ class Agent(pygame.sprite.Sprite):
         # Decision Variables
         self.overriding_mode = None
 
-        if behave_params is not None: # not in humanexp8, left in for ease
+        if behave_params is not None:
             # the behavior parameters were passed as dictionary
             self.behave_params = behave_params
             ## w
@@ -131,12 +131,13 @@ class Agent(pygame.sprite.Sprite):
             self.F_N = decision_params.F_N
             self.F_R = decision_params.F_R
 
-            # # movement ## not called in humanexp8
+            # movement
             self.max_exp_vel = movement_params.exp_vel_max
-            # self.exp_stop_ratio = movement_params.exp_stop_ratio
+            self.exp_stop_ratio = movement_params.exp_stop_ratio
 
         # Pooling attributes
-        self.time_spent_pooling = 0  # time units currently spent with pooling the status of given position (changes dynamically)
+        self.time_spent_pooling = 0  # time units currently spent with pooling the status of given position (changes
+        # dynamically)
         self.env_status_before = 0
         self.env_status = 0  # status of the environment in current position, 1 if rescource, 0 otherwise
         self.pool_success = 0  # states if the agent deserves 1 piece of update about the status of env in given pos
@@ -231,21 +232,17 @@ class Agent(pygame.sprite.Sprite):
         # vel, theta = int(self.tr_w()) * self.F_soc(...) + (1 - int(self.tr_w())) * self.F_exp(...)
         if not self.get_mode() == "collide":
             if not self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel) ## not in humanexp8
-                vel, theta = supcalc.random_walk()
+                vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
                 self.set_mode("explore")
             elif self.tr_w() and self.tr_u():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
-                #     self.set_mode("relocate")
-                self.set_mode("exploit")
-                vel, theta = (-self.velocity * movement_params.exp_stop_ratio, 0)
+                if self.env_status == 1:
+                    self.set_mode("exploit")
+                    vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                else:
+                    vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
+                    self.set_mode("relocate")
             elif self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel) ## not in humanexp8
-                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field)
+                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
                 # WHY ON EARTH DO WE NEED THIS NEGATION?
                 # whatever comes out has a sign that tells if the change in direction should be left or right
                 # seemingly what comes out has a different convention than our environment?
@@ -254,14 +251,12 @@ class Agent(pygame.sprite.Sprite):
                 # theta = -theta
                 self.set_mode("relocate")
             elif self.tr_u() and not self.tr_w():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
-                #     self.set_mode("explore")
-                self.set_mode("exploit")
-                vel, theta = (-self.velocity * movement_params.exp_stop_ratio, 0)
+                if self.env_status == 1:
+                    self.set_mode("exploit")
+                    vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                else:
+                    vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
+                    self.set_mode("explore")
         else:
             # COLLISION AVOIDANCE IS ACTIVE, let that guide us
             # As we don't have proximity sensor interface as with e.g. real robots we will let
@@ -396,8 +391,8 @@ class Agent(pygame.sprite.Sprite):
             non_expl_agents.extend([ag for ag in expl_agents if ag.exploited_patch_id == self.exploited_patch_id])
             expl_agents = [ag for ag in expl_agents if ag.exploited_patch_id != self.exploited_patch_id]
 
-        # # Excluding agents that still try to exploit but can not as the patch has been emptied
-        # expl_agents = [ag for ag in expl_agents if ag.exploited_patch_id != -1] ## not in humanexp8
+        # Excluding agents that still try to exploit but can not as the patch has been emptied
+        expl_agents = [ag for ag in expl_agents if ag.exploited_patch_id != -1]
 
         if self.visual_exclusion:
             self.soc_v_field = self.projection_field(expl_agents, keep_distance_info=False,
@@ -452,7 +447,7 @@ class Agent(pygame.sprite.Sprite):
         :param fov: touple of number with borders of fov such as (-np.pi, np.pi), if None, self.FOV will be used"""
 
         # deciding fov
-        if fov is None: ## though fov is never used, not in humanexp8 but leave in
+        if fov is None:
             fov = self.FOV
 
         # extracting obstacle coordinates
@@ -604,8 +599,7 @@ class Agent(pygame.sprite.Sprite):
         if self.get_mode() == 'explore':
             if np.abs(self.velocity) > velocity_limit:
                 # stopping agent if too fast during exploration
-                # self.velocity = self.max_exp_vel # 1 ## not in humanexp8
-                self.velocity = 1
+                self.velocity = self.max_exp_vel # 1
 
     def pool_curr_pos(self):
         """Pooling process of the current position. During pooling the agent does not move and spends a given time in

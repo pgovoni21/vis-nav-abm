@@ -6,7 +6,7 @@ agent.py : including the main classes to create an agent. Supplementary calculat
 import pygame
 import numpy as np
 from abm.contrib import colors, decision_params, movement_params
-from abm.agent import supcalc
+from abm.agent import supcalc_humanexp8 as supcalc
 from collections import OrderedDict
 import importlib
 
@@ -18,14 +18,14 @@ class Agent(pygame.sprite.Sprite):
     """
 
     def __init__(self, id, radius, position, orientation, env_size, color, v_field_res, FOV, window_pad, pooling_time,
-                 pooling_prob, consumption, vision_range, visual_exclusion, patchwise_exclusion=True, behave_params=None):
+                 pooling_prob, consumption, vision_range, visual_exclusion, patchwise_exclusion=True):
         """
         Initalization method of main agent class of the simulations
 
         :param id: ID of agent (int)
         :param radius: radius of the agent in pixels
         :param position: position of the agent in env as (x, y)
-        :param orientation: absolute orientation of the agent (0: right, pi/2: up, pi: left, 3*pi/2: down)
+        :param orientation: absolute orientation of the agent
         :param env_size: environment size available for agents as (width, height)
         :param color: color of the agent as (R, G, B)
         :param v_field_res: resolution of the visual field of the agent in pixels
@@ -37,8 +37,6 @@ class Agent(pygame.sprite.Sprite):
         :param vision_range: in px the range/radius in which the agent is able to see other agents
         :param visual_exclusion: if True social cues can be visually excluded by non social cues.
         :param patchwise_exclusion: exclude agents from visual field if exploiting the same patch
-        :param behave_params: dictionary of behavioral parameters can be passed to a given agent which will
-            overwrite the parameters defined in the env files. (e.g. when agents are heterogeneous)
         """
         # Initializing supercalss (Pygame Sprite)
         super().__init__()
@@ -51,7 +49,7 @@ class Agent(pygame.sprite.Sprite):
         self.exclude_agents_same_patch = patchwise_exclusion
         self.id = id  # saved
         self.radius = radius
-        self.position = np.array(position, dtype=np.float64)  # saved
+        self.position = np.array(position, dtype=np.float64) # saved
         self.orientation = orientation # saved
         self.color = color
         self.selected_color = colors.LIGHT_BLUE
@@ -80,63 +78,31 @@ class Agent(pygame.sprite.Sprite):
         # Decision Variables
         self.overriding_mode = None
 
-        if behave_params is not None: # not in humanexp8, left in for ease
-            # the behavior parameters were passed as dictionary
-            self.behave_params = behave_params
-            ## w
-            self.S_wu = self.behave_params["S_wu"]
-            self.T_w = self.behave_params["T_w"]
-            self.w = 0
-            self.Eps_w = self.behave_params["Eps_w"]
-            self.g_w = self.behave_params["g_w"]
-            self.B_w = self.behave_params["B_w"]
-            self.w_max = self.behave_params["w_max"]
+        ## w
+        self.S_wu = decision_params.S_wu
+        self.T_w = decision_params.T_w
+        self.w = 0
+        self.Eps_w = decision_params.Eps_w
+        self.g_w = decision_params.g_w
+        self.B_w = decision_params.B_w
+        self.w_max = decision_params.w_max
 
-            ## u
-            self.I_priv = 0  # saved
-            self.novelty = np.zeros(self.behave_params["Tau"])
-            self.S_uw = self.behave_params["S_uw"]
-            self.T_u = self.behave_params["T_u"]
-            self.u = 0
-            self.Eps_u = self.behave_params["Eps_u"]
-            self.g_u = self.behave_params["g_u"]
-            self.B_u = self.behave_params["B_u"]
-            self.u_max = self.behave_params["u_max"]
-            self.F_N = self.behave_params["F_N"]
-            self.F_R = self.behave_params["F_R"]
-            self.max_exp_vel = self.behave_params["exp_vel_max"]
-            self.exp_stop_ratio = self.behave_params["exp_stop_ratio"]
-
-        else:
-            # as no behavior parameters were passed they are read out from env file
-            ## w
-            self.S_wu = decision_params.S_wu
-            self.T_w = decision_params.T_w
-            self.w = 0
-            self.Eps_w = decision_params.Eps_w
-            self.g_w = decision_params.g_w
-            self.B_w = decision_params.B_w
-            self.w_max = decision_params.w_max
-
-            ## u
-            self.I_priv = 0  # saved
-            self.novelty = np.zeros(decision_params.Tau)
-            self.S_uw = decision_params.S_uw
-            self.T_u = decision_params.T_u
-            self.u = 0
-            self.Eps_u = decision_params.Eps_u
-            self.g_u = decision_params.g_u
-            self.B_u = decision_params.B_u
-            self.u_max = decision_params.u_max
-            self.F_N = decision_params.F_N
-            self.F_R = decision_params.F_R
-
-            # # movement ## not called in humanexp8
-            self.max_exp_vel = movement_params.exp_vel_max
-            # self.exp_stop_ratio = movement_params.exp_stop_ratio
+        ## u
+        self.I_priv = 0  # saved
+        self.novelty = np.zeros(decision_params.Tau)
+        self.S_uw = decision_params.S_uw
+        self.T_u = decision_params.T_u
+        self.u = 0
+        self.Eps_u = decision_params.Eps_u
+        self.g_u = decision_params.g_u
+        self.B_u = decision_params.B_u
+        self.u_max = decision_params.u_max
+        self.F_N = decision_params.F_N
+        self.F_R = decision_params.F_R
 
         # Pooling attributes
-        self.time_spent_pooling = 0  # time units currently spent with pooling the status of given position (changes dynamically)
+        self.time_spent_pooling = 0  # time units currently spent with pooling the status of given position (changes
+        # dynamically)
         self.env_status_before = 0
         self.env_status = 0  # status of the environment in current position, 1 if rescource, 0 otherwise
         self.pool_success = 0  # states if the agent deserves 1 piece of update about the status of env in given pos
@@ -231,20 +197,12 @@ class Agent(pygame.sprite.Sprite):
         # vel, theta = int(self.tr_w()) * self.F_soc(...) + (1 - int(self.tr_w())) * self.F_exp(...)
         if not self.get_mode() == "collide":
             if not self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel) ## not in humanexp8
                 vel, theta = supcalc.random_walk()
                 self.set_mode("explore")
             elif self.tr_w() and self.tr_u():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
-                #     self.set_mode("relocate")
                 self.set_mode("exploit")
                 vel, theta = (-self.velocity * movement_params.exp_stop_ratio, 0)
             elif self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel) ## not in humanexp8
                 vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field)
                 # WHY ON EARTH DO WE NEED THIS NEGATION?
                 # whatever comes out has a sign that tells if the change in direction should be left or right
@@ -254,12 +212,6 @@ class Agent(pygame.sprite.Sprite):
                 # theta = -theta
                 self.set_mode("relocate")
             elif self.tr_u() and not self.tr_w():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
-                #     self.set_mode("explore")
                 self.set_mode("exploit")
                 vel, theta = (-self.velocity * movement_params.exp_stop_ratio, 0)
         else:
@@ -396,9 +348,6 @@ class Agent(pygame.sprite.Sprite):
             non_expl_agents.extend([ag for ag in expl_agents if ag.exploited_patch_id == self.exploited_patch_id])
             expl_agents = [ag for ag in expl_agents if ag.exploited_patch_id != self.exploited_patch_id]
 
-        # # Excluding agents that still try to exploit but can not as the patch has been emptied
-        # expl_agents = [ag for ag in expl_agents if ag.exploited_patch_id != -1] ## not in humanexp8
-
         if self.visual_exclusion:
             self.soc_v_field = self.projection_field(expl_agents, keep_distance_info=False,
                                                      non_expl_agents=non_expl_agents)
@@ -441,24 +390,19 @@ class Agent(pygame.sprite.Sprite):
                 clean_sdata[kf] = vf
         self.vis_field_source_data = clean_sdata
 
-    def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None, fov=None):
+    def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None):
         """Calculating visual projection field for the agent given the visible obstacles in the environment
         :param obstacles: list of agents (with same radius) or some other obstacle sprites to generate projection field
         :param keep_distance_info: if True, the amplitude of the vpf will reflect the distance of the object from the
             agent so that exclusion can be easily generated with a single computational step.
         :param non_expl_agents: a list of non-scoial visual cues (non-exploiting agents) that on the other hand can still
             produce visual exlusion on the projection of social cues. If None only social cues can produce visual
-            exclusion on each other.
-        :param fov: touple of number with borders of fov such as (-np.pi, np.pi), if None, self.FOV will be used"""
-
-        # deciding fov
-        if fov is None: ## though fov is never used, not in humanexp8 but leave in
-            fov = self.FOV
+            exclusion on each other."""
 
         # extracting obstacle coordinates
         obstacle_coords = [ob.position for ob in obstacles]
 
-        # if non-social cues can visually exclude social ones we also concatenate these to the obstacle coords
+        # if non-social cues can visually exlude social ones we also concatenate these to the obstacle coords
         if non_expl_agents is not None:
             len_social = len(obstacles)
             obstacle_coords.extend([ob.position for ob in non_expl_agents])
@@ -519,7 +463,7 @@ class Agent(pygame.sprite.Sprite):
                 phi_target = supcalc.find_nearest(phis, closed_angle)
 
                 # if target is visible we save its projection into the VPF source data
-                if fov[0] < closed_angle < fov[1]:
+                if self.FOV[0] < closed_angle < self.FOV[1]:
                     self.vis_field_source_data[i] = {}
                     self.vis_field_source_data[i]["vis_angle"] = vis_angle
                     self.vis_field_source_data[i]["phi_target"] = phi_target
@@ -578,8 +522,8 @@ class Agent(pygame.sprite.Sprite):
 
         # post_processing and limiting FOV
         v_field_post = np.flip(v_field)
-        v_field_post[phis < fov[0]] = 0
-        v_field_post[phis > fov[1]] = 0
+        v_field_post[phis < self.FOV[0]] = 0
+        v_field_post[phis > self.FOV[1]] = 0
 
         return v_field_post
 
@@ -604,7 +548,6 @@ class Agent(pygame.sprite.Sprite):
         if self.get_mode() == 'explore':
             if np.abs(self.velocity) > velocity_limit:
                 # stopping agent if too fast during exploration
-                # self.velocity = self.max_exp_vel # 1 ## not in humanexp8
                 self.velocity = 1
 
     def pool_curr_pos(self):
