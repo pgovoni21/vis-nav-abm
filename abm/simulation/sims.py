@@ -53,8 +53,7 @@ class Simulation:
                  patch_radius=30, regenerate_patches=True, agent_consumption=1, teleport_exploit=True,
                  vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False,
                  use_ifdb_logging=False, use_ram_logging=False, save_csv_files=False, ghost_mode=True,
-                 patchwise_exclusion=True, parallel=False, use_zarr=True, allow_border_patch_overlap=False,
-                 agent_behave_param_list=None, collide_agents=True):
+                 patchwise_exclusion=True, parallel=False, use_zarr=True, collide_agents=True):
         """
         Initializing the main simulation instance
         :param N: number of agents
@@ -331,50 +330,29 @@ class Simulation:
             orient = np.random.uniform(0, 2 * np.pi) # randomly orients according to 0,pi/2 : right,up
             self.add_new_agent(i, x, y, orient)
 
-    def add_new_agent(self, id, x, y, orient, with_proove=False, behave_params=None): 
+    def add_new_agent(self, id, x, y, orient, with_prove=False): 
         """Adding a single new agent into agent sprites"""
         agent_proven = False
         while not agent_proven:
-            if behave_params is None:
-                agent = Agent(
-                    id=id,
-                    radius=self.agent_radii,
-                    position=(x, y),
-                    orientation=orient,
-                    env_size=(self.WIDTH, self.HEIGHT),
-                    color=colors.BLUE,
-                    v_field_res=self.v_field_res,
-                    FOV=self.agent_fov,
-                    window_pad=self.window_pad,
-                    pooling_time=self.pooling_time,
-                    pooling_prob=self.pooling_prob,
-                    consumption=self.agent_consumption,
-                    vision_range=self.vision_range,
-                    visual_exclusion=self.visual_exclusion,
-                    patchwise_exclusion=self.patchwise_exclusion,
-                    behave_params=None
-                )
-            else: ## not used in humanexp8, will let ride (heterogeneity may be interesting later)
-                agent = Agent(
-                    id=id,
-                    radius=behave_params["agent_radius"],
-                    position=(x, y),
-                    orientation=orient,
-                    env_size=(self.WIDTH, self.HEIGHT),
-                    color=colors.BLUE,
-                    v_field_res=behave_params["v_field_res"],
-                    FOV=(-float(behave_params["agent_fov"]) * np.pi, float(behave_params["agent_fov"]) * np.pi),
-                    window_pad=self.window_pad,
-                    pooling_time=behave_params["pooling_time"],
-                    pooling_prob=behave_params["pooling_prob"],
-                    consumption=behave_params["agent_consumption"],
-                    vision_range=behave_params["vision_range"],
-                    visual_exclusion=self.visual_exclusion,
-                    patchwise_exclusion=self.patchwise_exclusion,
-                    behave_params=behave_params
-                )
-            # if with_proove: ## with_proove is never True - left out for speed
-            #     if self.proove_sprite(agent):
+            agent = Agent(
+                id=id,
+                radius=self.agent_radii,
+                position=(x, y),
+                orientation=orient,
+                env_size=(self.WIDTH, self.HEIGHT),
+                color=colors.BLUE,
+                v_field_res=self.v_field_res,
+                FOV=self.agent_fov,
+                window_pad=self.window_pad,
+                pooling_time=self.pooling_time,
+                pooling_prob=self.pooling_prob,
+                consumption=self.agent_consumption,
+                vision_range=self.vision_range,
+                visual_exclusion=self.visual_exclusion,
+                patchwise_exclusion=self.patchwise_exclusion
+            )
+            # if with_prove: ## with_prove is never True - left out for speed
+            #     if self.prove_sprite(agent):
             #         self.agents.add(agent)
             #         agent_proven = True
             # else:
@@ -420,7 +398,7 @@ class Simulation:
             resource = Rescource(id, radius, (x, y), (self.WIDTH, self.HEIGHT), colors.GREY, self.window_pad, units, quality)
 
             # check for resource-resource overlap (does not check resource-agent overlap)
-            resource_proven = self.proove_sprite(resource, prove_with_agents=False, prove_with_res=True)
+            resource_proven = self.prove_sprite(resource, prove_with_agents=False, prove_with_res=True)
             retries += 1
 
         self.rescources.add(resource)
@@ -433,7 +411,7 @@ class Simulation:
     
 ### -------------------------- ABM INTERACTION FUNCTIONS -------------------------- ###
 
-    def proove_sprite(self, sprite, prove_with_agents=True, prove_with_res=True):
+    def prove_sprite(self, sprite, prove_with_agents=True, prove_with_res=True):
         """Checks if proposed agent or resource is valid according to agent/patch overlap + returns True if collision,
         checking for agents/resources can be turned off with prove_with... parameters set to False"""
         
@@ -689,9 +667,8 @@ class Simulation:
             # Simulation is paused
             else:
                 # Still calculating visual fields
-                # for ag in self.agents:
-                #     ag.calc_social_V_proj(self.agents)
-                pass
+                for ag in self.agents:
+                    ag.calc_social_V_proj(self.agents)
 
             ### ---- BACKGROUND PROCESSES ---- ###
 
@@ -724,12 +701,6 @@ class Simulation:
         print(f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S.%f')} Total simulation time: ",
               (end_time - start_time).total_seconds())
 
-        # Saving data from IFDB when simulation time is over
-        # if self.agent_behave_param_list is not None: ## not used in humanexp8
-        #     if self.agent_behave_param_list[0].get("evo_summary_path") is not None:
-        #         pop_num = self.generate_evo_summary()
-        # else:
-        #     pop_num = None
         pop_num = None
 
         if self.save_csv_files:

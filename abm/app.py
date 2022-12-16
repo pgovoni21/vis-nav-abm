@@ -16,10 +16,8 @@ root_abm_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) # mo
 env_path = os.path.join(root_abm_dir, f"{EXP_NAME}.env") # concatenates grandpa dir with env/exp file name
 envconf = dotenv_values(env_path) # returns dict of this file
 
-def start(parallel=False, headless=False, agent_behave_param_list=None):
+def start(parallel=False, headless=False):
     window_pad = 30
-    vscreen_width = int(float(envconf["ENV_WIDTH"])) + 2 * window_pad + 10
-    vscreen_height = int(float(envconf["ENV_HEIGHT"])) + 2 * window_pad + 10
     with ExitStack():
         sim = Simulation(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
@@ -35,7 +33,6 @@ def start(parallel=False, headless=False, agent_behave_param_list=None):
                          pooling_prob=float(envconf["POOLING_PROBABILITY"]),
                          agent_radius=int(float(envconf["RADIUS_AGENT"])),
                          N_resc=int(float(envconf["N_RESOURCES"])),
-                         allow_border_patch_overlap=bool(int(float(envconf["PATCH_BORDER_OVERLAP"]))),
                          min_resc_perpatch=int(float(envconf["MIN_RESOURCE_PER_PATCH"])),
                          max_resc_perpatch=int(float(envconf["MAX_RESOURCE_PER_PATCH"])),
                          min_resc_quality=float(envconf["MIN_RESOURCE_QUALITY"]),
@@ -55,7 +52,6 @@ def start(parallel=False, headless=False, agent_behave_param_list=None):
                          use_zarr=bool(int(float(envconf["USE_ZARR_FORMAT"]))),
                          parallel=parallel,
                          window_pad=window_pad,
-                         agent_behave_param_list=agent_behave_param_list,
                          collide_agents=bool(int(float(envconf["AGENT_AGENT_COLLISION"])))
                          )
         sim.write_batch_size = 100
@@ -113,8 +109,6 @@ def generate_env_file(env_data, file_name, save_folder):
 
 def start_humanexp8(parallel=False, headless=False, agent_behave_param_list=None):
     window_pad = 30
-    vscreen_width = int(float(envconf["ENV_WIDTH"])) + 2 * window_pad + 10
-    vscreen_height = int(float(envconf["ENV_HEIGHT"])) + 2 * window_pad + 10
     with ExitStack():
         sim = Simulation_humanexp8(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
@@ -155,8 +149,6 @@ def start_humanexp8(parallel=False, headless=False, agent_behave_param_list=None
 
 def start_current(parallel=False, headless=False, agent_behave_param_list=None):
     window_pad = 30
-    vscreen_width = int(float(envconf["ENV_WIDTH"])) + 2 * window_pad + 10
-    vscreen_height = int(float(envconf["ENV_HEIGHT"])) + 2 * window_pad + 10
     with ExitStack():
         sim = Simulation_current(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),

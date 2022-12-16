@@ -18,7 +18,7 @@ class Agent(pygame.sprite.Sprite):
     """
 
     def __init__(self, id, radius, position, orientation, env_size, color, v_field_res, FOV, window_pad, pooling_time,
-                 pooling_prob, consumption, vision_range, visual_exclusion, patchwise_exclusion=True, behave_params=None):
+                 pooling_prob, consumption, vision_range, visual_exclusion, patchwise_exclusion):
         """
         Initalization method of main agent class of the simulations
 
@@ -40,102 +40,71 @@ class Agent(pygame.sprite.Sprite):
         :param behave_params: dictionary of behavioral parameters can be passed to a given agent which will
             overwrite the parameters defined in the env files. (e.g. when agents are heterogeneous)
         """
-        # Initializing supercalss (Pygame Sprite)
+        
+### -------------------------- INITIALIZATION -------------------------- ###
+
+        # PyGame Sprite superclass
         super().__init__()
 
         # in case we run multiple simulations, we reload the env parameters
         importlib.reload(decision_params)
         importlib.reload(movement_params)
 
-        # Initializing agents with init parameters
-        self.exclude_agents_same_patch = patchwise_exclusion
-        self.id = id  # saved
-        self.radius = radius
-        self.position = np.array(position, dtype=np.float64)  # saved
-        self.orientation = orientation # saved
-        self.color = color
-        self.selected_color = colors.LIGHT_BLUE
+        # Saved parameters
+        self.id = id 
+        self.position = np.array(position, dtype=np.float64) ### dynamic sensory input
+        self.orientation = orientation ### dynamic sensory input
+
+        self.velocity = 0  # (absolute) ### dynamic sensory input?
+        self.mode = "explore"  # explore, flock, collide, exploit, pool
+        
+        self.exploited_patch_id = -1 
+        self.collected_r = 0  # resource units collected by agent 
+        self.collected_r_before = 0  # ^ from previous time step to monitor patch quality (not saved)
+        
+        # Visual parameters
         self.v_field_res = v_field_res
-        self.pooling_time = pooling_time
-        self.pooling_prob = pooling_prob
-        self.consumption = consumption
+        self.FOV = FOV
         self.vision_range = vision_range
         self.visual_exclusion = visual_exclusion
-        self.FOV = FOV
-        self.show_stats = False
 
-        # Non-initialisable private attributes
-        self.velocity = 0  # agent absolute velocity  # saved
-        self.collected_r = 0  # collected resource unit collected by agent  # saved
-        self.collected_r_before = 0  # collected resource in the previous time step to monitor patch quality
-        self.exploited_patch_id = -1  # saved
-        self.mode = "explore"  # explore, flock, collide, exploit, pool  # saved
         self.soc_v_field = np.zeros(self.v_field_res)  # social visual projection field
-        # source data to calculate relevant visual field according to the used relocation force algorithm
-        self.vis_field_source_data = {}
+        self.vis_field_source_data = {} # to calculate relevant visual field according to relocation force
 
-        # Interaction
-        self.is_moved_with_cursor = 0
+        # Behavioral parameters
 
-        # Decision Variables
+        self.exp_stop_ratio = movement_params.exp_stop_ratio
+        # self.max_exp_vel = movement_params.exp_vel_max ## not in humanexp8
+        self.consumption = consumption
+        self.exclude_agents_same_patch = patchwise_exclusion
         self.overriding_mode = None
 
-        if behave_params is not None: # not in humanexp8, left in for ease
-            # the behavior parameters were passed as dictionary
-            self.behave_params = behave_params
-            ## w
-            self.S_wu = self.behave_params["S_wu"]
-            self.T_w = self.behave_params["T_w"]
-            self.w = 0
-            self.Eps_w = self.behave_params["Eps_w"]
-            self.g_w = self.behave_params["g_w"]
-            self.B_w = self.behave_params["B_w"]
-            self.w_max = self.behave_params["w_max"]
+        ## w
+        self.S_wu = decision_params.S_wu
+        self.T_w = decision_params.T_w
+        self.w = 0
+        self.Eps_w = decision_params.Eps_w
+        self.g_w = decision_params.g_w
+        self.B_w = decision_params.B_w
+        self.w_max = decision_params.w_max
 
-            ## u
-            self.I_priv = 0  # saved
-            self.novelty = np.zeros(self.behave_params["Tau"])
-            self.S_uw = self.behave_params["S_uw"]
-            self.T_u = self.behave_params["T_u"]
-            self.u = 0
-            self.Eps_u = self.behave_params["Eps_u"]
-            self.g_u = self.behave_params["g_u"]
-            self.B_u = self.behave_params["B_u"]
-            self.u_max = self.behave_params["u_max"]
-            self.F_N = self.behave_params["F_N"]
-            self.F_R = self.behave_params["F_R"]
-            self.max_exp_vel = self.behave_params["exp_vel_max"]
-            self.exp_stop_ratio = self.behave_params["exp_stop_ratio"]
-
-        else:
-            # as no behavior parameters were passed they are read out from env file
-            ## w
-            self.S_wu = decision_params.S_wu
-            self.T_w = decision_params.T_w
-            self.w = 0
-            self.Eps_w = decision_params.Eps_w
-            self.g_w = decision_params.g_w
-            self.B_w = decision_params.B_w
-            self.w_max = decision_params.w_max
-
-            ## u
-            self.I_priv = 0  # saved
-            self.novelty = np.zeros(decision_params.Tau)
-            self.S_uw = decision_params.S_uw
-            self.T_u = decision_params.T_u
-            self.u = 0
-            self.Eps_u = decision_params.Eps_u
-            self.g_u = decision_params.g_u
-            self.B_u = decision_params.B_u
-            self.u_max = decision_params.u_max
-            self.F_N = decision_params.F_N
-            self.F_R = decision_params.F_R
-
-            # # movement ## not called in humanexp8
-            self.max_exp_vel = movement_params.exp_vel_max
-            # self.exp_stop_ratio = movement_params.exp_stop_ratio
+        ## u
+        self.I_priv = 0  # saved
+        self.novelty = np.zeros(decision_params.Tau)
+        self.S_uw = decision_params.S_uw
+        self.T_u = decision_params.T_u
+        self.u = 0
+        self.Eps_u = decision_params.Eps_u
+        self.g_u = decision_params.g_u
+        self.B_u = decision_params.B_u
+        self.u_max = decision_params.u_max
+        self.F_N = decision_params.F_N
+        self.F_R = decision_params.F_R
 
         # Pooling attributes
+        self.pooling_time = pooling_time
+        self.pooling_prob = pooling_prob
+        
         self.time_spent_pooling = 0  # time units currently spent with pooling the status of given position (changes dynamically)
         self.env_status_before = 0
         self.env_status = 0  # status of the environment in current position, 1 if rescource, 0 otherwise
@@ -148,14 +117,19 @@ class Agent(pygame.sprite.Sprite):
         self.boundaries_x = [self.window_pad, self.window_pad + self.WIDTH]
         self.boundaries_y = [self.window_pad, self.window_pad + self.HEIGHT]
 
+        # Visualization / human interaction parameters
+        self.radius = radius
+        self.color = color
+        self.selected_color = colors.LIGHT_BLUE
+
+        self.show_stats = False
+        self.is_moved_with_cursor = 0
+
         # Initial Visualization of agent
         self.image = pygame.Surface([radius * 2, radius * 2])
         self.image.fill(colors.BACKGROUND)
         self.image.set_colorkey(colors.BACKGROUND)
-        pygame.draw.circle(
-            self.image, color, (radius, radius), radius
-        )
-
+        pygame.draw.circle(self.image, color, (radius, radius), radius)
         # Showing agent orientation with a line towards agent orientation
         pygame.draw.line(self.image, colors.BACKGROUND, (radius, radius),
                          ((1 + np.cos(self.orientation)) * radius, (1 - np.sin(self.orientation)) * radius), 3)
@@ -164,221 +138,7 @@ class Agent(pygame.sprite.Sprite):
         self.rect.y = self.position[1]
         self.mask = pygame.mask.from_surface(self.image)
 
-    def calc_I_priv(self):
-        """returning I_priv according to the environment status. Note that this is not necessarily the same as
-        later on I_priv also includes the reward amount in the last n timesteps"""
-        # other part is coming from uncovered resource units
-        collected_unit = self.collected_r - self.collected_r_before
-
-        # calculating private info by weighting these
-        self.I_priv = self.F_N * np.max(self.novelty) + self.F_R * collected_unit
-
-    def move_with_mouse(self, mouse, left_state, right_state):
-        """Moving the agent with the mouse cursor, and rotating"""
-        if self.rect.collidepoint(mouse):
-            # setting position of agent to cursor position
-            self.position[0] = mouse[0] - self.radius
-            self.position[1] = mouse[1] - self.radius
-            if left_state:
-                self.orientation += 0.1
-            if right_state:
-                self.orientation -= 0.1
-            self.prove_orientation()
-            self.is_moved_with_cursor = 1
-            # updating agent visualization to make it more responsive
-            self.draw_update()
-        else:
-            self.is_moved_with_cursor = 0
-
-    def update_decision_processes(self):
-        """updating inner decision processes according to the current state and the visual projection field"""
-        w_p = self.w if self.w > self.T_w else 0
-        u_p = self.u if self.u > self.T_u else 0
-        dw = self.Eps_w * (np.mean(self.soc_v_field)) - self.g_w * (
-                self.w - self.B_w) - u_p * self.S_uw  # self.tr_u() * self.S_uw
-        du = self.Eps_u * self.I_priv - self.g_u * (self.u - self.B_u) - w_p * self.S_wu  # self.tr_w() * self.S_wu
-        self.w += dw
-        self.u += du
-        if self.w > self.w_max:
-            self.w = self.w_max
-        if self.w < -self.w_max:
-            self.w = -self.w_max
-        if self.u > self.u_max:
-            self.u = self.u_max
-        if self.u < -self.u_max:
-            self.u = -self.u_max
-
-    def update(self, agents):
-        """
-        main update method of the agent. This method is called in every timestep to calculate the new state/position
-        of the agent and visualize it in the environment
-        :param agents: a list of all obstacle/agents coordinates as (X, Y) in the environment. These are not necessarily
-                socially relevant, i.e. all agents.
-        """
-        # calculate socially relevant projection field (Vsoc and Vsoc+)
-        self.calc_social_V_proj(agents)
-
-        # calculate private information
-        self.calc_I_priv()
-
-        # update inner decision process according to visual field and private info
-        self.update_decision_processes()
-
-        # CALCULATING velocity and orientation change according to inner decision process (dv)
-        # we use if and not a + operator as this is less computationally heavy but the 2 is equivalent
-        # vel, theta = int(self.tr_w()) * VSWRM_flocking_state_variables(...) + (1 - int(self.tr_w())) * random_walk(...)
-        # or later when we define the individual and social forces
-        # vel, theta = int(self.tr_w()) * self.F_soc(...) + (1 - int(self.tr_w())) * self.F_exp(...)
-        if not self.get_mode() == "collide":
-            if not self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel) ## not in humanexp8
-                vel, theta = supcalc.random_walk()
-                self.set_mode("explore")
-            elif self.tr_w() and self.tr_u():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
-                #     self.set_mode("relocate")
-                self.set_mode("exploit")
-                vel, theta = (-self.velocity * movement_params.exp_stop_ratio, 0)
-            elif self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel) ## not in humanexp8
-                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field)
-                # WHY ON EARTH DO WE NEED THIS NEGATION?
-                # whatever comes out has a sign that tells if the change in direction should be left or right
-                # seemingly what comes out has a different convention than our environment?
-                # VSWRM: comes out + turn left? comes our - turn right?
-                # environment: the opposite way around
-                # theta = -theta
-                self.set_mode("relocate")
-            elif self.tr_u() and not self.tr_w():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
-                #     self.set_mode("explore")
-                self.set_mode("exploit")
-                vel, theta = (-self.velocity * movement_params.exp_stop_ratio, 0)
-        else:
-            # COLLISION AVOIDANCE IS ACTIVE, let that guide us
-            # As we don't have proximity sensor interface as with e.g. real robots we will let
-            # the environment to enforce us into a collision maneuver from the simulation environment
-            # so we don't change the current velocity from here.
-            vel, theta = (0, 0)
-
-        if not self.is_moved_with_cursor:  # we freeze agents when we move them
-            # updating agent's state variables according to calculated vel and theta
-            self.orientation += theta
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
-            self.velocity += vel
-            self.prove_velocity()  # possibly bounding velocity of agent
-
-            # updating agent's position
-            self.position[0] += self.velocity * np.cos(self.orientation)
-            self.position[1] -= self.velocity * np.sin(self.orientation)
-
-            # boundary conditions if applicable
-            self.reflect_from_walls()
-
-        # updating agent visualization
-        self.draw_update()
-        self.collected_r_before = self.collected_r
-
-    def change_color(self):
-        """Changing color of agent according to the behavioral mode the agent is currently in."""
-        if self.get_mode() == "explore":
-            self.color = colors.BLUE
-        elif self.get_mode() == "flock" or self.get_mode() == "relocate":
-            self.color = colors.PURPLE
-        elif self.get_mode() == "collide":
-            self.color = colors.RED
-        elif self.get_mode() == "exploit":
-            self.color = colors.GREEN
-        elif self.get_mode() == "pool":
-            self.color = colors.YELLOW
-
-    def draw_update(self):
-        """
-        updating the outlook of the agent according to position and orientation
-        """
-        # update position
-        self.rect.x = self.position[0]
-        self.rect.y = self.position[1]
-
-        # change agent color according to mode
-        self.change_color()
-
-        # update surface according to new orientation
-        # creating visualization surface for agent as a filled circle
-        self.image = pygame.Surface([self.radius * 2, self.radius * 2])
-        self.image.fill(colors.BACKGROUND)
-        self.image.set_colorkey(colors.BACKGROUND)
-        if self.is_moved_with_cursor:
-            pygame.draw.circle(
-                self.image, self.selected_color, (self.radius, self.radius), self.radius
-            )
-        else:
-            pygame.draw.circle(
-                self.image, self.color, (self.radius, self.radius), self.radius
-            )
-
-        # showing agent orientation with a line towards agent orientation
-        pygame.draw.line(self.image, colors.BACKGROUND, (self.radius, self.radius),
-                         ((1 + np.cos(self.orientation)) * self.radius, (1 - np.sin(self.orientation)) * self.radius),
-                         3)
-        self.mask = pygame.mask.from_surface(self.image)
-
-    def reflect_from_walls(self):
-        """reflecting agent from environment boundaries according to a desired x, y coordinate. If this is over any
-        boundaries of the environment, the agents position and orientation will be changed such that the agent is
-         reflected from these boundaries."""
-
-        # Boundary conditions according to center of agent (simple)
-        x = self.position[0] + self.radius
-        y = self.position[1] + self.radius
-
-        # Reflection from left wall
-        if x < self.boundaries_x[0]:
-            self.position[0] = self.boundaries_x[0] - self.radius
-
-            if np.pi / 2 <= self.orientation < np.pi:
-                self.orientation -= np.pi / 2
-            elif np.pi <= self.orientation <= 3 * np.pi / 2:
-                self.orientation += np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
-
-        # Reflection from right wall
-        if x > self.boundaries_x[1]:
-
-            self.position[0] = self.boundaries_x[1] - self.radius - 1
-
-            if 3 * np.pi / 2 <= self.orientation < 2 * np.pi:
-                self.orientation -= np.pi / 2
-            elif 0 <= self.orientation <= np.pi / 2:
-                self.orientation += np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
-
-        # Reflection from upper wall
-        if y < self.boundaries_y[0]:
-            self.position[1] = self.boundaries_y[0] - self.radius
-
-            if np.pi / 2 <= self.orientation <= np.pi:
-                self.orientation += np.pi / 2
-            elif 0 <= self.orientation < np.pi / 2:
-                self.orientation -= np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
-
-        # Reflection from lower wall
-        if y > self.boundaries_y[1]:
-            self.position[1] = self.boundaries_y[1] - self.radius - 1
-            if 3 * np.pi / 2 <= self.orientation <= 2 * np.pi:
-                self.orientation += np.pi / 2
-            elif np.pi <= self.orientation < 3 * np.pi / 2:
-                self.orientation -= np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
+### -------------------------- VISUAL PROJECTION FUNCTIONS -------------------------- ###
 
     def calc_social_V_proj(self, agents):
         """Calculating the socially relevant visual projection field of the agent. This is calculated as the
@@ -404,43 +164,7 @@ class Agent(pygame.sprite.Sprite):
                                                      non_expl_agents=non_expl_agents)
         else:
             self.soc_v_field = self.projection_field(expl_agents, keep_distance_info=False)
-
-    def exlude_V_source_data(self):
-        """Calculating parts of the VPF source data that depends on visual exclusion, i.e. how agents are excluding
-        parts of each others projection on the retina of the focal agent."""
-        self.rank_V_source_data("distance", reverse=False)
-
-        rank = 0
-        for kf, vf in self.vis_field_source_data.items():
-            if rank > 0:
-                for ki, vi in self.vis_field_source_data.items():
-                    if vi["distance"] < vf["distance"]:
-                        # Partial exclusion 1
-                        if vf["proj_start_ex"] <= vi["proj_start"] <= vf["proj_end_ex"]:
-                            vf["proj_end_ex"] = vi["proj_start"]
-                        # Partial exclusion 2
-                        if vf["proj_start_ex"] <= vi["proj_end"] <= vf["proj_end_ex"]:
-                            vf["proj_start_ex"] = vi["proj_end"]
-                        # Total exclusion
-                        if vi["proj_start"] <= vf["proj_start_ex"] and vi["proj_end"] >= vf["proj_end_ex"]:
-                            vf["proj_start_ex"] = 0
-                            vf["proj_end_ex"] = 0
-            else:
-                vf["proj_start_ex"] = vf["proj_start"]
-                vf["proj_end_ex"] = vf["proj_end"]
-            vf["proj_size_ex"] = vf["proj_end_ex"] - vf["proj_start_ex"]
-            rank += 1
-
-    def remove_nonsocial_V_source_data(self):
-        """Removing any non-social projection source data from the visual source data. Until this point we might have
-        needed them so we could calculate the visual exclusion on social cues they cause but from this point we do
-        not want interactions to happen according to them."""
-        clean_sdata = {}
-        for kf, vf in self.vis_field_source_data.items():
-            if vf['is_social_cue']:
-                clean_sdata[kf] = vf
-        self.vis_field_source_data = clean_sdata
-
+    
     def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None, fov=None):
         """Calculating visual projection field for the agent given the visible obstacles in the environment
         :param obstacles: list of agents (with same radius) or some other obstacle sprites to generate projection field
@@ -544,7 +268,7 @@ class Agent(pygame.sprite.Sprite):
 
         # calculating visual exclusion if requested
         if self.visual_exclusion:
-            self.exlude_V_source_data()
+            self.exclude_V_source_data()
 
         if non_expl_agents is not None:
             # removing non-social cues from the source data after calculating exclusions
@@ -583,52 +307,76 @@ class Agent(pygame.sprite.Sprite):
 
         return v_field_post
 
+    def exclude_V_source_data(self):
+        """Calculating parts of the VPF source data that depends on visual exclusion, i.e. how agents are excluding
+        parts of each others projection on the retina of the focal agent."""
+        self.rank_V_source_data("distance", reverse=False)
+
+        rank = 0
+        for kf, vf in self.vis_field_source_data.items():
+            if rank > 0:
+                for ki, vi in self.vis_field_source_data.items():
+                    if vi["distance"] < vf["distance"]:
+                        # Partial exclusion 1
+                        if vf["proj_start_ex"] <= vi["proj_start"] <= vf["proj_end_ex"]:
+                            vf["proj_end_ex"] = vi["proj_start"]
+                        # Partial exclusion 2
+                        if vf["proj_start_ex"] <= vi["proj_end"] <= vf["proj_end_ex"]:
+                            vf["proj_start_ex"] = vi["proj_end"]
+                        # Total exclusion
+                        if vi["proj_start"] <= vf["proj_start_ex"] and vi["proj_end"] >= vf["proj_end_ex"]:
+                            vf["proj_start_ex"] = 0
+                            vf["proj_end_ex"] = 0
+            else:
+                vf["proj_start_ex"] = vf["proj_start"]
+                vf["proj_end_ex"] = vf["proj_end"]
+            vf["proj_size_ex"] = vf["proj_end_ex"] - vf["proj_start_ex"]
+            rank += 1
+
+    def remove_nonsocial_V_source_data(self):
+        """Removing any non-social projection source data from the visual source data. Until this point we might have
+        needed them so we could calculate the visual exclusion on social cues they cause but from this point we do
+        not want interactions to happen according to them."""
+        clean_sdata = {}
+        for kf, vf in self.vis_field_source_data.items():
+            if vf['is_social_cue']:
+                clean_sdata[kf] = vf
+        self.vis_field_source_data = clean_sdata
+
     def rank_V_source_data(self, ranking_key, reverse=True):
         """Ranking source data of visual projection field by the visual angle
         :param: ranking_key: stribg key according to which the dictionary is sorted"""
         self.vis_field_source_data = OrderedDict(sorted(self.vis_field_source_data.items(),
                                                         key=lambda kv: kv[1][ranking_key], reverse=reverse))
 
-    def prove_orientation(self):
-        """Restricting orientation angle between 0 and 2 pi"""
-        if self.orientation < 0:
-            self.orientation = 2 * np.pi + self.orientation
-        if self.orientation > np.pi * 2:
-            self.orientation = self.orientation - 2 * np.pi
+### -------------------------- DECISION MAKING FUNCTIONS -------------------------- ###
 
-    def prove_velocity(self, velocity_limit=1):
-        """Restricting the absolute velocity of the agent"""
-        vel_sign = np.sign(self.velocity)
-        if vel_sign == 0:
-            vel_sign = +1
-        if self.get_mode() == 'explore':
-            if np.abs(self.velocity) > velocity_limit:
-                # stopping agent if too fast during exploration
-                # self.velocity = self.max_exp_vel # 1 ## not in humanexp8
-                self.velocity = 1
+    def calc_I_priv(self):
+        """returning I_priv according to the environment status. Note that this is not necessarily the same as
+        later on I_priv also includes the reward amount in the last n timesteps"""
+        # other part is coming from uncovered resource units
+        collected_unit = self.collected_r - self.collected_r_before
 
-    def pool_curr_pos(self):
-        """Pooling process of the current position. During pooling the agent does not move and spends a given time in
-        the position. At the end the agent is notified by the status of the environment in the given position"""
+        # calculating private info by weighting these
+        self.I_priv = self.F_N * np.max(self.novelty) + self.F_R * collected_unit
 
-        if self.get_mode() == "pool":
-            if self.time_spent_pooling == self.pooling_time:
-                self.end_pooling("success")
-            else:
-                self.velocity = 0
-                self.time_spent_pooling += 1
-
-    def end_pooling(self, pool_status_flag):
-        """
-        Ending pooling process either with interrupting pooling with no success or with notifying agent about the status
-        of the environemnt in the given position upon success
-        :param pool_status_flag: ststing how the pooling process ends, either "success" or "interrupt"
-        """
-        if pool_status_flag == "success":
-            self.pool_success = 1
-        else:
-            self.pool_success = 0
-        self.time_spent_pooling = 0
+    def evaluate_decision_processes(self):
+        """updating inner decision processes according to the current state and the visual projection field"""
+        w_p = self.w if self.w > self.T_w else 0
+        u_p = self.u if self.u > self.T_u else 0
+        dw = self.Eps_w * (np.mean(self.soc_v_field)) - self.g_w * (
+                self.w - self.B_w) - u_p * self.S_uw  # self.tr_u() * self.S_uw
+        du = self.Eps_u * self.I_priv - self.g_u * (self.u - self.B_u) - w_p * self.S_wu  # self.tr_w() * self.S_wu
+        self.w += dw
+        self.u += du
+        if self.w > self.w_max:
+            self.w = self.w_max
+        if self.w < -self.w_max:
+            self.w = -self.w_max
+        if self.u > self.u_max:
+            self.u = self.u_max
+        if self.u < -self.u_max:
+            self.u = -self.u_max
 
     def tr_w(self):
         """Relocation threshold function that checks if decision variable w is above T_w"""
@@ -644,6 +392,8 @@ class Agent(pygame.sprite.Sprite):
         else:
             return False
 
+### -------------------------- MODE FUNCTIONS -------------------------- ###
+    
     def get_mode(self):
         """returning the current mode of the agent according to it's inner decision mechanisms as a human-readable
         string for external processes defined in the main simulation thread (such as collision that depends on the
@@ -679,3 +429,218 @@ class Agent(pygame.sprite.Sprite):
             self.overriding_mode = "pool"
             # self.w = 0
         self.mode = mode
+
+### -------------------------- PHYSICAL FUNCTIONS -------------------------- ###
+
+    def prove_orientation(self):
+        """Restricting orientation angle between 0 and 2 pi"""
+        if self.orientation < 0:
+            self.orientation = 2 * np.pi + self.orientation
+        if self.orientation > np.pi * 2:
+            self.orientation = self.orientation - 2 * np.pi
+
+    def prove_velocity(self, velocity_limit=1):
+        """Restricting the absolute velocity of the agent"""
+        vel_sign = np.sign(self.velocity)
+        if vel_sign == 0:
+            vel_sign = +1
+        if self.get_mode() == 'explore':
+            if np.abs(self.velocity) > velocity_limit:
+                # stopping agent if too fast during exploration
+                # self.velocity = self.max_exp_vel # 1 ## not in humanexp8
+                self.velocity = 1
+                
+    def reflect_from_walls(self):
+        """
+        implementing reflection conditions on environmental boundaries according to agent position
+        """
+
+        # Boundary conditions according to center of agent (simple)
+        x = self.position[0] + self.radius
+        y = self.position[1] + self.radius
+
+        # Reflection from left wall
+        if x < self.boundaries_x[0]:
+            self.position[0] = self.boundaries_x[0] - self.radius
+
+            if np.pi / 2 <= self.orientation < np.pi:
+                self.orientation -= np.pi / 2
+            elif np.pi <= self.orientation <= 3 * np.pi / 2:
+                self.orientation += np.pi / 2
+            self.prove_orientation()  # bounding orientation into 0 and 2pi
+
+        # Reflection from right wall
+        if x > self.boundaries_x[1]:
+
+            self.position[0] = self.boundaries_x[1] - self.radius - 1
+
+            if 3 * np.pi / 2 <= self.orientation < 2 * np.pi:
+                self.orientation -= np.pi / 2
+            elif 0 <= self.orientation <= np.pi / 2:
+                self.orientation += np.pi / 2
+            self.prove_orientation()  # bounding orientation into 0 and 2pi
+
+        # Reflection from upper wall
+        if y < self.boundaries_y[0]:
+            self.position[1] = self.boundaries_y[0] - self.radius
+
+            if np.pi / 2 <= self.orientation <= np.pi:
+                self.orientation += np.pi / 2
+            elif 0 <= self.orientation < np.pi / 2:
+                self.orientation -= np.pi / 2
+            self.prove_orientation()  # bounding orientation into 0 and 2pi
+
+        # Reflection from lower wall
+        if y > self.boundaries_y[1]:
+            self.position[1] = self.boundaries_y[1] - self.radius - 1
+            if 3 * np.pi / 2 <= self.orientation <= 2 * np.pi:
+                self.orientation += np.pi / 2
+            elif np.pi <= self.orientation < 3 * np.pi / 2:
+                self.orientation -= np.pi / 2
+            self.prove_orientation()  # bounding orientation into 0 and 2pi
+
+##############################################################################
+### -------------------------- MAIN UPDATE LOOP -------------------------- ###
+##############################################################################
+            
+    def update(self, agents):
+        """
+        main update method of the agent. This method is called in every timestep to calculate the new state/position
+        of the agent and visualize it in the environment
+        :param agents: a list of all obstacle/agents coordinates as (X, Y) in the environment. These are not necessarily
+                socially relevant, i.e. all agents.
+        """
+        # calculate socially relevant projection field (Vsoc and Vsoc+)
+        self.calc_social_V_proj(agents)
+
+        # calculate private information
+        self.calc_I_priv()
+
+        # update inner decision process according to visual field and private info
+        self.evaluate_decision_processes()
+
+        # CALCULATING velocity and orientation change according to inner decision process (dv)
+        # we use if and not a + operator as this is less computationally heavy but the 2 is equivalent
+        # vel, theta = int(self.tr_w()) * VSWRM_flocking_state_variables(...) + (1 - int(self.tr_w())) * random_walk(...)
+        # or later when we define the individual and social forces
+        # vel, theta = int(self.tr_w()) * self.F_soc(...) + (1 - int(self.tr_w())) * self.F_exp(...)
+        if not self.get_mode() == "collide":
+            if not self.tr_w() and not self.tr_u():
+                # vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel) ## not in humanexp8
+                vel, theta = supcalc.random_walk()
+                self.set_mode("explore")
+            elif self.tr_w() and self.tr_u():
+                # if self.env_status == 1: ## not in humanexp8
+                #     self.set_mode("exploit")
+                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                # else:
+                #     vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
+                #     self.set_mode("relocate")
+                self.set_mode("exploit")
+                vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+            elif self.tr_w() and not self.tr_u():
+                # vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel) ## not in humanexp8
+                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field)
+                # WHY ON EARTH DO WE NEED THIS NEGATION?
+                # whatever comes out has a sign that tells if the change in direction should be left or right
+                # seemingly what comes out has a different convention than our environment?
+                # VSWRM: comes out + turn left? comes our - turn right?
+                # environment: the opposite way around
+                # theta = -theta
+                self.set_mode("relocate")
+            elif self.tr_u() and not self.tr_w():
+                # if self.env_status == 1: ## not in humanexp8
+                #     self.set_mode("exploit")
+                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                # else:
+                #     vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
+                #     self.set_mode("explore")
+                self.set_mode("exploit")
+                vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+        else:
+            # COLLISION AVOIDANCE IS ACTIVE, let that guide us
+            # As we don't have proximity sensor interface as with e.g. real robots we will let
+            # the environment to enforce us into a collision maneuver from the simulation environment
+            # so we don't change the current velocity from here.
+            vel, theta = (0, 0)
+
+        if not self.is_moved_with_cursor:  # we freeze agents when we move them
+            # updating agent's state variables according to calculated vel and theta
+            self.orientation += theta
+            self.prove_orientation()  # bounding orientation into 0 and 2pi
+            self.velocity += vel
+            self.prove_velocity()  # possibly bounding velocity of agent
+
+            # updating agent's position
+            self.position[0] += self.velocity * np.cos(self.orientation)
+            self.position[1] -= self.velocity * np.sin(self.orientation)
+
+            # boundary conditions if applicable
+            self.reflect_from_walls()
+
+        # updating agent visualization
+        self.draw_update()
+        self.collected_r_before = self.collected_r
+
+### -------------------------- VISUALIZATION / HUMAN INTERACTION FUNCTIONS -------------------------- ###
+
+    def change_color(self):
+        """Changing color of agent according to the behavioral mode the agent is currently in."""
+        if self.get_mode() == "explore":
+            self.color = colors.BLUE
+        elif self.get_mode() == "flock" or self.get_mode() == "relocate":
+            self.color = colors.PURPLE
+        elif self.get_mode() == "collide":
+            self.color = colors.RED
+        elif self.get_mode() == "exploit":
+            self.color = colors.GREEN
+        elif self.get_mode() == "pool":
+            self.color = colors.YELLOW
+
+    def draw_update(self):
+        """
+        updating the outlook of the agent according to position and orientation
+        """
+        # update position
+        self.rect.x = self.position[0]
+        self.rect.y = self.position[1]
+
+        # change agent color according to mode
+        self.change_color()
+
+        # update surface according to new orientation
+        # creating visualization surface for agent as a filled circle
+        self.image = pygame.Surface([self.radius * 2, self.radius * 2])
+        self.image.fill(colors.BACKGROUND)
+        self.image.set_colorkey(colors.BACKGROUND)
+        if self.is_moved_with_cursor:
+            pygame.draw.circle(
+                self.image, self.selected_color, (self.radius, self.radius), self.radius
+            )
+        else:
+            pygame.draw.circle(
+                self.image, self.color, (self.radius, self.radius), self.radius
+            )
+
+        # showing agent orientation with a line towards agent orientation
+        pygame.draw.line(self.image, colors.BACKGROUND, (self.radius, self.radius),
+                         ((1 + np.cos(self.orientation)) * self.radius, (1 - np.sin(self.orientation)) * self.radius),
+                         3)
+        self.mask = pygame.mask.from_surface(self.image)
+
+    def move_with_mouse(self, mouse, left_state, right_state):
+        """Moving the agent with the mouse cursor, and rotating"""
+        if self.rect.collidepoint(mouse):
+            # setting position of agent to cursor position
+            self.position[0] = mouse[0] - self.radius
+            self.position[1] = mouse[1] - self.radius
+            if left_state:
+                self.orientation += 0.1
+            if right_state:
+                self.orientation -= 0.1
+            self.prove_orientation()
+            self.is_moved_with_cursor = 1
+            # updating agent visualization to make it more responsive
+            self.draw_update()
+        else:
+            self.is_moved_with_cursor = 0
