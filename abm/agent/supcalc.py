@@ -93,13 +93,14 @@ def find_nearest(array, value):
     return idx
 
 
-def unit_vector(vector):
-    """ Returns the unit vector of the vector.  """
-    return vector / np.linalg.norm(vector)
+# def unit_vector(vector):
+#     """ Returns the unit vector of the vector.  """
+#     return vector / np.linalg.norm(vector)
 
 
-def angle_between(v1, v2):
-    """ Returns the angle in radians between vectors 'v1' and 'v2'::
+def angle_between(v1, v2, v1_norm, v2_norm):
+    """ 
+    Returns the angle in radians between vectors 'v1' and 'v2'::
 
             >>> angle_between((1, 0, 0), (0, 1, 0))
             1.5707963267948966
@@ -108,11 +109,16 @@ def angle_between(v1, v2):
             >>> angle_between((1, 0, 0), (-1, 0, 0))
             3.141592653589793
     """
-    v1_u = unit_vector(v1)
-    v2_u = unit_vector(v2)
-    angle = np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-    if v1_u[0] * v2_u[1] - v1_u[1] * v2_u[0] < 0:
+    # v1_u = unit_vector(v1) # norm already calculated for self direction vector (radius)
+    # v2_u = unit_vector(v2) # norm already calculated for self/other between vector (distance)
+    v1_u = v1 / v1_norm
+    v2_u = v2 / v2_norm
+    angle = np.arccos(np.dot(v1_u, v2_u))
+
+    # marks left side with negative angles, taking into account flipped y-axis
+    if v1_u[0] * v2_u[1] - v1_u[1] * v2_u[0] > 0: 
         angle = -angle
+
     return angle
 
 
@@ -145,7 +151,7 @@ def distance_coords(x1, y1, x2, y2, vectorized=False):
 
 
 def distance(agent1, agent2):
-    """Distance between 2 agent class agents in the environment as pixels"""
+    """Euclidean distance between 2 agent class agents in the environment as pixels""" ## todo - hamming dist for calc speed
     c1 = np.array([agent1.position[0] + agent1.radius, agent1.position[1] + agent1.radius])
     c2 = np.array([agent2.position[0] + agent2.radius, agent2.position[1] + agent2.radius])
     distance = np.linalg.norm(c2 - c1)
@@ -159,14 +165,16 @@ def F_reloc_LR(vel_now, V_now):
     # if v_desired is None: ## not in humanexp8
     #     v_desired = movement_params.reloc_des_vel
     v_desired = movement_params.reloc_des_vel
+
+    # sets agent direction according to L/R side of greater (exploting agent) visual field magnitude
     V_field_len = len(V_now)
-    left_excitation = np.mean(V_now[0:int(V_field_len / 2)])
-    right_excitation = np.mean(V_now[int(V_field_len / 2)::])
+    left_excitation = np.mean(V_now[int(V_field_len / 2)::])
+    right_excitation = np.mean(V_now[0:int(V_field_len / 2)])
     D_leftright = left_excitation - right_excitation
     D_theta_max = movement_params.reloc_theta_max
     theta = D_leftright * D_theta_max
-    return (v_desired - vel_now), theta
 
+    return (v_desired - vel_now), theta
 
 def F_reloc_WTA(Phi, V_now):
     """Calculating relocation force according to the visual field/source data of the agent according to winner-takes-all

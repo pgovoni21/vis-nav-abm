@@ -10,6 +10,9 @@ from abm.agent import supcalc
 from collections import OrderedDict
 import importlib
 
+import pprint
+pp = pprint.PrettyPrinter(depth=4)
+import time
 
 class Agent(pygame.sprite.Sprite):
     """
@@ -72,13 +75,11 @@ class Agent(pygame.sprite.Sprite):
         self.vis_field_source_data = {} # to calculate relevant visual field according to relocation force
 
         # Behavioral parameters
-
         self.exp_stop_ratio = movement_params.exp_stop_ratio
         # self.max_exp_vel = movement_params.exp_vel_max ## not in humanexp8
         self.consumption = consumption
         self.exclude_agents_same_patch = patchwise_exclusion
         self.overriding_mode = None
-
         ## w
         self.S_wu = decision_params.S_wu
         self.T_w = decision_params.T_w
@@ -87,7 +88,6 @@ class Agent(pygame.sprite.Sprite):
         self.g_w = decision_params.g_w
         self.B_w = decision_params.B_w
         self.w_max = decision_params.w_max
-
         ## u
         self.I_priv = 0  # saved
         self.novelty = np.zeros(decision_params.Tau)
@@ -141,213 +141,209 @@ class Agent(pygame.sprite.Sprite):
 ### -------------------------- VISUAL PROJECTION FUNCTIONS -------------------------- ###
 
     def calc_social_V_proj(self, agents):
-        """Calculating the socially relevant visual projection field of the agent. This is calculated as the
-        projection of nearby exploiting agents that are not visually excluded by other agents"""
-        # visible agents (exluding self)
-        agents = [ag for ag in agents if supcalc.distance(self, ag) <= self.vision_range]
-        # those of them that are exploiting
-        expl_agents = [ag for ag in agents if ag.id != self.id
-                       and ag.get_mode() == "exploit"]
-        # all other agents to calculate visual exclusions
-        non_expl_agents = [ag for ag in agents if ag not in expl_agents]
-        if self.exclude_agents_same_patch:
-            # in case agents on same patch are excluded they can still cause visual exclusion for exploiting agents
-            # on the same patch (i.e. they can cover agents on other patches)
-            non_expl_agents.extend([ag for ag in expl_agents if ag.exploited_patch_id == self.exploited_patch_id])
-            expl_agents = [ag for ag in expl_agents if ag.exploited_patch_id != self.exploited_patch_id]
+        """
+        Calculates socially relevant visual projection field of the agent. This is calculated as the
+        projection of nearby exploiting agents that are not visually excluded by other agents
+        """
+        # gather all visible agents (exluding self)
+        agents_vis = [ag for ag in agents if supcalc.distance(self, ag) <= self.vision_range and ag.id != self.id]
+        
+        # separate agents that are exploiting on non-emptied patch with the others
+        agents_vis_expl = []
+        agents_vis_nonexpl = []
+        for ag in agents_vis:
+            if ag.get_mode() == "exploit" and ag.exploited_patch_id != self.exploited_patch_id: ## assuming patchwise_social_exclusion == True
+                agents_vis_expl.append(ag) 
+            else: # if ag.get_mode() != "exploit" or ag.exploited_patch_id == self.exploited_patch_id
+                agents_vis_nonexpl.append(ag)
 
-        # # Excluding agents that still try to exploit but can not as the patch has been emptied
-        # expl_agents = [ag for ag in expl_agents if ag.exploited_patch_id != -1] ## not in humanexp8
-
+        # calculate visual field either regarding other agents as obstacles or not
         if self.visual_exclusion:
-            self.soc_v_field = self.projection_field(expl_agents, keep_distance_info=False,
-                                                     non_expl_agents=non_expl_agents)
+            self.soc_v_field = self.projection_field(agents_vis_expl, keep_distance_info=False,
+                                                     non_expl_agents = agents_vis_nonexpl)
         else:
-            self.soc_v_field = self.projection_field(expl_agents, keep_distance_info=False)
+            self.soc_v_field = self.projection_field(agents_vis_expl, keep_distance_info=False)
     
-    def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None, fov=None):
-        """Calculating visual projection field for the agent given the visible obstacles in the environment
+    def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None):
+        """
+        Calculates visual projection field for the agent given the visible obstacles in the environment
         :param obstacles: list of agents (with same radius) or some other obstacle sprites to generate projection field
         :param keep_distance_info: if True, the amplitude of the vpf will reflect the distance of the object from the
             agent so that exclusion can be easily generated with a single computational step.
         :param non_expl_agents: a list of non-scoial visual cues (non-exploiting agents) that on the other hand can still
             produce visual exlusion on the projection of social cues. If None only social cues can produce visual
             exclusion on each other.
-        :param fov: touple of number with borders of fov such as (-np.pi, np.pi), if None, self.FOV will be used"""
-
-        # deciding fov
-        if fov is None: ## though fov is never used, not in humanexp8 but leave in
-            fov = self.FOV
+        :param fov: agent field of view as percentage, e.g. 0.5 corresponds to a visual range of [-pi/2, pi/2]
+        """
 
         # extracting obstacle coordinates
         obstacle_coords = [ob.position for ob in obstacles]
 
         # if non-social cues can visually exclude social ones we also concatenate these to the obstacle coords
         if non_expl_agents is not None:
-            len_social = len(obstacles)
+            len_social = len(obstacles) # to demarcate this divide when iterating in list below
             obstacle_coords.extend([ob.position for ob in non_expl_agents])
 
-        # initializing visual field and relative angles
+        # initializing visual field and relative angles at the specified resolution
         v_field = np.zeros(self.v_field_res)
-        phis = np.linspace(-np.pi, np.pi, self.v_field_res)
+        phis = np.linspace(-np.pi*self.FOV, np.pi*self.FOV, self.v_field_res)
 
-        # center point
-        v1_s_x = self.position[0] + self.radius
-        v1_s_y = self.position[1] + self.radius
+        # center point of self
+        pt_self_c = self.position + self.radius
 
-        # point on agent's edge circle according to it's orientation
-        v1_e_x = self.position[0] + (1 + np.cos(self.orientation)) * self.radius
-        v1_e_y = self.position[1] + (1 - np.sin(self.orientation)) * self.radius
+        # edge point on agent's perimeter according to its orientation
+        pt_self_e = np.array([
+            pt_self_c[0] + np.cos(self.orientation) * self.radius, 
+            pt_self_c[1] - np.sin(self.orientation) * self.radius])
 
-        # vector between center and edge according to orientation
-        v1_x = v1_e_x - v1_s_x
-        v1_y = v1_e_y - v1_s_y
+        # direction vector, magnitude = radius, flipped y-axis
+        vec_self_dir = pt_self_e - pt_self_c
+        ## where v1[0] --> + : right, 0 : center, - : left, 10 : max
+        ## where v1[1] --> + : down, 0 : center, - : up, 10 : max
 
-        v1 = np.array([v1_x, v1_y])
-
-        # calculating closed angle between obstacle and agent according to the position of the obstacle.
-        # then calculating visual projection size according to visual angle on the agents's retina according to distance
-        # between agent and obstacle
+        # calculating orientation angle between agent/obstacle + visual exclusionary angle +  projection size
         self.vis_field_source_data = {}
         for i, obstacle_coord in enumerate(obstacle_coords):
-            if not (obstacle_coord[0] == self.position[0] and obstacle_coord[1] == self.position[1]):
-                # center of obstacle (as it must be another agent)
-                v2_e_x = obstacle_coord[0] + self.radius
-                v2_e_y = obstacle_coord[1] + self.radius
 
-                # vector between agent center and obstacle center
-                v2_x = v2_e_x - v1_s_x
-                v2_y = v2_e_y - v1_s_y
+            # center of obstacle (other agent)
+            pt_other_c = obstacle_coord + self.radius
 
-                v2 = np.array([v2_x, v2_y])
+            # vector between obstacle center + self edge, magnitude = distance
+            vec_between = pt_other_c - pt_self_e
 
-                # calculating closed angle between v1 and v2
-                # (rotated with the orientation of the agent as it is relative)
-                closed_angle = supcalc.angle_between(v1, v2)
-                closed_angle = (closed_angle % (2 * np.pi))
-                # at this point closed angle between 0 and 2pi but we need it between -pi and pi
-                # we also need to take our orientation convention into consideration to recalculate
-                # theta=0 is pointing to the right
-                if 0 < closed_angle < np.pi:
-                    closed_angle = -closed_angle
-                else:
-                    closed_angle = 2 * np.pi - closed_angle
+            # calculating orientation angle with respect to direction vector of self + vector bw agent-obstacle
+            # requires the magnitude/norm of both vectors (radius + distance)
+            distance = np.linalg.norm(vec_between)
+            angle_between = supcalc.angle_between(vec_self_dir, vec_between, self.radius, distance)
+            ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
 
-                # calculating the visual angle from focal agent to target
-                c1 = np.array([v1_s_x, v1_s_y])
-                c2 = np.array([v2_e_x, v2_e_y])
-                distance = np.linalg.norm(c2 - c1)
-                vis_angle = 2 * np.arctan(self.radius / (1 * distance))
+            # print("agent id/pos/orient/dir: ", self.id, self.position, self.orientation*180/np.pi, vec_self_dir)
+            # print("between angle/vector: ", angle_between*180/np.pi, vec_between)
+
+            # if target is visible, we calculate projection + save relevant data into dict
+            if abs(angle_between) <= phis[-1]: # self.FOV*np.pi or positive limit of visible range
 
                 # finding where in the retina the projection belongs to
-                phi_target = supcalc.find_nearest(phis, closed_angle)
+                phi_target = supcalc.find_nearest(phis, angle_between) # where in retina the obstacle is
 
-                # if target is visible we save its projection into the VPF source data
-                if fov[0] < closed_angle < fov[1]:
-                    self.vis_field_source_data[i] = {}
-                    self.vis_field_source_data[i]["vis_angle"] = vis_angle
-                    self.vis_field_source_data[i]["phi_target"] = phi_target
-                    self.vis_field_source_data[i]["distance"] = distance
-                    # the projection size is proportional to the visual angle. If the projection is maximal (i.e.
-                    # taking each pixel of the retina) the angle is 2pi from this we just calculate the proj. size
-                    # using a single proportion
-                    self.vis_field_source_data[i]["proj_size"] = (vis_angle / (2 * np.pi)) * self.v_field_res
-                    proj_size = self.vis_field_source_data[i]["proj_size"]
-                    self.vis_field_source_data[i]["proj_start"] = int(phi_target - proj_size / 2)
-                    self.vis_field_source_data[i]["proj_end"] = int(phi_target + proj_size / 2)
-                    self.vis_field_source_data[i]["proj_start_ex"] = int(phi_target - proj_size / 2)
-                    self.vis_field_source_data[i]["proj_end_ex"] = int(phi_target + proj_size / 2)
-                    self.vis_field_source_data[i]["proj_size_ex"] = proj_size
-                    if non_expl_agents is not None:
-                        if i < len_social:
-                            self.vis_field_source_data[i]["is_social_cue"] = True
-                        else:
-                            self.vis_field_source_data[i]["is_social_cue"] = False
-                    else:
+                # calculating visual exclusionary angle between obstacle + self
+                # assumes obstacle = agent radius (change for landmarks)
+                angle_vis_excl = 2 * np.arctan(self.radius / distance)
+
+                # calculating projection size / limits
+                proj_prop_total = angle_vis_excl / (2 * np.pi) # exclusion as proportion of entire 360 deg 2D plane
+                proj_prop_FOV = proj_prop_total / self.FOV # as proportion of the field of view
+                proj_size = proj_prop_FOV * self.v_field_res # discretized to visual resolution units
+                proj_L = int(phi_target - proj_size / 2) # CCW from center
+                proj_R = int(phi_target + proj_size / 2) # CW from center
+
+                # imposing boundary conditions to projection field
+                if self.FOV < 1: # no-slip
+                    if proj_L < 0: 
+                        proj_L = 0
+                    if proj_R > self.v_field_res: 
+                        proj_R = self.v_field_res
+                else: # self.FOV = 1
+                    print("Error - periodic boundary conditions not applied")
+                    pass # to be finished later, if at all, biologically implausible + complicates exclusion calculation
+                    # if proj_L < 0:
+                    #     v_field[self.v_field_res + proj_L:self.v_field_res] = 1
+                    #     proj_L = 0
+                    # if proj_R >= self.v_field_res:
+                    #     v_field[0:proj_R - self.v_field_res] = 1
+                    #     proj_R = self.v_field_res - 1
+
+                # saving relevant data to dict
+                self.vis_field_source_data[i] = {}
+                self.vis_field_source_data[i]["angle_vis_excl"] = angle_vis_excl
+                self.vis_field_source_data[i]["phi_target"] = phi_target
+                self.vis_field_source_data[i]["distance"] = distance
+
+                self.vis_field_source_data[i]["proj_L"] = proj_L
+                self.vis_field_source_data[i]["proj_R"] = proj_R
+
+                self.vis_field_source_data[i]["proj_L_ex"] = proj_L
+                self.vis_field_source_data[i]["proj_R_ex"] = proj_R
+
+                # marking whether observed agents were exploiting or not
+                if non_expl_agents is not None: # non-exploiting agents exist + are in the visual projection field
+                    if i < len_social: # exploiting agents
                         self.vis_field_source_data[i]["is_social_cue"] = True
+                    else: # non-exploiting agents
+                        self.vis_field_source_data[i]["is_social_cue"] = False
+                else: # no non-expoiting agents exist and/or are observed
+                    self.vis_field_source_data[i]["is_social_cue"] = True
 
         # calculating visual exclusion if requested
-        if self.visual_exclusion:
+        if self.visual_exclusion and len(self.vis_field_source_data.items()) > 1:
             self.exclude_V_source_data()
 
+        # removing non-exploiting agents (non-social cues)
         if non_expl_agents is not None:
-            # removing non-social cues from the source data after calculating exclusions
             self.remove_nonsocial_V_source_data()
 
         # sorting VPF source data according to visual angle
-        self.rank_V_source_data("vis_angle")
+        self.rank_V_source_data("angle_vis_excl")
 
+        # if len(self.vis_field_source_data) > 1:
+        #     pp.pprint(self.vis_field_source_data)
+
+        # marking exploiting agents in visual field
         for k, v in self.vis_field_source_data.items():
-            vis_angle = v["vis_angle"]
+            angle_vis_excl = v["angle_vis_excl"]
             phi_target = v["phi_target"]
-            proj_size = v["proj_size"]
-
-            proj_start = v["proj_start_ex"]
-            proj_end = v["proj_end_ex"]
-
-            # circular boundaries to the VPF as there is 360 degree vision
-            if proj_start < 0:
-                v_field[self.v_field_res + proj_start:self.v_field_res] = 1
-                proj_start = 0
-
-            if proj_end >= self.v_field_res:
-                v_field[0:proj_end - self.v_field_res] = 1
-                proj_end = self.v_field_res - 1
+            proj_L = v["proj_L_ex"]
+            proj_R = v["proj_R_ex"]
 
             # weighing projection amplitude with rank information if requested
-            if not keep_distance_info:
-                v_field[proj_start:proj_end] = 1
+            if not keep_distance_info: # always false --> agents cannot interpret distance
+                v_field[proj_L:proj_R] = 1
             else:
-                v_field[proj_start:proj_end] = (1 - distance / self.vision_range)
+                v_field[proj_L:proj_R] = (1 - distance / self.vision_range)
 
-        # post_processing and limiting FOV
-        v_field_post = np.flip(v_field)
-        v_field_post[phis < fov[0]] = 0
-        v_field_post[phis > fov[1]] = 0
-
-        return v_field_post
+        return v_field
 
     def exclude_V_source_data(self):
-        """Calculating parts of the VPF source data that depends on visual exclusion, i.e. how agents are excluding
-        parts of each others projection on the retina of the focal agent."""
+        """
+        Iterates over pairs of obstacles, excluding occluded obstacles/parts
+        """
+        # ranks obstacles according to distance - low first
         self.rank_V_source_data("distance", reverse=False)
 
-        rank = 0
-        for kf, vf in self.vis_field_source_data.items():
-            if rank > 0:
-                for ki, vi in self.vis_field_source_data.items():
-                    if vi["distance"] < vf["distance"]:
-                        # Partial exclusion 1
-                        if vf["proj_start_ex"] <= vi["proj_start"] <= vf["proj_end_ex"]:
-                            vf["proj_end_ex"] = vi["proj_start"]
-                        # Partial exclusion 2
-                        if vf["proj_start_ex"] <= vi["proj_end"] <= vf["proj_end_ex"]:
-                            vf["proj_start_ex"] = vi["proj_end"]
-                        # Total exclusion
-                        if vi["proj_start"] <= vf["proj_start_ex"] and vi["proj_end"] >= vf["proj_end_ex"]:
-                            vf["proj_start_ex"] = 0
-                            vf["proj_end_ex"] = 0
-            else:
-                vf["proj_start_ex"] = vf["proj_start"]
-                vf["proj_end_ex"] = vf["proj_end"]
-            vf["proj_size_ex"] = vf["proj_end_ex"] - vf["proj_start_ex"]
-            rank += 1
+        # combination operation, though itertools doesn't seem to provide performance benefit and is less understandable
+        for _, obs_close in self.vis_field_source_data.items(): 
+            for _, obs_far in list(self.vis_field_source_data.items())[1:]: 
+                if obs_far["distance"] > obs_close["distance"]: 
+                    # Partial R-side exclusion
+                    if obs_far["proj_R_ex"] > obs_close["proj_L"] > obs_far["proj_L_ex"]: 
+                        obs_far["proj_R_ex"] = obs_close["proj_L"]
+                        continue
+                    # Partial L-side exclusion
+                    if obs_far["proj_L_ex"] < obs_close["proj_R"] < obs_far["proj_R_ex"]:
+                        obs_far["proj_L_ex"] = obs_close["proj_R"]
+                        continue
+                    # Total exclusion
+                    if obs_close["proj_L"] <= obs_far["proj_L_ex"] and obs_close["proj_R"] >= obs_far["proj_R_ex"]:
+                        obs_far["proj_L_ex"] = 0
+                        obs_far["proj_R_ex"] = 0
+    
+    def rank_V_source_data(self, ranking_key, reverse=True):
+        """
+        Ranks/sorts visual projection field data by specified key
+        :param: ranking_key: string
+        """
+        sorted_dict = sorted(self.vis_field_source_data.items(), key=lambda kv: kv[1][ranking_key], reverse=reverse)
+        self.vis_field_source_data = OrderedDict(sorted_dict)
 
     def remove_nonsocial_V_source_data(self):
-        """Removing any non-social projection source data from the visual source data. Until this point we might have
-        needed them so we could calculate the visual exclusion on social cues they cause but from this point we do
-        not want interactions to happen according to them."""
+        """
+        Creates new data with purely social/exploiting agent data after calculating exclusions + before interaction processes
+        """
         clean_sdata = {}
-        for kf, vf in self.vis_field_source_data.items():
-            if vf['is_social_cue']:
-                clean_sdata[kf] = vf
+        for k, v in self.vis_field_source_data.items():
+            if v['is_social_cue']: # == True
+                clean_sdata[k] = v
         self.vis_field_source_data = clean_sdata
-
-    def rank_V_source_data(self, ranking_key, reverse=True):
-        """Ranking source data of visual projection field by the visual angle
-        :param: ranking_key: stribg key according to which the dictionary is sorted"""
-        self.vis_field_source_data = OrderedDict(sorted(self.vis_field_source_data.items(),
-                                                        key=lambda kv: kv[1][ranking_key], reverse=reverse))
 
 ### -------------------------- DECISION MAKING FUNCTIONS -------------------------- ###
 
@@ -541,12 +537,6 @@ class Agent(pygame.sprite.Sprite):
             elif self.tr_w() and not self.tr_u():
                 # vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel) ## not in humanexp8
                 vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field)
-                # WHY ON EARTH DO WE NEED THIS NEGATION?
-                # whatever comes out has a sign that tells if the change in direction should be left or right
-                # seemingly what comes out has a different convention than our environment?
-                # VSWRM: comes out + turn left? comes our - turn right?
-                # environment: the opposite way around
-                # theta = -theta
                 self.set_mode("relocate")
             elif self.tr_u() and not self.tr_w():
                 # if self.env_status == 1: ## not in humanexp8

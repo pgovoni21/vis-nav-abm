@@ -16,7 +16,7 @@ root_abm_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) # mo
 env_path = os.path.join(root_abm_dir, f"{EXP_NAME}.env") # concatenates grandpa dir with env/exp file name
 envconf = dotenv_values(env_path) # returns dict of this file
 
-def start(parallel=False, headless=False):
+def start(parallel=False):
     window_pad = 30
     with ExitStack():
         sim = Simulation(N=int(float(envconf["N"])),
@@ -62,7 +62,7 @@ def start_headless():
     print("Start ABM in Headless Mode...")
     os.environ['SDL_VIDEODRIVER'] = 'dummy'
     envconf['WITH_VISUALIZATION'] = '0'
-    start(headless=True)
+    start()
 
 
 def start_playground():
@@ -107,7 +107,7 @@ def generate_env_file(env_data, file_name, save_folder):
         for k, v in env_data.items():
             file.write(f"{k}={v}\n")
 
-def start_humanexp8(parallel=False, headless=False, agent_behave_param_list=None):
+def start_humanexp8(parallel=False):
     window_pad = 30
     with ExitStack():
         sim = Simulation_humanexp8(N=int(float(envconf["N"])),
@@ -147,7 +147,7 @@ def start_humanexp8(parallel=False, headless=False, agent_behave_param_list=None
         sim.write_batch_size = 100
         sim.start()
 
-def start_current(parallel=False, headless=False, agent_behave_param_list=None):
+def start_current(parallel=False, agent_behave_param_list=None):
     window_pad = 30
     with ExitStack():
         sim = Simulation_current(N=int(float(envconf["N"])),

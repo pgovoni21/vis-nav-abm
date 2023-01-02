@@ -12,8 +12,9 @@ from abm.monitoring import env_saver
 from math import atan2
 import os
 import uuid
-# import json
 
+import pprint
+pp = pprint.PrettyPrinter(depth=4)
 from datetime import datetime
 
 def notify_agent(agent, status, res_id=None): 
@@ -139,7 +140,7 @@ class Simulation:
         self.agent_consumption = agent_consumption
         self.teleport_exploit = teleport_exploit # teleport_to_middle
         self.vision_range = vision_range
-        self.agent_fov = (-agent_fov * np.pi, agent_fov * np.pi)
+        self.agent_fov = agent_fov
         self.visual_exclusion = visual_exclusion
         self.ghost_mode = ghost_mode
         self.patchwise_exclusion = patchwise_exclusion
@@ -165,7 +166,7 @@ class Simulation:
             self.screen = pygame.display.set_mode([self.WIDTH + 2 * self.window_pad, self.HEIGHT + 2 * self.window_pad])
         else:
             pygame.display.init()
-            pygame.display.set_mode((1,1))
+            pygame.display.set_mode([1,1])
 
         # pygame related class attributes
         self.agents = pygame.sprite.Group()
@@ -269,7 +270,7 @@ class Simulation:
             # Show visual range 
             pygame.draw.circle(self.screen, colors.LIGHT_BLUE, agent.position + agent.radius, agent.vision_range, width=1)
             # Show limits of FOV 
-            if self.agent_fov[1] < np.pi:
+            if self.agent_fov < np.pi:
                 angles = [agent.orientation + agent.FOV[0], agent.orientation + agent.FOV[1]]
                 for angle in angles: ### draws lines that don't quite meet borders
                     start_pos = (agent.position[0] + agent.radius, agent.position[1] + agent.radius)
@@ -559,9 +560,10 @@ class Simulation:
         print("Starting main simulation loop!")
         while self.t < self.T:
 
-            # # Carry out interaction according to user activity
-            events = pygame.event.get() ## turn off for speed
-            self.interact_with_event(events) ## turn off for speed
+            # Carry out interaction according to user activity if not in headless mode
+            if self.with_visualization:
+                events = pygame.event.get() ## turn off for speed
+                self.interact_with_event(events) ## turn off for speed
 
             # # deciding if vis field needs to be shown in this timestep
             # turned_on_vfield = self.decide_on_vis_field_visibility(turned_on_vfield) ## turn off for speed
@@ -657,6 +659,10 @@ class Simulation:
                                 notify_agent(agent, -1)
                             elif agent.get_mode() == "exploit":
                                 notify_agent(agent, -1)
+                
+                # for agent in self.agents:
+                #     print("agent id/pos/orient: ", agent.id, agent.position, agent.orientation)
+                #     pp.pprint(agent.vis_field_source_data)
 
                 ### ---- GENERAL UPDATE PER TIME STEP ---- ###
 
@@ -664,11 +670,11 @@ class Simulation:
                 self.agents.update(self.agents)
                 self.t += 1
 
-            # Simulation is paused
-            else:
-                # Still calculating visual fields
-                for ag in self.agents:
-                    ag.calc_social_V_proj(self.agents)
+            # # Simulation is paused
+            # else:
+            #     # Still calculating visual fields
+            #     for ag in self.agents:
+            #         ag.calc_social_V_proj(self.agents)
 
             ### ---- BACKGROUND PROCESSES ---- ###
 
