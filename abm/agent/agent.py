@@ -246,6 +246,9 @@ class Agent(pygame.sprite.Sprite):
         return field
 
     def create_field_dict_entry(self, phis, angle_between, distance, i, len_social):
+        """
+        Calculate projection field of obstacle + save as dictionary entry
+        """
         # finding where in the retina the projection belongs to
         phi_target = supcalc.find_nearest(phis, angle_between) # where in retina the obstacle is
         ## low : left-side, high : right-side
@@ -326,6 +329,9 @@ class Agent(pygame.sprite.Sprite):
         self.field_obst_dict = clean_sdata
 
     def mark_projection_field(self, field, keep_distance_info, distance, fov, phis):
+        """
+        Mark projection field of agent according to each relevant obstacle
+        """
         for k, v in self.field_obst_dict.items():
             proj_L = v["proj_L_ex"]
             proj_R = v["proj_R_ex"]
