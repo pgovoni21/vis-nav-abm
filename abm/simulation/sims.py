@@ -32,20 +32,6 @@ def notify_agent(agent, status, res_id=None):
         agent.exploited_patch_id = res_id
 
 
-def refine_ar_overlap_group(collision_group): 
-    """We define overlap according to the center of agents. If the collision is not yet with the center of agent,
-    we remove that collision from the group"""
-    for resrc, agents in collision_group.items():
-        agents_refined = []
-        for agent in agents:
-            # Only keeping agent in collision group if its center is inside patch boundary
-            # I.E: the agent can only get information from 1 point-like sensor in the center
-            if supcalc.distance(resrc, agent) < resrc.radius:
-                agents_refined.append(agent)
-        collision_group[resrc] = agents_refined
-    return collision_group
-
-
 class Simulation:
     def __init__(self, N, T, field_res=800, width=600, height=480,
                  framerate=25, window_pad=30, with_visualization=True, show_vis_field=False,
@@ -408,7 +394,7 @@ class Simulation:
         if self.regenerate_resources:
             self.add_new_resource_patch(force_id=resource.id)
     
-### -------------------------- ABM INTERACTION FUNCTIONS -------------------------- ###
+### -------------------------- INTERACTION FUNCTIONS -------------------------- ###
 
     def prove_sprite(self, sprite, prove_with_agents=True, prove_with_res=True):
         """Checks if proposed agent or resource is valid according to agent/patch overlap + returns True if collision,
@@ -485,6 +471,71 @@ class Simulation:
 
         return collided_agents
 
+    def agent_resource_interaction(self, collision_group_ar):
+        """
+        Carry out agent-resource interactions (depletion, destroying, notifying)
+        """
+        # Deleting colliding agents if outside patch radius
+        collision_group_ar = self.refine_ar_overlap_group(collision_group_ar)
+
+        # Notifying agents about resource if pooling is successful + exploitation dynamics
+
+        # Looping through each patch + respective agents
+        agents_on_resrcs = [] # collecting agents on resource patches
+        for resrc, agents in collision_group_ar.items(): 
+
+            # Looping through each agent on a particular patch
+            destroy_resrc = False  # flipped to True if patch is depleted
+            for agent in agents: 
+
+                # Turn agent towards patch center
+                self.bias_agent_towards_res_center(agent, resrc)
+
+                # One of previous agents on patch consumed the last unit
+                if destroy_resrc:
+                    notify_agent(agent, -1)
+                
+                # Agent finished pooling on a resource patch
+                if (agent.get_mode() in ["pool", "relocate"] and agent.pool_success) or agent.pooling_time == 0:
+                    # Notify about the patch
+                    notify_agent(agent, 1, resrc.id)
+                    # Teleport agent to the middle of the patch if needed
+                    # if self.teleport_exploit: ## turn off for speed
+                    #     agent.position = resrc.position + resrc.radius - agent.radius
+
+                # Agent was already exploiting this patch
+                if agent.get_mode() == "exploit":
+                    # continue depleting the patch
+                    depl_units, destroy_resrc = resrc.deplete(agent.consumption)
+                    agent.collected_r_before = agent.collected_r  # rolling resource memory
+                    agent.collected_r += depl_units  # and increasing its collected resources
+                    if destroy_resrc:  # consumed unit was the last in the patch
+                        for agent_tob_notified in agents:
+                            notify_agent(agent_tob_notified, -1)
+
+                # Collect all agents on resource patches
+                agents_on_resrcs.append(agent)
+
+            # Patch is fully depleted
+            if destroy_resrc:
+                # we clear it from the memory and regenerate it somewhere else if needed
+                self.kill_resource(resrc)
+        
+        return agents_on_resrcs
+
+    def refine_ar_overlap_group(self, collision_group): 
+        """We define overlap according to the center of agents. If the collision is not yet with the center of agent,
+        we remove that collision from the group"""
+        for resrc, agents in collision_group.items():
+            agents_refined = []
+            for agent in agents:
+                # Only keeping agent in collision group if its center is inside patch boundary
+                # I.E: the agent can only get information from 1 point-like sensor in the center
+                if supcalc.distance(resrc, agent) < resrc.radius:
+                    agents_refined.append(agent)
+            collision_group[resrc] = agents_refined
+        return collision_group
+        
     def bias_agent_towards_res_center(self, agent, resrc, relative_speed=0.02):
         """Turning the agent towards the center of a resource patch with some relative speed"""
         x1, y1 = agent.position + agent.radius
@@ -578,26 +629,18 @@ class Simulation:
         print("Starting main simulation loop!")
         while self.t < self.T:
 
-            # Carry out interaction according to user activity if not in headless mode
-            if self.with_visualization:
-                events = pygame.event.get() ## turn off for speed
-                self.interact_with_event(events) ## turn off for speed
-
-            # # deciding if vis field needs to be shown in this timestep
-            # turned_on_vfield = self.decide_on_vis_field_visibility(turned_on_vfield) ## turn off for speed
-
             if not self.is_paused:
 
                 ### ---- AGENT-AGENT INTERACTION ---- ###
 
+                collided_agents = []
                 if self.collide_agents: ## set as True
 
-                    # Check if any 2 agents has been collided and reflect them from each other if so
+                    # Create dict of every agent that has collided : [colliding agents]
                     collision_group_aa = pygame.sprite.groupcollide(self.agents, self.agents, False, False,
-                        itra.within_group_collision) # returns a dict (every agent that has collided : [colliding agents])
+                        itra.within_group_collision)
 
                     # Carry out agent-agent collisions + generate list of non-exploiting collided agents
-                    collided_agents = []
                     for agent1, other_agents in collision_group_aa.items():
                         collided_agents_instance = self.agent_agent_collision_proximity(agent1, other_agents)
                         collided_agents.append(collided_agents_instance)
@@ -607,58 +650,15 @@ class Simulation:
                     for agent in self.agents:
                         if agent not in flat_list_collided_agents and agent.get_mode() == "collide":
                             agent.set_mode("explore")
-                
-                else:
-                    collided_agents = []
-
 
                 ### ---- AGENT-RESOURCE INTERACTION ---- ### (can not be separated from main thread for some reason)
 
+                # Create dict of every resource that has collided : [colliding agents]
                 collision_group_ar = pygame.sprite.groupcollide(self.resources, self.agents, False, False,
-                    pygame.sprite.collide_circle) # returns dict (every patch with agent : [foraging agents])
+                    pygame.sprite.collide_circle)
 
-                # delete colliding agents if outside patch radius
-                collision_group_ar = refine_ar_overlap_group(collision_group_ar)
-
-                # collecting agents that are on resource patch
-                agents_on_resrcs = []
-
-                # Notifying agents about resource if pooling is successful + exploitation dynamics
-                for resrc, agents in collision_group_ar.items():  # looping through patches
-                    destroy_resrc = 0  # if we destroy a patch it is 1
-                    for agent in agents:  # looping through all agents on patches
-                        # Turn agent towards patch center
-                        self.bias_agent_towards_res_center(agent, resrc)
-
-                        # One of previous agents on patch consumed the last unit
-                        if destroy_resrc:
-                            notify_agent(agent, -1)
-                        
-                        # Agent finished pooling on a resource patch
-                        if (agent.get_mode() in ["pool", "relocate"] and agent.pool_success) or agent.pooling_time == 0:
-                            # Notify about the patch
-                            notify_agent(agent, 1, resrc.id)
-                            # Teleport agent to the middle of the patch if needed
-                            # if self.teleport_exploit: ## turn off for speed
-                            #     agent.position = resrc.position + resrc.radius - agent.radius
-
-                        # Agent was already exploiting this patch
-                        if agent.get_mode() == "exploit":
-                            # continue depleting the patch
-                            depl_units, destroy_resrc = resrc.deplete(agent.consumption)
-                            agent.collected_r_before = agent.collected_r  # rolling resource memory
-                            agent.collected_r += depl_units  # and increasing its collected resources
-                            if destroy_resrc:  # consumed unit was the last in the patch
-                                for agent_tob_notified in agents:
-                                    notify_agent(agent_tob_notified, -1)
-
-                        # Collect all agents on resource patches
-                        agents_on_resrcs.append(agent)
-
-                    # Patch is fully depleted
-                    if destroy_resrc:
-                        # we clear it from the memory and regenerate it somewhere else if needed
-                        self.kill_resource(resrc)
+                # Carry out agent-resource interactions (depletion, destroying, notifying)
+                agents_on_resrcs = self.agent_resource_interaction(collision_group_ar)
 
                 ### ---- NON-INTERACTING AGENTS ---- ###
                 
@@ -666,8 +666,7 @@ class Simulation:
                     if agent not in agents_on_resrcs:  # for all the agents that are not on recourse patches
                         if agent not in collided_agents:  # and are not colliding with each other currently
                             # if they finished pooling
-                            if (agent.get_mode() in ["pool",
-                                                     "relocate"] and agent.pool_success) or agent.pooling_time == 0:
+                            if (agent.get_mode() in ["pool","relocate"] and agent.pool_success) or agent.pooling_time == 0:
                                 notify_agent(agent, -1)
                             elif agent.get_mode() == "exploit":
                                 notify_agent(agent, -1)
@@ -682,18 +681,22 @@ class Simulation:
                 self.agents.update(self.agents)
                 self.t += 1
 
-            # # Simulation is paused
-            # else:
+            # else: # simulation is paused
             #     # Still calculating visual fields
             #     for ag in self.agents:
             #         ag.calc_social_V_proj(self.agents)
 
             ### ---- BACKGROUND PROCESSES ---- ###
 
-            # Draw environment and agents
+            # Carry out interaction according to user activity if not in headless mode
             if self.with_visualization:
+                events = pygame.event.get() ## turn off for speed
+                self.interact_with_event(events) ## turn off for speed
                 self.draw_frame(self.stats, self.stats_pos)
                 pygame.display.flip()
+
+            # # deciding if vis field needs to be shown in this timestep
+            # turned_on_vfield = self.decide_on_vis_field_visibility(turned_on_vfield) ## turn off for speed
 
             # Monitoring with IFDB (also when paused)
             if self.save_in_ifd:

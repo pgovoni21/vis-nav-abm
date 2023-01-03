@@ -35,7 +35,7 @@ class Resource(pygame.sprite.Sprite):
         self.id = id
         self.radius = radius 
         self.resrc_left = self.resrc_units 
-        self.position = position
+        self.position = np.array(position, dtype=np.float64)
         self.quality = quality 
 
         # Patch position
