@@ -109,7 +109,7 @@ class Simulation:
 ### -------------------------- INITIALIZATION -------------------------- ###
 
         # Arena parameters
-        self.collide_agents = collide_agents ## not used in humanexp8, left as TRUE
+        self.collide_agents = collide_agents
         self.WIDTH = width
         self.HEIGHT = height
         self.window_pad = window_pad
@@ -389,10 +389,8 @@ class Simulation:
                 raise Exception("Reached timeout while trying to create resources without overlap!")
             
             radius = self.resc_radius
-            # x = np.random.randint(self.window_pad, self.WIDTH + self.window_pad - 2 * radius)
-            # y = np.random.randint(self.window_pad, self.HEIGHT + self.window_pad - 2 * radius)
-            x = np.random.randint(self.window_pad, self.WIDTH + self.window_pad - radius) # humanexp8 bug - not doubling radius
-            y = np.random.randint(self.window_pad, self.HEIGHT + self.window_pad - radius)
+            x = np.random.randint(self.window_pad, self.WIDTH + self.window_pad - 2 * radius)
+            y = np.random.randint(self.window_pad, self.HEIGHT + self.window_pad - 2 * radius)
 
             units = np.random.randint(self.min_resc_units, self.max_resc_units)
             quality = np.random.uniform(self.min_resc_quality, self.max_resc_quality)
@@ -427,43 +425,63 @@ class Simulation:
         #         return False
         
         return True
-    
-    def agent_agent_collision_particle(self, agent1, other_agents): ## humanexp8 collisions, current version uses proximity
-        """Collision protocol called for an agent on agent collision"""
-        
-        collided_agents = []
 
-        if agent1.get_mode() == "exploit":
-            return collided_agents
+    def agent_agent_collision_proximity(self, agent1, other_agents):
+        """
+        Collision protocol called for agent-agent contact using proximity information to calculate turning behavior
+        """
+        collided_agents = []
         
+        # does not apply for exploiting agents when ghost_mode is set to True
+        if self.ghost_mode and agent1.get_mode() == "exploit":
+            return collided_agents
+
+        ### print("agent1 id/pos/orient: ", agent1.id, agent1.position, agent1.orientation)
+        ### pp.pprint(agent1.vis_field_source_data)
+
         for agent2 in other_agents:
-            # if the ghost mode is turned on + either of the 2 colliding agents is exploiting,
-            # collision protocol will not be carried out + agents can overlap with each other
+            
+            # skip loop iteration for exploiting agents when ghost_mode is set to True
             if self.ghost_mode and agent2.get_mode() == "exploit":
                 continue
 
-            agent2.set_mode("collide")
+            # resetting agent mode
+            if agent2.get_mode() != "exploit":
+                agent2.set_mode("collide")
+
+            # calculating proximity events
+            # collecting agents closer than proximity sensor sensitivity
+            agents_in_vicinity = [agent for agent in self.agents if
+                                    supcalc.distance(agent, agent2) < 2 * agent2.radius + 20 and agent != agent2]
+            
+            # calculating proximity field similarly as LIDAR
+            proximity_field = agent2.projection_field(agents_in_vicinity, keep_distance_info=True, fov=1)
+
+            ### print("agent2 id/pos/orient: ", agent2.id, agent2.position, agent2.orientation)
+            ### pp.pprint(agent2.vis_field_source_data)
+
+            # calculating turning angle
+            V_field_len = len(proximity_field)
+            left_excitation = np.mean(proximity_field[0:int(V_field_len / 2)])
+            right_excitation = np.mean(proximity_field[int(V_field_len / 2)::])
+            D_leftright = np.sign(left_excitation - right_excitation)
+            if D_leftright == 0: D_leftright = -1
+            if agent2.get_mode() != "exploit":
+                # exploiting agents don't change orientation, non-exploiting agents turn away
+                agent2.orientation -= D_leftright * 0.2
+
+            # making agents stop if the front of the agent is occupied
+            if np.mean(proximity_field[int(V_field_len / 2) - 100:int(V_field_len / 2) + 100]) > 0:
+                agent2.velocity = 0
+            else: # front is clear
+                # making agent move straight if the front is clear
+                if agent2.get_mode() != "exploit":
+                    agent2.velocity = agent2.max_exp_vel
+                    
+            ### print("agent2 after collision: ", proximity_field, D_leftright, agent2.orientation)
+
+            # add agent information to collided agent list
             collided_agents.append(agent2)
-
-            x1, y1 = agent1.position
-            x2, y2 = agent2.position
-            dx = x2 - x1
-            dy = y2 - y1
-            # calculating relative closed angle to agent2 orientation
-            theta = (atan2(dy, dx) + agent2.orientation) % (np.pi * 2) ## todo - check math here
-
-            # deciding on turning angle
-            if 0 < theta < np.pi:
-                agent2.orientation -= np.pi / 8
-            elif np.pi < theta < 2 * np.pi:
-                agent2.orientation += np.pi / 8
-
-            # if agent2.velocity == agent2.max_exp_vel:
-            if agent2.velocity == 1: # humanexp8 bug - will not run since vel is set to 3
-                agent2.velocity += 0.5
-            else:
-                # agent2.velocity == agent2.max_exp_vel:
-                agent2.velocity = 1
 
         return collided_agents
 
@@ -581,7 +599,7 @@ class Simulation:
                     # Carry out agent-agent collisions + generate list of non-exploiting collided agents
                     collided_agents = []
                     for agent1, other_agents in collision_group_aa.items():
-                        collided_agents_instance = self.agent_agent_collision_particle(agent1, other_agents)
+                        collided_agents_instance = self.agent_agent_collision_proximity(agent1, other_agents)
                         collided_agents.append(collided_agents_instance)
                     flat_list_collided_agents = [agent for sublist in collided_agents for agent in sublist]
 
@@ -631,14 +649,8 @@ class Simulation:
                             agent.collected_r_before = agent.collected_r  # rolling resource memory
                             agent.collected_r += depl_units  # and increasing it's collected rescources
                             if destroy_resc:  # consumed unit was the last in the patch
-                                ## not used in humanexp8
-                                # # print(f"Agent {agent.id} has depleted the patch all agents must be notified that"
-                                # #       f"there are no more units before the next timestep, otherwise they stop"
-                                # #       f"exploiting with delays")
-                                # for agent_tob_notified in agents:
-                                #     # print("C notify agent NO res ", agent_tob_notified.id)
-                                #     notify_agent(agent_tob_notified, -1)
-                                notify_agent(agent, -1)
+                                for agent_tob_notified in agents:
+                                    notify_agent(agent_tob_notified, -1)
 
                         # Collect all agents on resource patches
                         agents_on_rescs.append(agent)
@@ -660,9 +672,9 @@ class Simulation:
                             elif agent.get_mode() == "exploit":
                                 notify_agent(agent, -1)
                 
-                # for agent in self.agents:
-                #     print("agent id/pos/orient: ", agent.id, agent.position, agent.orientation)
-                #     pp.pprint(agent.vis_field_source_data)
+                ### for agent in self.agents:
+                ###     print("agent id/pos/orient: ", agent.id, agent.position, agent.orientation)
+                ###     pp.pprint(agent.vis_field_source_data)
 
                 ### ---- GENERAL UPDATE PER TIME STEP ---- ###
 
@@ -691,7 +703,7 @@ class Simulation:
                                         batch_size=self.write_batch_size)
             elif self.save_in_ram:
                 # saving data in ram for data processing, only when not paused
-                if not self.is_paused: ## not used in humanexp8, but ok
+                if not self.is_paused:
                     ifdb.save_agent_data_RAM(self.agents, self.t)
                     ifdb.save_resource_data_RAM(self.rescources, self.t)
 

@@ -76,7 +76,7 @@ class Agent(pygame.sprite.Sprite):
 
         # Behavioral parameters
         self.exp_stop_ratio = movement_params.exp_stop_ratio
-        # self.max_exp_vel = movement_params.exp_vel_max ## not in humanexp8
+        self.max_exp_vel = movement_params.exp_vel_max
         self.consumption = consumption
         self.exclude_agents_same_patch = patchwise_exclusion
         self.overriding_mode = None
@@ -164,7 +164,7 @@ class Agent(pygame.sprite.Sprite):
         else:
             self.soc_v_field = self.projection_field(agents_vis_expl, keep_distance_info=False)
     
-    def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None):
+    def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None, fov=None):
         """
         Calculates visual projection field for the agent given the visible obstacles in the environment
         :param obstacles: list of agents (with same radius) or some other obstacle sprites to generate projection field
@@ -175,6 +175,9 @@ class Agent(pygame.sprite.Sprite):
             exclusion on each other.
         :param fov: agent field of view as percentage, e.g. 0.5 corresponds to a visual range of [-pi/2, pi/2]
         """
+        # setting projection field range (1 or 360 deg for agent_agent_collision_proximity input)
+        if fov is None: # for visual calculations
+            fov = self.FOV
 
         # extracting obstacle coordinates
         obstacle_coords = [ob.position for ob in obstacles]
@@ -186,7 +189,7 @@ class Agent(pygame.sprite.Sprite):
 
         # initializing visual field and relative angles at the specified resolution
         v_field = np.zeros(self.v_field_res)
-        phis = np.linspace(-np.pi*self.FOV, np.pi*self.FOV, self.v_field_res)
+        phis = np.linspace(-np.pi, np.pi, self.v_field_res) # limiting to FOV will be done after
 
         # center point of self
         pt_self_c = self.position + self.radius
@@ -216,42 +219,26 @@ class Agent(pygame.sprite.Sprite):
             distance = np.linalg.norm(vec_between)
             angle_between = supcalc.angle_between(vec_self_dir, vec_between, self.radius, distance)
             ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
-
-            # print("agent id/pos/orient/dir: ", self.id, self.position, self.orientation*180/np.pi, vec_self_dir)
-            # print("between angle/vector: ", angle_between*180/np.pi, vec_between)
+            ### print("agent id/pos/orient/btwn: ", self.id, self.position, self.orientation*180/np.pi, angle_between*180/np.pi)
 
             # if target is visible, we calculate projection + save relevant data into dict
-            if abs(angle_between) <= phis[-1]: # self.FOV*np.pi or positive limit of visible range
+            if abs(angle_between) <= fov*np.pi: # target is within limit of visible range
 
                 # finding where in the retina the projection belongs to
                 phi_target = supcalc.find_nearest(phis, angle_between) # where in retina the obstacle is
+                ## low : left-side, high : right-side
+                ### print("phi_target: ", phi_target)
 
                 # calculating visual exclusionary angle between obstacle + self
                 # assumes obstacle = agent radius (change for landmarks)
                 angle_vis_excl = 2 * np.arctan(self.radius / distance)
 
                 # calculating projection size / limits
-                proj_prop_total = angle_vis_excl / (2 * np.pi) # exclusion as proportion of entire 360 deg 2D plane
-                proj_prop_FOV = proj_prop_total / self.FOV # as proportion of the field of view
-                proj_size = proj_prop_FOV * self.v_field_res # discretized to visual resolution units
+                # as proportion of entire 360 view + discretized to visual resolution units
+                # limiting FOV will be done after
+                proj_size = (angle_vis_excl / (2 * np.pi)) * self.v_field_res 
                 proj_L = int(phi_target - proj_size / 2) # CCW from center
                 proj_R = int(phi_target + proj_size / 2) # CW from center
-
-                # imposing boundary conditions to projection field
-                if self.FOV < 1: # no-slip
-                    if proj_L < 0: 
-                        proj_L = 0
-                    if proj_R > self.v_field_res: 
-                        proj_R = self.v_field_res
-                else: # self.FOV = 1
-                    print("Error - periodic boundary conditions not applied")
-                    pass # to be finished later, if at all, biologically implausible + complicates exclusion calculation
-                    # if proj_L < 0:
-                    #     v_field[self.v_field_res + proj_L:self.v_field_res] = 1
-                    #     proj_L = 0
-                    # if proj_R >= self.v_field_res:
-                    #     v_field[0:proj_R - self.v_field_res] = 1
-                    #     proj_R = self.v_field_res - 1
 
                 # saving relevant data to dict
                 self.vis_field_source_data[i] = {}
@@ -268,15 +255,18 @@ class Agent(pygame.sprite.Sprite):
                 # marking whether observed agents were exploiting or not
                 if non_expl_agents is not None: # non-exploiting agents exist + are in the visual projection field
                     if i < len_social: # exploiting agents
-                        self.vis_field_source_data[i]["is_social_cue"] = True
+                        self.vis_field_source_data[i]["exploiting"] = True
                     else: # non-exploiting agents
-                        self.vis_field_source_data[i]["is_social_cue"] = False
+                        self.vis_field_source_data[i]["exploiting"] = False
                 else: # no non-expoiting agents exist and/or are observed
-                    self.vis_field_source_data[i]["is_social_cue"] = True
+                    self.vis_field_source_data[i]["exploiting"] = True
 
-        # calculating visual exclusion if requested
+        # calculating visual exclusion (agents behind agents) if requested
         if self.visual_exclusion and len(self.vis_field_source_data.items()) > 1:
             self.exclude_V_source_data()
+
+        ### if len(self.vis_field_source_data) > 0:
+        ###     pp.pprint(self.vis_field_source_data)
 
         # removing non-exploiting agents (non-social cues)
         if non_expl_agents is not None:
@@ -285,9 +275,6 @@ class Agent(pygame.sprite.Sprite):
         # sorting VPF source data according to visual angle
         self.rank_V_source_data("angle_vis_excl")
 
-        # if len(self.vis_field_source_data) > 1:
-        #     pp.pprint(self.vis_field_source_data)
-
         # marking exploiting agents in visual field
         for k, v in self.vis_field_source_data.items():
             angle_vis_excl = v["angle_vis_excl"]
@@ -295,11 +282,27 @@ class Agent(pygame.sprite.Sprite):
             proj_L = v["proj_L_ex"]
             proj_R = v["proj_R_ex"]
 
+            # apply local periodic boundary conditions to wrap perception of objects behind agent
+            if proj_L < 0:
+                v_field[self.v_field_res + proj_L:self.v_field_res] = 1
+                proj_L = 0
+            if proj_R >= self.v_field_res:
+                v_field[0:proj_R - self.v_field_res] = 1
+                proj_R = self.v_field_res - 1
+
             # weighing projection amplitude with rank information if requested
-            if not keep_distance_info: # always false --> agents cannot interpret distance
+            if not keep_distance_info: # for vision
                 v_field[proj_L:proj_R] = 1
-            else:
+            else: # for collision
                 v_field[proj_L:proj_R] = (1 - distance / self.vision_range)
+
+        ### if len(self.vis_field_source_data) > 0:
+        ###     print(v_field)
+        
+        # imposing global FOV boundary conditions if applicable
+        if fov < 1:
+            v_field[phis < -fov*np.pi] = 0
+            v_field[phis > fov*np.pi] = 0
 
         return v_field
 
@@ -341,7 +344,7 @@ class Agent(pygame.sprite.Sprite):
         """
         clean_sdata = {}
         for k, v in self.vis_field_source_data.items():
-            if v['is_social_cue']: # == True
+            if v["exploiting"]: # == True
                 clean_sdata[k] = v
         self.vis_field_source_data = clean_sdata
 
@@ -443,8 +446,7 @@ class Agent(pygame.sprite.Sprite):
         if self.get_mode() == 'explore':
             if np.abs(self.velocity) > velocity_limit:
                 # stopping agent if too fast during exploration
-                # self.velocity = self.max_exp_vel # 1 ## not in humanexp8
-                self.velocity = 1
+                self.velocity = self.max_exp_vel
                 
     def reflect_from_walls(self):
         """
@@ -522,31 +524,25 @@ class Agent(pygame.sprite.Sprite):
         # vel, theta = int(self.tr_w()) * self.F_soc(...) + (1 - int(self.tr_w())) * self.F_exp(...)
         if not self.get_mode() == "collide":
             if not self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel) ## not in humanexp8
-                vel, theta = supcalc.random_walk()
+                vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel) 
                 self.set_mode("explore")
             elif self.tr_w() and self.tr_u():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
-                #     self.set_mode("relocate")
-                self.set_mode("exploit")
-                vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                if self.env_status == 1:
+                    self.set_mode("exploit")
+                    vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                else:
+                    vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
+                    self.set_mode("relocate")
             elif self.tr_w() and not self.tr_u():
-                # vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel) ## not in humanexp8
-                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field)
+                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
                 self.set_mode("relocate")
             elif self.tr_u() and not self.tr_w():
-                # if self.env_status == 1: ## not in humanexp8
-                #     self.set_mode("exploit")
-                #     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                # else:
-                #     vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
-                #     self.set_mode("explore")
-                self.set_mode("exploit")
-                vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                if self.env_status == 1:
+                    self.set_mode("exploit")
+                    vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
+                else:
+                    vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
+                    self.set_mode("explore")
         else:
             # COLLISION AVOIDANCE IS ACTIVE, let that guide us
             # As we don't have proximity sensor interface as with e.g. real robots we will let
