@@ -21,7 +21,7 @@ def start(parallel=False):
     with ExitStack():
         sim = Simulation(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
-                         v_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                         field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
                          agent_fov=float(envconf['AGENT_FOV']),
                          framerate=int(float(envconf["INIT_FRAMERATE"])),
                          with_visualization=bool(int(float(envconf["WITH_VISUALIZATION"]))),
@@ -112,7 +112,7 @@ def start_humanexp8(parallel=False):
     with ExitStack():
         sim = Simulation_humanexp8(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
-                         v_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                         field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
                          agent_fov=float(envconf['AGENT_FOV']),
                          framerate=int(float(envconf["INIT_FRAMERATE"])),
                          with_visualization=bool(int(float(envconf["WITH_VISUALIZATION"]))),
@@ -152,7 +152,7 @@ def start_current(parallel=False, agent_behave_param_list=None):
     with ExitStack():
         sim = Simulation_current(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
-                         v_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                         field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
                          agent_fov=float(envconf['AGENT_FOV']),
                          framerate=int(float(envconf["INIT_FRAMERATE"])),
                          with_visualization=bool(int(float(envconf["WITH_VISUALIZATION"]))),

@@ -20,7 +20,7 @@ class Agent(pygame.sprite.Sprite):
     and to make decisions.
     """
 
-    def __init__(self, id, radius, position, orientation, env_size, color, v_field_res, FOV, window_pad, pooling_time,
+    def __init__(self, id, radius, position, orientation, env_size, color, field_res, FOV, window_pad, pooling_time,
                  pooling_prob, consumption, vision_range, visual_exclusion, patchwise_exclusion):
         """
         Initalization method of main agent class of the simulations
@@ -31,7 +31,7 @@ class Agent(pygame.sprite.Sprite):
         :param orientation: absolute orientation of the agent (0: right, pi/2: up, pi: left, 3*pi/2: down)
         :param env_size: environment size available for agents as (width, height)
         :param color: color of the agent as (R, G, B)
-        :param v_field_res: resolution of the visual field of the agent in pixels
+        :param field_res: resolution of the projection field (both visual + proximity) of the agent in pixels
         :param FOV: visual field as a tuple of min max visible angles e.g. (-np.pi, np.pi)
         :param window_pad: padding of the environment in simulation window in pixels
         :param pooling_time: time units needed to pool status of a given position in the environment
@@ -65,14 +65,11 @@ class Agent(pygame.sprite.Sprite):
         self.collected_r = 0  # resource units collected by agent 
         self.collected_r_before = 0  # ^ from previous time step to monitor patch quality (not saved)
         
-        # Visual parameters
-        self.v_field_res = v_field_res
+        # Projection field parameters
+        self.field_res = field_res
         self.FOV = FOV
         self.vision_range = vision_range
         self.visual_exclusion = visual_exclusion
-
-        self.soc_v_field = np.zeros(self.v_field_res)  # social visual projection field
-        self.vis_field_source_data = {} # to calculate relevant visual field according to relocation force
 
         # Behavioral parameters
         self.exp_stop_ratio = movement_params.exp_stop_ratio
@@ -159,14 +156,14 @@ class Agent(pygame.sprite.Sprite):
 
         # calculate visual field either regarding other agents as obstacles or not
         if self.visual_exclusion:
-            self.soc_v_field = self.projection_field(agents_vis_expl, keep_distance_info=False,
+            self.soc_vis_field = self.projection_field(agents_vis_expl, keep_distance_info=False,
                                                      non_expl_agents = agents_vis_nonexpl)
         else:
-            self.soc_v_field = self.projection_field(agents_vis_expl, keep_distance_info=False)
+            self.soc_vis_field = self.projection_field(agents_vis_expl, keep_distance_info=False)
     
     def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None, fov=None):
         """
-        Calculates visual projection field for the agent given the visible obstacles in the environment
+        Calculates (visual or proximity) projection field for the agent given the visible obstacles in the environment
         :param obstacles: list of agents (with same radius) or some other obstacle sprites to generate projection field
         :param keep_distance_info: if True, the amplitude of the vpf will reflect the distance of the object from the
             agent so that exclusion can be easily generated with a single computational step.
@@ -176,20 +173,21 @@ class Agent(pygame.sprite.Sprite):
         :param fov: agent field of view as percentage, e.g. 0.5 corresponds to a visual range of [-pi/2, pi/2]
         """
         # setting projection field range (1 or 360 deg for agent_agent_collision_proximity input)
-        if fov is None: # for visual calculations
+        if fov is None: # for visual calculations (likely < 1)
             fov = self.FOV
 
         # extracting obstacle coordinates
         obstacle_coords = [ob.position for ob in obstacles]
 
-        # if non-social cues can visually exclude social ones we also concatenate these to the obstacle coords
+        # if non-social cues can exclude social ones we also concatenate these to the obstacle coords
+        len_social = 0
         if non_expl_agents is not None:
             len_social = len(obstacles) # to demarcate this divide when iterating in list below
             obstacle_coords.extend([ob.position for ob in non_expl_agents])
 
-        # initializing visual field and relative angles at the specified resolution
-        v_field = np.zeros(self.v_field_res)
-        phis = np.linspace(-np.pi, np.pi, self.v_field_res) # limiting to FOV will be done after
+        # initializing projection field at the specified resolution
+        field = np.zeros(self.field_res)
+        phis = np.linspace(-np.pi, np.pi, self.field_res) # limiting to FOV will be done after
 
         # center point of self
         pt_self_c = self.position + self.radius
@@ -204,8 +202,8 @@ class Agent(pygame.sprite.Sprite):
         ## where v1[0] --> + : right, 0 : center, - : left, 10 : max
         ## where v1[1] --> + : down, 0 : center, - : up, 10 : max
 
-        # calculating orientation angle between agent/obstacle + visual exclusionary angle +  projection size
-        self.vis_field_source_data = {}
+        # calculating orientation angle between agent/obstacle + exclusionary angle +  projection size
+        self.field_obst_dict = {}
         for i, obstacle_coord in enumerate(obstacle_coords):
 
             # center of obstacle (other agent)
@@ -221,101 +219,80 @@ class Agent(pygame.sprite.Sprite):
             ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
             ### print("agent id/pos/orient/btwn: ", self.id, self.position, self.orientation*180/np.pi, angle_between*180/np.pi)
 
-            # if target is visible, we calculate projection + save relevant data into dict
-            if abs(angle_between) <= fov*np.pi: # target is within limit of visible range
+            # if target is perceivable, we calculate projection + save relevant data into dict
+            if abs(angle_between) <= fov*np.pi: # target is within limit of perceivable range
+                self.create_field_dict_entry(phis, angle_between, distance, i, len_social)
 
-                # finding where in the retina the projection belongs to
-                phi_target = supcalc.find_nearest(phis, angle_between) # where in retina the obstacle is
-                ## low : left-side, high : right-side
-                ### print("phi_target: ", phi_target)
+        # calculating perceptual exclusion (agents behind agents) if requested
+        if self.visual_exclusion and len(self.field_obst_dict.items()) > 1:
+            self.calculate_perceptual_exclusions()
 
-                # calculating visual exclusionary angle between obstacle + self
-                # assumes obstacle = agent radius (change for landmarks)
-                angle_vis_excl = 2 * np.arctan(self.radius / distance)
+        ### if len(self.field_obst_dict) > 0:
+        ###     pp.pprint(self.field_obst_dict)
 
-                # calculating projection size / limits
-                # as proportion of entire 360 view + discretized to visual resolution units
-                # limiting FOV will be done after
-                proj_size = (angle_vis_excl / (2 * np.pi)) * self.v_field_res 
-                proj_L = int(phi_target - proj_size / 2) # CCW from center
-                proj_R = int(phi_target + proj_size / 2) # CW from center
-
-                # saving relevant data to dict
-                self.vis_field_source_data[i] = {}
-                self.vis_field_source_data[i]["angle_vis_excl"] = angle_vis_excl
-                self.vis_field_source_data[i]["phi_target"] = phi_target
-                self.vis_field_source_data[i]["distance"] = distance
-
-                self.vis_field_source_data[i]["proj_L"] = proj_L
-                self.vis_field_source_data[i]["proj_R"] = proj_R
-
-                self.vis_field_source_data[i]["proj_L_ex"] = proj_L
-                self.vis_field_source_data[i]["proj_R_ex"] = proj_R
-
-                # marking whether observed agents were exploiting or not
-                if non_expl_agents is not None: # non-exploiting agents exist + are in the visual projection field
-                    if i < len_social: # exploiting agents
-                        self.vis_field_source_data[i]["exploiting"] = True
-                    else: # non-exploiting agents
-                        self.vis_field_source_data[i]["exploiting"] = False
-                else: # no non-expoiting agents exist and/or are observed
-                    self.vis_field_source_data[i]["exploiting"] = True
-
-        # calculating visual exclusion (agents behind agents) if requested
-        if self.visual_exclusion and len(self.vis_field_source_data.items()) > 1:
-            self.exclude_V_source_data()
-
-        ### if len(self.vis_field_source_data) > 0:
-        ###     pp.pprint(self.vis_field_source_data)
-
-        # removing non-exploiting agents (non-social cues)
+        # removing non-exploiting agents
         if non_expl_agents is not None:
-            self.remove_nonsocial_V_source_data()
+            self.remove_nonexploiting_agents()
 
-        # sorting VPF source data according to visual angle
-        self.rank_V_source_data("angle_vis_excl")
+        # sorting projection field entries according to perceptual angle
+        self.rank_projection_data("angle_excl")
 
-        # marking exploiting agents in visual field
-        for k, v in self.vis_field_source_data.items():
-            angle_vis_excl = v["angle_vis_excl"]
-            phi_target = v["phi_target"]
-            proj_L = v["proj_L_ex"]
-            proj_R = v["proj_R_ex"]
+        # marking exploiting agents in perceptual field
+        field = self.mark_projection_field(field, keep_distance_info, distance, fov, phis)
 
-            # apply local periodic boundary conditions to wrap perception of objects behind agent
-            if proj_L < 0:
-                v_field[self.v_field_res + proj_L:self.v_field_res] = 1
-                proj_L = 0
-            if proj_R >= self.v_field_res:
-                v_field[0:proj_R - self.v_field_res] = 1
-                proj_R = self.v_field_res - 1
+        ### if len(self.field_obst_dict) > 0:
+        ###     print(field)        
 
-            # weighing projection amplitude with rank information if requested
-            if not keep_distance_info: # for vision
-                v_field[proj_L:proj_R] = 1
-            else: # for collision
-                v_field[proj_L:proj_R] = (1 - distance / self.vision_range)
+        return field
 
-        ### if len(self.vis_field_source_data) > 0:
-        ###     print(v_field)
-        
-        # imposing global FOV boundary conditions if applicable
-        if fov < 1:
-            v_field[phis < -fov*np.pi] = 0
-            v_field[phis > fov*np.pi] = 0
+    def create_field_dict_entry(self, phis, angle_between, distance, i, len_social):
+        # finding where in the retina the projection belongs to
+        phi_target = supcalc.find_nearest(phis, angle_between) # where in retina the obstacle is
+        ## low : left-side, high : right-side
+        ### print("phi_target: ", phi_target)
 
-        return v_field
+        # calculating exclusionary angle between obstacle + self
+        # assumes obstacle = agent radius (change for landmarks)
+        angle_excl = 2 * np.arctan(self.radius / distance)
 
-    def exclude_V_source_data(self):
+        # calculating projection size / limits
+        # as proportion of entire 360 view + discretized to specified resolution units
+        # limiting FOV will be done after
+        proj_size = (angle_excl / (2 * np.pi)) * self.field_res 
+        proj_L = int(phi_target - proj_size / 2) # CCW from center
+        proj_R = int(phi_target + proj_size / 2) # CW from center
+
+        # saving relevant data to dict
+        self.field_obst_dict[i] = {}
+        self.field_obst_dict[i]["angle_excl"] = angle_excl
+        self.field_obst_dict[i]["phi_target"] = phi_target
+        self.field_obst_dict[i]["distance"] = distance
+
+        self.field_obst_dict[i]["proj_L"] = proj_L
+        self.field_obst_dict[i]["proj_R"] = proj_R
+
+        self.field_obst_dict[i]["proj_L_ex"] = proj_L
+        self.field_obst_dict[i]["proj_R_ex"] = proj_R
+
+        # marking whether observed agents were exploiting or not
+        if len_social > 0: # non-exploiting agents exist + are in the projection field
+            if i < len_social: # exploiting agents
+                self.field_obst_dict[i]["exploiting"] = True
+            else: # non-exploiting agents
+                self.field_obst_dict[i]["exploiting"] = False
+        else: # no non-expoiting agents exist and/or are observed
+            self.field_obst_dict[i]["exploiting"] = True
+
+    def calculate_perceptual_exclusions(self):
         """
         Iterates over pairs of obstacles, excluding occluded obstacles/parts
         """
         # ranks obstacles according to distance - low first
-        self.rank_V_source_data("distance", reverse=False)
+        self.rank_projection_data("distance", reverse=False)
 
         # combination operation, though itertools doesn't seem to provide performance benefit and is less understandable
-        for _, obs_close in self.vis_field_source_data.items(): 
-            for _, obs_far in list(self.vis_field_source_data.items())[1:]: 
+        for _, obs_close in self.field_obst_dict.items(): 
+            for _, obs_far in list(self.field_obst_dict.items())[1:]: 
                 if obs_far["distance"] > obs_close["distance"]: 
                     # Partial R-side exclusion
                     if obs_far["proj_R_ex"] > obs_close["proj_L"] > obs_far["proj_L_ex"]: 
@@ -330,23 +307,49 @@ class Agent(pygame.sprite.Sprite):
                         obs_far["proj_L_ex"] = 0
                         obs_far["proj_R_ex"] = 0
     
-    def rank_V_source_data(self, ranking_key, reverse=True):
+    def rank_projection_data(self, ranking_key, reverse=True):
         """
-        Ranks/sorts visual projection field data by specified key
+        Ranks/sorts projection field data by specified key
         :param: ranking_key: string
         """
-        sorted_dict = sorted(self.vis_field_source_data.items(), key=lambda kv: kv[1][ranking_key], reverse=reverse)
-        self.vis_field_source_data = OrderedDict(sorted_dict)
+        sorted_dict = sorted(self.field_obst_dict.items(), key=lambda kv: kv[1][ranking_key], reverse=reverse)
+        self.field_obst_dict = OrderedDict(sorted_dict)
 
-    def remove_nonsocial_V_source_data(self):
+    def remove_nonexploiting_agents(self):
         """
         Creates new data with purely social/exploiting agent data after calculating exclusions + before interaction processes
         """
         clean_sdata = {}
-        for k, v in self.vis_field_source_data.items():
+        for k, v in self.field_obst_dict.items():
             if v["exploiting"]: # == True
                 clean_sdata[k] = v
-        self.vis_field_source_data = clean_sdata
+        self.field_obst_dict = clean_sdata
+
+    def mark_projection_field(self, field, keep_distance_info, distance, fov, phis):
+        for k, v in self.field_obst_dict.items():
+            proj_L = v["proj_L_ex"]
+            proj_R = v["proj_R_ex"]
+
+            # apply local periodic boundary conditions to wrap perception of objects behind agent
+            if proj_L < 0:
+                field[self.field_res + proj_L:self.field_res] = 1
+                proj_L = 0
+            if proj_R >= self.field_res:
+                field[0:proj_R - self.field_res] = 1
+                proj_R = self.field_res - 1
+
+            # weighing projection amplitude with rank information if requested
+            if not keep_distance_info: # for vision
+                field[proj_L:proj_R] = 1
+            else: # for collision
+                field[proj_L:proj_R] = (1 - distance / self.vision_range)
+
+        # imposing global FOV boundary conditions if applicable
+        if fov < 1:
+            field[phis < -fov*np.pi] = 0
+            field[phis > fov*np.pi] = 0
+
+        return field
 
 ### -------------------------- DECISION MAKING FUNCTIONS -------------------------- ###
 
@@ -363,7 +366,7 @@ class Agent(pygame.sprite.Sprite):
         """updating inner decision processes according to the current state and the visual projection field"""
         w_p = self.w if self.w > self.T_w else 0
         u_p = self.u if self.u > self.T_u else 0
-        dw = self.Eps_w * (np.mean(self.soc_v_field)) - self.g_w * (
+        dw = self.Eps_w * (np.mean(self.soc_vis_field)) - self.g_w * (
                 self.w - self.B_w) - u_p * self.S_uw  # self.tr_u() * self.S_uw
         du = self.Eps_u * self.I_priv - self.g_u * (self.u - self.B_u) - w_p * self.S_wu  # self.tr_w() * self.S_wu
         self.w += dw
@@ -531,10 +534,10 @@ class Agent(pygame.sprite.Sprite):
                     self.set_mode("exploit")
                     vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
                 else:
-                    vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
+                    vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_vis_field, v_desired=self.max_exp_vel)
                     self.set_mode("relocate")
             elif self.tr_w() and not self.tr_u():
-                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_v_field, v_desired=self.max_exp_vel)
+                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_vis_field, v_desired=self.max_exp_vel)
                 self.set_mode("relocate")
             elif self.tr_u() and not self.tr_w():
                 if self.env_status == 1:

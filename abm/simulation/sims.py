@@ -47,7 +47,7 @@ def refine_ar_overlap_group(collision_group):
 
 
 class Simulation:
-    def __init__(self, N, T, v_field_res=800, width=600, height=480,
+    def __init__(self, N, T, field_res=800, width=600, height=480,
                  framerate=25, window_pad=30, with_visualization=True, show_vis_field=False,
                  show_vis_field_return=False, pooling_time=3, pooling_prob=0.05, agent_radius=10,
                  N_resc=10, min_resc_perpatch=200, max_resc_perpatch=1000, min_resc_quality=0.1, max_resc_quality=1,
@@ -59,7 +59,7 @@ class Simulation:
         Initializing the main simulation instance
         :param N: number of agents
         :param T: simulation time
-        :param v_field_res: visual field resolution in pixels
+        :param field_res: projection field (visual + proximity) resolution in pixels
         :param width: real width of environment (not window size)
         :param height: real height of environment (not window size)
         :param framerate: framerate of simulation
@@ -134,7 +134,7 @@ class Simulation:
 
         # Agent parameters
         self.agent_radii = agent_radius
-        self.v_field_res = v_field_res
+        self.field_res = field_res
         self.pooling_time = pooling_time
         self.pooling_prob = pooling_prob
         self.agent_consumption = agent_consumption
@@ -299,8 +299,8 @@ class Simulation:
             show_min = (k * 50) + 23
             show_max = (k * 50) + 25
 
-            for j in range(self.agents.sprites()[k].v_field_res):
-                curr_idx = int(j * (stats_width / self.v_field_res))
+            for j in range(self.agents.sprites()[k].field_res):
+                curr_idx = int(j * (stats_width / self.field_res))
                 if self.agents.sprites()[k].soc_v_field[j] != 0:
                     stats_graph[curr_idx, show_min:show_max] = pygame.Color(*colors.GREEN)
                 # elif self.agents.sprites()[k].soc_v_field[j] == -1:
@@ -342,7 +342,7 @@ class Simulation:
                 orientation=orient,
                 env_size=(self.WIDTH, self.HEIGHT),
                 color=colors.BLUE,
-                v_field_res=self.v_field_res,
+                field_res=self.field_res,
                 FOV=self.agent_fov,
                 window_pad=self.window_pad,
                 pooling_time=self.pooling_time,
@@ -437,7 +437,7 @@ class Simulation:
             return collided_agents
 
         ### print("agent1 id/pos/orient: ", agent1.id, agent1.position, agent1.orientation)
-        ### pp.pprint(agent1.vis_field_source_data)
+        ### pp.pprint(agent1.field_obst_dict)
 
         for agent2 in other_agents:
             
@@ -458,7 +458,7 @@ class Simulation:
             proximity_field = agent2.projection_field(agents_in_vicinity, keep_distance_info=True, fov=1)
 
             ### print("agent2 id/pos/orient: ", agent2.id, agent2.position, agent2.orientation)
-            ### pp.pprint(agent2.vis_field_source_data)
+            ### pp.pprint(agent2.field_obst_dict)
 
             # calculating turning angle
             V_field_len = len(proximity_field)
@@ -674,7 +674,7 @@ class Simulation:
                 
                 ### for agent in self.agents:
                 ###     print("agent id/pos/orient: ", agent.id, agent.position, agent.orientation)
-                ###     pp.pprint(agent.vis_field_source_data)
+                ###     pp.pprint(agent.field_obst_dict)
 
                 ### ---- GENERAL UPDATE PER TIME STEP ---- ###
 
