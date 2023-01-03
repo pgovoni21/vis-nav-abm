@@ -104,7 +104,7 @@ class Agent(pygame.sprite.Sprite):
         
         self.time_spent_pooling = 0  # time units currently spent with pooling the status of given position (changes dynamically)
         self.env_status_before = 0
-        self.env_status = 0  # status of the environment in current position, 1 if rescource, 0 otherwise
+        self.env_status = 0  # status of the environment in current position, 1 if resource, 0 otherwise
         self.pool_success = 0  # states if the agent deserves 1 piece of update about the status of env in given pos
 
         # Environment related parameters

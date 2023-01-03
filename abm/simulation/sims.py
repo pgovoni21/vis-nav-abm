@@ -4,7 +4,7 @@ import sys
 
 from abm.agent import supcalc
 from abm.agent.agent import Agent
-from abm.environment.rescource import Rescource
+from abm.environment.resource import Resource
 from abm.contrib import colors, ifdb_params, evolution
 from abm.simulation import interactions as itra
 from abm.monitoring import ifdb
@@ -35,14 +35,14 @@ def notify_agent(agent, status, res_id=None):
 def refine_ar_overlap_group(collision_group): 
     """We define overlap according to the center of agents. If the collision is not yet with the center of agent,
     we remove that collision from the group"""
-    for resc, agents in collision_group.items():
+    for resrc, agents in collision_group.items():
         agents_refined = []
         for agent in agents:
             # Only keeping agent in collision group if its center is inside patch boundary
             # I.E: the agent can only get information from 1 point-like sensor in the center
-            if supcalc.distance(resc, agent) < resc.radius:
+            if supcalc.distance(resrc, agent) < resrc.radius:
                 agents_refined.append(agent)
-        collision_group[resc] = agents_refined
+        collision_group[resrc] = agents_refined
     return collision_group
 
 
@@ -50,7 +50,7 @@ class Simulation:
     def __init__(self, N, T, field_res=800, width=600, height=480,
                  framerate=25, window_pad=30, with_visualization=True, show_vis_field=False,
                  show_vis_field_return=False, pooling_time=3, pooling_prob=0.05, agent_radius=10,
-                 N_resc=10, min_resc_perpatch=200, max_resc_perpatch=1000, min_resc_quality=0.1, max_resc_quality=1,
+                 N_resrc=10, min_resrc_perpatch=200, max_resrc_perpatch=1000, min_resrc_quality=0.1, max_resrc_quality=1,
                  patch_radius=30, regenerate_patches=True, agent_consumption=1, teleport_exploit=True,
                  vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False,
                  use_ifdb_logging=False, use_ram_logging=False, save_csv_files=False, ghost_mode=True,
@@ -71,14 +71,14 @@ class Simulation:
         :param pooling_time: time units for a single pooling events
         :param pooling probability: initial probability of switching to pooling regime for any agent
         :param agent_radius: radius of the agents
-        :param N_resc: number of rescource patches in the environment
-        :param min_resc_perpatch: minimum rescaurce unit per patch
-        :param max_resc_perpatch: maximum rescaurce units per patch
-        :param min_resc_quality: minimum resource quality in unit/timesteps that is allowed for each agent on a patch
+        :param N_resrc: number of resource patches in the environment
+        :param min_resrc_perpatch: minimum resource unit per patch
+        :param max_resrc_perpatch: maximum resource units per patch
+        :param min_resrc_quality: minimum resource quality in unit/timesteps that is allowed for each agent on a patch
             to exploit from the patch
-        : param max_resc_quality: maximum resource quality in unit/timesteps that is allowed for each agent on a patch
+        : param max_resrc_quality: maximum resource quality in unit/timesteps that is allowed for each agent on a patch
             to exploit from the patch
-        :param patch_radius: radius of rescaurce patches
+        :param patch_radius: radius of resrcaurce patches
         :param regenerate_patches: bool to decide if patches shall be regenerated after depletion
         :param agent_consumption: agent consumption (exploitation speed) in res. units / time units
         :param teleport_exploit: boolean to choose if we teleport agents to the middle of the res. patch during
@@ -145,19 +145,19 @@ class Simulation:
         self.ghost_mode = ghost_mode
         self.patchwise_exclusion = patchwise_exclusion
 
-        # Rescource parameters
-        self.N_resc = N_resc
-        self.resc_radius = patch_radius
-        self.min_resc_units = min_resc_perpatch
-        self.max_resc_units = max_resc_perpatch
-        self.min_resc_quality = min_resc_quality
-        self.max_resc_quality = max_resc_quality
+        # Resource parameters
+        self.N_resrc = N_resrc
+        self.resrc_radius = patch_radius
+        self.min_resrc_units = min_resrc_perpatch
+        self.max_resrc_units = max_resrc_perpatch
+        self.min_resrc_quality = min_resrc_quality
+        self.max_resrc_quality = max_resrc_quality
         # possibility to provide single values instead of value ranges
         # if maximum values are negative for both quality and contained units
-        if self.max_resc_quality < 0:
-            self.max_resc_quality = self.min_resc_quality
-        if self.max_resc_units < 0:
-            self.max_resc_units = self.min_resc_units + 1
+        if self.max_resrc_quality < 0:
+            self.max_resrc_quality = self.min_resrc_quality
+        if self.max_resrc_units < 0:
+            self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
 
         # Initializing pygame
@@ -170,7 +170,7 @@ class Simulation:
 
         # pygame related class attributes
         self.agents = pygame.sprite.Group()
-        self.rescources = pygame.sprite.Group()
+        self.resources = pygame.sprite.Group()
         self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
 
         # Monitoring
@@ -252,7 +252,7 @@ class Simulation:
     def draw_frame(self, stats, stats_pos):
         """Drawing environment, agents and every other visualization in each timestep"""
         self.screen.fill(colors.BACKGROUND)
-        self.rescources.draw(self.screen)
+        self.resources.draw(self.screen)
         self.draw_walls()
         self.agents.draw(self.screen)
         if self.show_vision_range and self.WIDTH > self.vision_range: 
@@ -367,15 +367,15 @@ class Simulation:
 
     def create_resources(self):
         """Creating resource patches according to how the simulation class was initialized"""
-        for i in range(self.N_resc):
+        for i in range(self.N_resrc):
             self.add_new_resource_patch()
 
     def add_new_resource_patch(self, force_id=None):
         """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
         prove_resource method so that the distribution and overlap is following some predefined rules"""
         if force_id is None: # find new id
-            if len(self.rescources) > 0:
-                id = max([resc.id for resc in self.rescources]) + 1
+            if len(self.resources) > 0:
+                id = max([resrc.id for resrc in self.resources]) + 1
             else:
                 id = 0
         else:
@@ -388,19 +388,19 @@ class Simulation:
             if retries > max_retries:
                 raise Exception("Reached timeout while trying to create resources without overlap!")
             
-            radius = self.resc_radius
+            radius = self.resrc_radius
             x = np.random.randint(self.window_pad, self.WIDTH + self.window_pad - 2 * radius)
             y = np.random.randint(self.window_pad, self.HEIGHT + self.window_pad - 2 * radius)
 
-            units = np.random.randint(self.min_resc_units, self.max_resc_units)
-            quality = np.random.uniform(self.min_resc_quality, self.max_resc_quality)
-            resource = Rescource(id, radius, (x, y), (self.WIDTH, self.HEIGHT), colors.GREY, self.window_pad, units, quality)
+            units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
+            quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
+            resource = Resource(id, radius, (x, y), (self.WIDTH, self.HEIGHT), colors.GREY, self.window_pad, units, quality)
 
             # check for resource-resource overlap (does not check resource-agent overlap)
             resource_proven = self.prove_sprite(resource, prove_with_agents=False, prove_with_res=True)
             retries += 1
 
-        self.rescources.add(resource)
+        self.resources.add(resource)
 
     def kill_resource(self, resource):
         """Killing (and regenerating) a given resource patch"""
@@ -415,7 +415,7 @@ class Simulation:
         checking for agents/resources can be turned off with prove_with... parameters set to False"""
         
         if prove_with_res:
-            collision_group_r = pygame.sprite.spritecollide(sprite, self.rescources, False, pygame.sprite.collide_circle)
+            collision_group_r = pygame.sprite.spritecollide(sprite, self.resources, False, pygame.sprite.collide_circle)
             if len(collision_group_r) > 0:
                 return False
         
@@ -485,10 +485,10 @@ class Simulation:
 
         return collided_agents
 
-    def bias_agent_towards_res_center(self, agent, resc, relative_speed=0.02):
+    def bias_agent_towards_res_center(self, agent, resrc, relative_speed=0.02):
         """Turning the agent towards the center of a resource patch with some relative speed"""
         x1, y1 = agent.position + agent.radius
-        x2, y2 = resc.center
+        x2, y2 = resrc.center
         dx = x2 - x1
         dy = y2 - y1
         # calculating relative closed angle to agent2 orientation
@@ -532,7 +532,7 @@ class Simulation:
                 try:
                     for ag in self.agents:
                         ag.move_with_mouse(event.pos, 0, 0)
-                    for res in self.rescources:
+                    for res in self.resources:
                         res.update_clicked_status(event.pos)
                 except AttributeError:
                     for ag in self.agents:
@@ -541,7 +541,7 @@ class Simulation:
                 for ag in self.agents:
                     ag.is_moved_with_cursor = False
                     ag.draw_update()
-                for res in self.rescources:
+                for res in self.resources:
                     res.is_clicked = False
                     res.draw_update()
 
@@ -614,56 +614,56 @@ class Simulation:
 
                 ### ---- AGENT-RESOURCE INTERACTION ---- ### (can not be separated from main thread for some reason)
 
-                collision_group_ar = pygame.sprite.groupcollide(self.rescources, self.agents, False, False,
+                collision_group_ar = pygame.sprite.groupcollide(self.resources, self.agents, False, False,
                     pygame.sprite.collide_circle) # returns dict (every patch with agent : [foraging agents])
 
                 # delete colliding agents if outside patch radius
                 collision_group_ar = refine_ar_overlap_group(collision_group_ar)
 
                 # collecting agents that are on resource patch
-                agents_on_rescs = []
+                agents_on_resrcs = []
 
                 # Notifying agents about resource if pooling is successful + exploitation dynamics
-                for resc, agents in collision_group_ar.items():  # looping through patches
-                    destroy_resc = 0  # if we destroy a patch it is 1
+                for resrc, agents in collision_group_ar.items():  # looping through patches
+                    destroy_resrc = 0  # if we destroy a patch it is 1
                     for agent in agents:  # looping through all agents on patches
                         # Turn agent towards patch center
-                        self.bias_agent_towards_res_center(agent, resc)
+                        self.bias_agent_towards_res_center(agent, resrc)
 
                         # One of previous agents on patch consumed the last unit
-                        if destroy_resc:
+                        if destroy_resrc:
                             notify_agent(agent, -1)
                         
                         # Agent finished pooling on a resource patch
                         if (agent.get_mode() in ["pool", "relocate"] and agent.pool_success) or agent.pooling_time == 0:
                             # Notify about the patch
-                            notify_agent(agent, 1, resc.id)
+                            notify_agent(agent, 1, resrc.id)
                             # Teleport agent to the middle of the patch if needed
                             # if self.teleport_exploit: ## turn off for speed
-                            #     agent.position = resc.position + resc.radius - agent.radius
+                            #     agent.position = resrc.position + resrc.radius - agent.radius
 
                         # Agent was already exploiting this patch
                         if agent.get_mode() == "exploit":
                             # continue depleting the patch
-                            depl_units, destroy_resc = resc.deplete(agent.consumption)
+                            depl_units, destroy_resrc = resrc.deplete(agent.consumption)
                             agent.collected_r_before = agent.collected_r  # rolling resource memory
-                            agent.collected_r += depl_units  # and increasing it's collected rescources
-                            if destroy_resc:  # consumed unit was the last in the patch
+                            agent.collected_r += depl_units  # and increasing it's collected resources
+                            if destroy_resrc:  # consumed unit was the last in the patch
                                 for agent_tob_notified in agents:
                                     notify_agent(agent_tob_notified, -1)
 
                         # Collect all agents on resource patches
-                        agents_on_rescs.append(agent)
+                        agents_on_resrcs.append(agent)
 
                     # Patch is fully depleted
-                    if destroy_resc:
+                    if destroy_resrc:
                         # we clear it from the memory and regenerate it somewhere else if needed
-                        self.kill_resource(resc)
+                        self.kill_resource(resrc)
 
                 ### ---- NON-INTERACTING AGENTS ---- ###
                 
                 for agent in self.agents.sprites():
-                    if agent not in agents_on_rescs:  # for all the agents that are not on recourse patches
+                    if agent not in agents_on_resrcs:  # for all the agents that are not on recourse patches
                         if agent not in collided_agents:  # and are not colliding with each other currently
                             # if they finished pooling
                             if (agent.get_mode() in ["pool",
@@ -678,7 +678,7 @@ class Simulation:
 
                 ### ---- GENERAL UPDATE PER TIME STEP ---- ###
 
-                self.rescources.update()
+                self.resources.update()
                 self.agents.update(self.agents)
                 self.t += 1
 
@@ -699,13 +699,13 @@ class Simulation:
             if self.save_in_ifd:
                 ifdb.save_agent_data(self.ifdb_client, self.agents, self.t, exp_hash=self.ifdb_hash,
                                      batch_size=self.write_batch_size)
-                ifdb.save_resource_data(self.ifdb_client, self.rescources, self.t, exp_hash=self.ifdb_hash,
+                ifdb.save_resource_data(self.ifdb_client, self.resources, self.t, exp_hash=self.ifdb_hash,
                                         batch_size=self.write_batch_size)
             elif self.save_in_ram:
                 # saving data in ram for data processing, only when not paused
                 if not self.is_paused:
                     ifdb.save_agent_data_RAM(self.agents, self.t)
-                    ifdb.save_resource_data_RAM(self.rescources, self.t)
+                    ifdb.save_resource_data_RAM(self.resources, self.t)
 
             # Moving time forward
             if self.t % 500 == 0 or self.t == 1:
