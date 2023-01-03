@@ -394,7 +394,7 @@ class Simulation:
 
             units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
             quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
-            resource = Resource(id, radius, (x, y), (self.WIDTH, self.HEIGHT), colors.GREY, self.window_pad, units, quality)
+            resource = Resource(id, radius, (x, y), units, quality)
 
             # check for resource-resource overlap (does not check resource-agent overlap)
             resource_proven = self.prove_sprite(resource, prove_with_agents=False, prove_with_res=True)
@@ -647,7 +647,7 @@ class Simulation:
                             # continue depleting the patch
                             depl_units, destroy_resrc = resrc.deplete(agent.consumption)
                             agent.collected_r_before = agent.collected_r  # rolling resource memory
-                            agent.collected_r += depl_units  # and increasing it's collected resources
+                            agent.collected_r += depl_units  # and increasing its collected resources
                             if destroy_resrc:  # consumed unit was the last in the patch
                                 for agent_tob_notified in agents:
                                     notify_agent(agent_tob_notified, -1)
