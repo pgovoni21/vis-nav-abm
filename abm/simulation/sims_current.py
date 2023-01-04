@@ -182,13 +182,14 @@ class Simulation_current:
         # Initializing pygame
         if self.with_visualization:
             pygame.init()
+            self.screen = pygame.display.set_mode([self.WIDTH + 2 * self.window_pad, self.HEIGHT + 2 * self.window_pad])
         else:
             pygame.display.init()
+            pygame.display.set_mode([1,1])
 
         # pygame related class attributes
         self.agents = pygame.sprite.Group()
         self.rescources = pygame.sprite.Group()
-        self.screen = pygame.display.set_mode([self.WIDTH + 2 * self.window_pad, self.HEIGHT + 2 * self.window_pad])
         # todo: look into this more in detail so we can control dt
         self.clock = pygame.time.Clock()
 

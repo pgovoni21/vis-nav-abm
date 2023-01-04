@@ -112,7 +112,7 @@ def start_humanexp8(parallel=False):
     with ExitStack():
         sim = Simulation_humanexp8(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
-                         field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                         v_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
                          agent_fov=float(envconf['AGENT_FOV']),
                          framerate=int(float(envconf["INIT_FRAMERATE"])),
                          with_visualization=bool(int(float(envconf["WITH_VISUALIZATION"]))),
@@ -123,11 +123,11 @@ def start_humanexp8(parallel=False):
                          pooling_time=int(float(envconf["POOLING_TIME"])),
                          pooling_prob=float(envconf["POOLING_PROBABILITY"]),
                          agent_radius=int(float(envconf["RADIUS_AGENT"])),
-                         N_resrc=int(float(envconf["N_RESOURCES"])),
-                         min_resrc_perpatch=int(float(envconf["MIN_RESOURCE_PER_PATCH"])),
-                         max_resrc_perpatch=int(float(envconf["MAX_RESOURCE_PER_PATCH"])),
-                         min_resrc_quality=float(envconf["MIN_RESOURCE_QUALITY"]),
-                         max_resrc_quality=float(envconf["MAX_RESOURCE_QUALITY"]),
+                         N_resc=int(float(envconf["N_RESOURCES"])),
+                         min_resc_perpatch=int(float(envconf["MIN_RESOURCE_PER_PATCH"])),
+                         max_resc_perpatch=int(float(envconf["MAX_RESOURCE_PER_PATCH"])),
+                         min_resc_quality=float(envconf["MIN_RESOURCE_QUALITY"]),
+                         max_resc_quality=float(envconf["MAX_RESOURCE_QUALITY"]),
                          patch_radius=int(float(envconf["RADIUS_RESOURCE"])),
                          regenerate_patches=bool(int(float(envconf["REGENERATE_PATCHES"]))),
                          agent_consumption=int(float(envconf["AGENT_CONSUMPTION"])),
@@ -152,7 +152,7 @@ def start_current(parallel=False, agent_behave_param_list=None):
     with ExitStack():
         sim = Simulation_current(N=int(float(envconf["N"])),
                          T=int(float(envconf["T"])),
-                         field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                         v_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
                          agent_fov=float(envconf['AGENT_FOV']),
                          framerate=int(float(envconf["INIT_FRAMERATE"])),
                          with_visualization=bool(int(float(envconf["WITH_VISUALIZATION"]))),
@@ -163,12 +163,12 @@ def start_current(parallel=False, agent_behave_param_list=None):
                          pooling_time=int(float(envconf["POOLING_TIME"])),
                          pooling_prob=float(envconf["POOLING_PROBABILITY"]),
                          agent_radius=int(float(envconf["RADIUS_AGENT"])),
-                         N_resrc=int(float(envconf["N_RESOURCES"])),
+                         N_resc=int(float(envconf["N_RESOURCES"])),
                          allow_border_patch_overlap=bool(int(float(envconf["PATCH_BORDER_OVERLAP"]))),
-                         min_resrc_perpatch=int(float(envconf["MIN_RESOURCE_PER_PATCH"])),
-                         max_resrc_perpatch=int(float(envconf["MAX_RESOURCE_PER_PATCH"])),
-                         min_resrc_quality=float(envconf["MIN_RESOURCE_QUALITY"]),
-                         max_resrc_quality=float(envconf["MAX_RESOURCE_QUALITY"]),
+                         min_resc_perpatch=int(float(envconf["MIN_RESOURCE_PER_PATCH"])),
+                         max_resc_perpatch=int(float(envconf["MAX_RESOURCE_PER_PATCH"])),
+                         min_resc_quality=float(envconf["MIN_RESOURCE_QUALITY"]),
+                         max_resc_quality=float(envconf["MAX_RESOURCE_QUALITY"]),
                          patch_radius=int(float(envconf["RADIUS_RESOURCE"])),
                          regenerate_patches=bool(int(float(envconf["REGENERATE_PATCHES"]))),
                          agent_consumption=int(float(envconf["AGENT_CONSUMPTION"])),
@@ -189,3 +189,9 @@ def start_current(parallel=False, agent_behave_param_list=None):
                          )
         sim.write_batch_size = 100
         sim.start()
+
+def start_current_headless():
+    print("Start ABM in Headless Mode...")
+    os.environ['SDL_VIDEODRIVER'] = 'dummy'
+    envconf['WITH_VISUALIZATION'] = '0'
+    start_current()
