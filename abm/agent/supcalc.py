@@ -60,8 +60,8 @@ def random_walk(desired_vel=None):
 
 def distance(agent1, agent2):
     """Euclidean distance between 2 agent class agents in the environment as pixels""" ## todo - hamming dist for calc speed
-    c1 = np.array([agent1.position[0] + agent1.radius, agent1.position[1] + agent1.radius])
-    c2 = np.array([agent2.position[0] + agent2.radius, agent2.position[1] + agent2.radius])
+    c1 = agent1.position + agent1.radius
+    c2 = agent2.position + agent2.radius
     distance = np.linalg.norm(c2 - c1)
     return distance
 

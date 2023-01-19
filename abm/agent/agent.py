@@ -108,8 +108,7 @@ class Agent(pygame.sprite.Sprite):
         self.pool_success = 0  # states if the agent deserves 1 piece of update about the status of env in given pos
 
         # Environment related parameters
-        self.WIDTH = env_size[0]  # env width
-        self.HEIGHT = env_size[1]  # env height
+        self.WIDTH, self.HEIGHT = env_size
         self.window_pad = window_pad
         self.boundaries_x = [self.window_pad, self.window_pad + self.WIDTH]
         self.boundaries_y = [self.window_pad, self.window_pad + self.HEIGHT]
@@ -131,8 +130,7 @@ class Agent(pygame.sprite.Sprite):
         pygame.draw.line(self.image, colors.BACKGROUND, (radius, radius),
                          ((1 + np.cos(self.orientation)) * radius, (1 - np.sin(self.orientation)) * radius), 3)
         self.rect = self.image.get_rect()
-        self.rect.x = self.position[0]
-        self.rect.y = self.position[1]
+        self.rect.x, self.rect.y = self.position
         self.mask = pygame.mask.from_surface(self.image)
 
 ### -------------------------- VISUAL PROJECTION FUNCTIONS -------------------------- ###
@@ -199,8 +197,8 @@ class Agent(pygame.sprite.Sprite):
 
         # direction vector, magnitude = radius, flipped y-axis
         vec_self_dir = pt_self_e - pt_self_c
-        ## where v1[0] --> + : right, 0 : center, - : left, 10 : max
-        ## where v1[1] --> + : down, 0 : center, - : up, 10 : max
+        ## where v1[0] -->  + : right |  - : left
+        ## where v1[1] -->  + : down  |  - : up
 
         # calculating orientation angle between agent/obstacle + exclusionary angle +  projection size
         self.field_obst_dict = {}
@@ -238,7 +236,7 @@ class Agent(pygame.sprite.Sprite):
         self.rank_projection_data("angle_excl")
 
         # marking exploiting agents in perceptual field
-        field = self.mark_projection_field(field, keep_distance_info, distance, fov, phis)
+        field = self.mark_projection_field(field, keep_distance_info, fov, phis)
 
         ### if len(self.field_obst_dict) > 0:
         ###     print(field)        
@@ -249,26 +247,22 @@ class Agent(pygame.sprite.Sprite):
         """
         Calculate projection field of obstacle + save as dictionary entry
         """
-        # finding where in the retina the projection belongs to
-        phi_target = supcalc.find_nearest(phis, angle_between) # where in retina the obstacle is
-        ## low : left-side, high : right-side
-        ### print("phi_target: ", phi_target)
-
-        # calculating exclusionary angle between obstacle + self
+        # calculating radial exclusionary angle between obstacle + self
         # assumes obstacle = agent radius (change for landmarks)
-        angle_excl = 2 * np.arctan(self.radius / distance)
+        angle_excl = np.arctan(self.radius / distance)
 
-        # calculating projection size / limits
-        # as proportion of entire 360 view + discretized to specified resolution units
-        # limiting FOV will be done after
-        proj_size = (angle_excl / (2 * np.pi)) * self.field_res 
-        proj_L = int(phi_target - proj_size / 2) # CCW from center
-        proj_R = int(phi_target + proj_size / 2) # CW from center
+        # finding L/R sides (projection limits) of obstacle
+        angle_L = angle_between - angle_excl
+        angle_R = angle_between + angle_excl
+
+        # finding where in the retina the projection belongs to
+        proj_L = supcalc.find_nearest(phis, angle_L) # CCW from center
+        proj_R = supcalc.find_nearest(phis, angle_R) # CW from center
+        ## - : left-side | + : right-side
 
         # saving relevant data to dict
         self.field_obst_dict[i] = {}
         self.field_obst_dict[i]["angle_excl"] = angle_excl
-        self.field_obst_dict[i]["phi_target"] = phi_target
         self.field_obst_dict[i]["distance"] = distance
 
         self.field_obst_dict[i]["proj_L"] = proj_L
@@ -328,13 +322,14 @@ class Agent(pygame.sprite.Sprite):
                 clean_sdata[k] = v
         self.field_obst_dict = clean_sdata
 
-    def mark_projection_field(self, field, keep_distance_info, distance, fov, phis):
+    def mark_projection_field(self, field, keep_distance_info, fov, phis):
         """
         Mark projection field of agent according to each relevant obstacle
         """
         for k, v in self.field_obst_dict.items():
             proj_L = v["proj_L_ex"]
             proj_R = v["proj_R_ex"]
+            distance = v["distance"]
 
             # apply local periodic boundary conditions to wrap perception of objects behind agent
             if proj_L < 0:

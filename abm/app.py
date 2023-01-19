@@ -1,7 +1,6 @@
 from contextlib import ExitStack
 
 from abm.simulation.sims import Simulation
-from abm.simulation.sims_humanexp8 import Simulation_humanexp8
 from abm.simulation.sims_current import Simulation_current
 from abm.simulation.sims import Simulation
 from abm.simulation.isims import PlaygroundSimulation
@@ -107,45 +106,6 @@ def generate_env_file(env_data, file_name, save_folder):
         for k, v in env_data.items():
             file.write(f"{k}={v}\n")
 
-def start_humanexp8(parallel=False):
-    window_pad = 30
-    with ExitStack():
-        sim = Simulation_humanexp8(N=int(float(envconf["N"])),
-                         T=int(float(envconf["T"])),
-                         v_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
-                         agent_fov=float(envconf['AGENT_FOV']),
-                         framerate=int(float(envconf["INIT_FRAMERATE"])),
-                         with_visualization=bool(int(float(envconf["WITH_VISUALIZATION"]))),
-                         width=int(float(envconf["ENV_WIDTH"])),
-                         height=int(float(envconf["ENV_HEIGHT"])),
-                         show_vis_field=bool(int(float(envconf["SHOW_VISUAL_FIELDS"]))),
-                         show_vis_field_return=bool(int(envconf['SHOW_VISUAL_FIELDS_RETURN'])),
-                         pooling_time=int(float(envconf["POOLING_TIME"])),
-                         pooling_prob=float(envconf["POOLING_PROBABILITY"]),
-                         agent_radius=int(float(envconf["RADIUS_AGENT"])),
-                         N_resc=int(float(envconf["N_RESOURCES"])),
-                         min_resc_perpatch=int(float(envconf["MIN_RESOURCE_PER_PATCH"])),
-                         max_resc_perpatch=int(float(envconf["MAX_RESOURCE_PER_PATCH"])),
-                         min_resc_quality=float(envconf["MIN_RESOURCE_QUALITY"]),
-                         max_resc_quality=float(envconf["MAX_RESOURCE_QUALITY"]),
-                         patch_radius=int(float(envconf["RADIUS_RESOURCE"])),
-                         regenerate_patches=bool(int(float(envconf["REGENERATE_PATCHES"]))),
-                         agent_consumption=int(float(envconf["AGENT_CONSUMPTION"])),
-                         ghost_mode=bool(int(float(envconf["GHOST_WHILE_EXPLOIT"]))),
-                         patchwise_exclusion=bool(int(float(envconf["PATCHWISE_SOCIAL_EXCLUSION"]))),
-                         teleport_exploit=bool(int(float(envconf["TELEPORT_TO_MIDDLE"]))),
-                         vision_range=int(float(envconf["VISION_RANGE"])),
-                         visual_exclusion=bool(int(float(envconf["VISUAL_EXCLUSION"]))),
-                         show_vision_range=bool(int(float(envconf["SHOW_VISION_RANGE"]))),
-                         use_ifdb_logging=bool(int(float(envconf["USE_IFDB_LOGGING"]))),
-                         use_ram_logging=bool(int(float(envconf["USE_RAM_LOGGING"]))),
-                         save_csv_files=bool(int(float(envconf["SAVE_CSV_FILES"]))),
-                         use_zarr=bool(int(float(envconf["USE_ZARR_FORMAT"]))),
-                         parallel=parallel,
-                         window_pad=window_pad,
-                         )
-        sim.write_batch_size = 100
-        sim.start()
 
 def start_current(parallel=False, agent_behave_param_list=None):
     window_pad = 30
