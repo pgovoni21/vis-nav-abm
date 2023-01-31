@@ -17,7 +17,9 @@ INFLUX_DB_NAME = "home"
 INFLUX_TIMEOUT = 30  # timeout for requests to wait for client in seconds
 INFLUX_RETRIES = 3  # number of retries before fail when timeout reached
 
-print("Using IFDB long timeout and retries!")
+print_enabled=bool(int(float(envconf["PRINT_ENABLED"])))
+
+if print_enabled: print("Using IFDB long timeout and retries!")
 
 if WRITE_EACH_POINT is not None:
     write_batch_size = 1

@@ -7,12 +7,8 @@ import pygame
 import numpy as np
 from abm.contrib import colors, decision_params, movement_params
 from abm.agent import supcalc
-from collections import OrderedDict
+from abm.NN.CTRNN import CTRNN
 import importlib
-
-import pprint
-pp = pprint.PrettyPrinter(depth=4)
-import time
 
 class Agent(pygame.sprite.Sprite):
     """
@@ -20,32 +16,34 @@ class Agent(pygame.sprite.Sprite):
     and to make decisions.
     """
 
-    def __init__(self, id, radius, position, orientation, env_size, color, field_res, FOV, window_pad, pooling_time,
-                 pooling_prob, consumption, vision_range, visual_exclusion, patchwise_exclusion):
+    def __init__(self, id, position, orientation, max_vel, collision_slowdown, vis_field_res, FOV, vision_range, visual_exclusion, 
+                 contact_field_res, consumption, NN, NN_weight_init, vis_size, contact_size, NN_input_size, NN_hidden_size, 
+                 NN_output_size, boundary_info, radius, color, print_enabled):
         """
         Initalization method of main agent class of the simulations
 
         :param id: ID of agent (int)
-        :param radius: radius of the agent in pixels
         :param position: position of the agent in env as (x, y)
+        :param max_vel: 
+        :param collision_slowdown: 
         :param orientation: absolute orientation of the agent (0: right, pi/2: up, pi: left, 3*pi/2: down)
-        :param env_size: environment size available for agents as (width, height)
-        :param color: color of the agent as (R, G, B)
-        :param field_res: resolution of the projection field (both visual + proximity) of the agent in pixels
+        :param vis_field_res: resolution of the visual projection field of the agent in pixels
         :param FOV: visual field as a tuple of min max visible angles e.g. (-np.pi, np.pi)
-        :param window_pad: padding of the environment in simulation window in pixels
-        :param pooling_time: time units needed to pool status of a given position in the environment
-        :param pooling_prob: initial probability to switch to pooling behavior
-        :param consumption: (resource unit/time unit) consumption efficiency of agent
         :param vision_range: in px the range/radius in which the agent is able to see other agents
-        :param visual_exclusion: if True social cues can be visually excluded by non social cues.
-        :param patchwise_exclusion: exclude agents from visual field if exploiting the same patch
-        :param behave_params: dictionary of behavioral parameters can be passed to a given agent which will
-            overwrite the parameters defined in the env files. (e.g. when agents are heterogeneous)
+        :param visual_exclusion: if True social cues can be visually excluded by non social cues
+        :param contact_field_res: resolution of the contact projection field of the agent in pixels
+        :param consumption: (resource unit/time unit) consumption efficiency of agent
+        :param NN: 
+        :param NN_weight_init: 
+        :param vis_size: 
+        :param contact_size: 
+        :param NN_input_size: 
+        :param NN_hidden_size: 
+        :param NN_output_size: 
+        :param boundary_info: 
+        :param radius: radius of the agent in pixels
+        :param color: color of the agent as (R, G, B)
         """
-        
-### -------------------------- INITIALIZATION -------------------------- ###
-
         # PyGame Sprite superclass
         super().__init__()
 
@@ -53,70 +51,68 @@ class Agent(pygame.sprite.Sprite):
         importlib.reload(decision_params)
         importlib.reload(movement_params)
 
-        # Saved parameters
+        # Unique parameters
         self.id = id 
-        self.position = np.array(position, dtype=np.float64) ### dynamic sensory input
-        self.orientation = orientation ### dynamic sensory input
 
-        self.velocity = 0  # (absolute) ### dynamic sensory input?
-        self.mode = "explore"  # explore, flock, collide, exploit, pool
+        # Movement/behavior parameters
+        self.position = np.array(position, dtype=np.float64)
+        self.orientation = orientation
+        self.velocity = 0  # (absolute)
         
-        self.exploited_patch_id = -1 
-        self.collected_r = 0  # resource units collected by agent 
-        self.collected_r_before = 0  # ^ from previous time step to monitor patch quality (not saved)
+        self.pt_center = self.position + radius
+        self.pt_eye = np.array([
+            self.pt_center[0] + np.cos(orientation) * radius, 
+            self.pt_center[1] - np.sin(orientation) * radius])
+
+        self.mode = "explore"  # explore / exploit / collide
+        self.max_vel = max_vel
+        self.collision_slowdown = collision_slowdown
         
-        # Projection field parameters
-        self.field_res = field_res
+        # Visual field parameters
+        self.vis_field_res = vis_field_res
         self.FOV = FOV
+        # constructs array of each visually perceivable angle (- : left / + : right)
+        self.phis = np.linspace(-FOV*np.pi, FOV*np.pi, vis_field_res)
         self.vision_range = vision_range
         self.visual_exclusion = visual_exclusion
+        self.vis_field = [0] * vis_field_res
 
-        # Behavioral parameters
-        self.exp_stop_ratio = movement_params.exp_stop_ratio
-        self.max_exp_vel = movement_params.exp_vel_max
+        # Contact field parameters
+        self.contact_field_res = contact_field_res
+        # convention reflects orientation (0 : right, +pi/2 : up) / ending angle set to ensure even spacing around perimeter
+        self.contact_phis = np.linspace(0, 2*np.pi - 2*np.pi/contact_field_res, contact_field_res)
+        self.contact_field = [0] * contact_field_res
+
+        # Resource parameters
+        self.collected_r = 0  # resource units collected by agent 
+        self.on_resrc = 0 # binary : whether agent is currently on top of a resource patch or not
         self.consumption = consumption
-        self.exclude_agents_same_patch = patchwise_exclusion
-        self.overriding_mode = None
-        ## w
-        self.S_wu = decision_params.S_wu
-        self.T_w = decision_params.T_w
-        self.w = 0
-        self.Eps_w = decision_params.Eps_w
-        self.g_w = decision_params.g_w
-        self.B_w = decision_params.B_w
-        self.w_max = decision_params.w_max
-        ## u
-        self.I_priv = 0  # saved
-        self.novelty = np.zeros(decision_params.Tau)
-        self.S_uw = decision_params.S_uw
-        self.T_u = decision_params.T_u
-        self.u = 0
-        self.Eps_u = decision_params.Eps_u
-        self.g_u = decision_params.g_u
-        self.B_u = decision_params.B_u
-        self.u_max = decision_params.u_max
-        self.F_N = decision_params.F_N
-        self.F_R = decision_params.F_R
 
-        # Pooling attributes
-        self.pooling_time = pooling_time
-        self.pooling_prob = pooling_prob
-        
-        self.time_spent_pooling = 0  # time units currently spent with pooling the status of given position (changes dynamically)
-        self.env_status_before = 0
-        self.env_status = 0  # status of the environment in current position, 1 if resource, 0 otherwise
-        self.pool_success = 0  # states if the agent deserves 1 piece of update about the status of env in given pos
+        # Neural network initialization / parameters
+        self.vis_size = vis_size
+        self.contact_size = contact_size
+        self.other_size = NN_input_size - vis_size - contact_size
+        self.input_size = NN_input_size
+        NN_arch = (NN_input_size, NN_hidden_size, NN_output_size)
+        # use given NN to control agent or initialize a new NN
+        if NN: self.NN = NN
+        else:  self.NN = CTRNN(architecture=NN_arch, init=NN_weight_init, dt=100) 
+        self.hidden = None # to store hidden activity each time step
 
         # Environment related parameters
-        self.WIDTH, self.HEIGHT = env_size
-        self.window_pad = window_pad
-        self.boundaries_x = [self.window_pad, self.window_pad + self.WIDTH]
-        self.boundaries_y = [self.window_pad, self.window_pad + self.HEIGHT]
+        self.x_min, self.x_max, self.y_min, self.y_max = boundary_info
+        # define names for each endpoint (top/bottom + left/right)
+        self.boundary_endpts = [
+            ('TL', np.array([ self.x_min, self.y_min ])),
+            ('TR', np.array([ self.x_max, self.y_min ])),
+            ('BL', np.array([ self.x_min, self.y_max ])),
+            ('BR', np.array([ self.x_max, self.y_max ]))
+        ]
 
         # Visualization / human interaction parameters
         self.radius = radius
         self.color = color
-        self.selected_color = colors.LIGHT_BLUE
+        self.selected_color = colors.BLACK
 
         self.show_stats = False
         self.is_moved_with_cursor = 0
@@ -133,467 +129,437 @@ class Agent(pygame.sprite.Sprite):
         self.rect.x, self.rect.y = self.position
         self.mask = pygame.mask.from_surface(self.image)
 
-### -------------------------- VISUAL PROJECTION FUNCTIONS -------------------------- ###
+### -------------------------- VISUAL FUNCTIONS -------------------------- ###
 
-    def calc_social_V_proj(self, agents):
+    def gather_self_percep_info(self):
         """
-        Calculates socially relevant visual projection field of the agent. This is calculated as the
-        projection of nearby exploiting agents that are not visually excluded by other agents
+        gather relevant perception info of self (viewing point / direction vector)
         """
-        # gather all visible agents (exluding self)
-        agents_vis = [ag for ag in agents if supcalc.distance(self, ag) <= self.vision_range and ag.id != self.id]
-        
-        # separate agents that are exploiting on non-emptied patch with the others
-        agents_vis_expl = []
-        agents_vis_nonexpl = []
-        for ag in agents_vis:
-            if ag.get_mode() == "exploit" and ag.exploited_patch_id != self.exploited_patch_id: ## assuming patchwise_social_exclusion == True
-                agents_vis_expl.append(ag) 
-            else: # if ag.get_mode() != "exploit" or ag.exploited_patch_id == self.exploited_patch_id
-                agents_vis_nonexpl.append(ag)
-
-        # calculate visual field either regarding other agents as obstacles or not
-        if self.visual_exclusion:
-            self.soc_vis_field = self.projection_field(agents_vis_expl, keep_distance_info=False,
-                                                     non_expl_agents = agents_vis_nonexpl)
-        else:
-            self.soc_vis_field = self.projection_field(agents_vis_expl, keep_distance_info=False)
-    
-    def projection_field(self, obstacles, keep_distance_info=False, non_expl_agents=None, fov=None):
-        """
-        Calculates (visual or proximity) projection field for the agent given the visible obstacles in the environment
-        :param obstacles: list of agents (with same radius) or some other obstacle sprites to generate projection field
-        :param keep_distance_info: if True, the amplitude of the vpf will reflect the distance of the object from the
-            agent so that exclusion can be easily generated with a single computational step.
-        :param non_expl_agents: a list of non-scoial visual cues (non-exploiting agents) that on the other hand can still
-            produce visual exlusion on the projection of social cues. If None only social cues can produce visual
-            exclusion on each other.
-        :param fov: agent field of view as percentage, e.g. 0.5 corresponds to a visual range of [-pi/2, pi/2]
-        """
-        # setting projection field range (1 or 360 deg for agent_agent_collision_proximity input)
-        if fov is None: # for visual calculations (likely < 1)
-            fov = self.FOV
-
-        # extracting obstacle coordinates
-        obstacle_coords = [ob.position for ob in obstacles]
-
-        # if non-social cues can exclude social ones we also concatenate these to the obstacle coords
-        len_social = 0
-        if non_expl_agents is not None:
-            len_social = len(obstacles) # to demarcate this divide when iterating in list below
-            obstacle_coords.extend([ob.position for ob in non_expl_agents])
-
-        # initializing projection field at the specified resolution
-        field = np.zeros(self.field_res)
-        phis = np.linspace(-np.pi, np.pi, self.field_res) # limiting to FOV will be done after
-
         # center point of self
-        pt_self_c = self.position + self.radius
+        self.pt_center = self.position + self.radius
 
-        # edge point on agent's perimeter according to its orientation
-        pt_self_e = np.array([
-            pt_self_c[0] + np.cos(self.orientation) * self.radius, 
-            pt_self_c[1] - np.sin(self.orientation) * self.radius])
+        # front-facing point on agent's perimeter according to its orientation
+        self.pt_eye = np.array([
+            self.pt_center[0] + np.cos(self.orientation) * self.radius, 
+            self.pt_center[1] - np.sin(self.orientation) * self.radius])
 
         # direction vector, magnitude = radius, flipped y-axis
-        vec_self_dir = pt_self_e - pt_self_c
-        ## where v1[0] -->  + : right |  - : left
-        ## where v1[1] -->  + : down  |  - : up
+        self.vec_self_dir = self.pt_eye - self.pt_center
+        ## where v1[0] --> + : right, 0 : center, - : left, 10 : max
+        ## where v1[1] --> + : down, 0 : center, - : up, 10 : max
 
-        # calculating orientation angle between agent/obstacle + exclusionary angle +  projection size
-        self.field_obst_dict = {}
-        for i, obstacle_coord in enumerate(obstacle_coords):
+    def gather_boundary_endpt_info(self):
+        """
+        create dictionary storing visually relevant information for each boundary endpoint
+        """
+        self.boundary_endpt_dict = {}
+        for endpt_name, endpt_coord in self.boundary_endpts:
 
-            # center of obstacle (other agent)
-            pt_other_c = obstacle_coord + self.radius
+            # calc vector between boundary endpoint + self eye (front-facing point)
+            vec_between = endpt_coord - self.pt_eye
 
-            # vector between obstacle center + self edge, magnitude = distance
-            vec_between = pt_other_c - pt_self_e
-
-            # calculating orientation angle with respect to direction vector of self + vector bw agent-obstacle
-            # requires the magnitude/norm of both vectors (radius + distance)
+            # calc magnitude/norm
             distance = np.linalg.norm(vec_between)
-            angle_between = supcalc.angle_between(vec_self_dir, vec_between, self.radius, distance)
-            ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
-            ### print("agent id/pos/orient/btwn: ", self.id, self.position, self.orientation*180/np.pi, angle_between*180/np.pi)
 
-            # if target is perceivable, we calculate projection + save relevant data into dict
-            if abs(angle_between) <= fov*np.pi: # target is within limit of perceivable range
-                self.create_field_dict_entry(phis, angle_between, distance, i, len_social)
+            # calc orientation angle
+            angle_bw = supcalc.angle_between(self.vec_self_dir, vec_between, self.radius, distance)
+            ## relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
 
-        # calculating perceptual exclusion (agents behind agents) if requested
-        if self.visual_exclusion and len(self.field_obst_dict.items()) > 1:
-            self.calculate_perceptual_exclusions()
+            # project to FOV
+            proj = supcalc.find_nearest(self.phis, angle_bw)
 
-        ### if len(self.field_obst_dict) > 0:
-        ###     pp.pprint(self.field_obst_dict)
+            # update dictionary with added info
+            self.boundary_endpt_dict[endpt_name] = (endpt_coord, distance, angle_bw, proj)
 
-        # removing non-exploiting agents
-        if non_expl_agents is not None:
-            self.remove_nonexploiting_agents()
+    def gather_boundary_wall_info(self):
 
-        # sorting projection field entries according to perceptual angle
-        self.rank_projection_data("angle_excl")
+        # initialize wall dict
+        self.vis_field_wall_dict = {}
+        # strings to name walls + call corresponding L/R endpts
+        walls = [
+            ('wall_north', 'TL', 'TR'),
+            ('wall_south', 'BR', 'BL'),
+            ('wall_east', 'TR', 'BR'),
+            ('wall_west', 'BL', 'TL'),
+        ]
+        # unpack L/R angle limits of visual projection field
+        phi_L_limit = self.phis[0]
+        phi_R_limit = self.phis[-1]
 
-        # marking exploiting agents in perceptual field
-        field = self.mark_projection_field(field, keep_distance_info, fov, phis)
+        # loop over the 4 walls
+        for wall_name, pt_L, pt_R in walls:
 
-        ### if len(self.field_obst_dict) > 0:
-        ###     print(field)        
+            # unpack dict entry for each corresponding endpt
+            coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
+            coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
 
-        return field
+            # if at least one endpt is visually perceivable, build dict entry
+            if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
 
-    def create_field_dict_entry(self, phis, angle_between, distance, i, len_social):
-        """
-        Calculate projection field of obstacle + save as dictionary entry
-        """
-        # calculating radial exclusionary angle between obstacle + self
-        # assumes obstacle = agent radius (change for landmarks)
-        angle_excl = np.arctan(self.radius / distance)
+                self.vis_field_wall_dict[wall_name] = {}
+                self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
+                self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
 
-        # finding L/R sides (projection limits) of obstacle
-        angle_L = angle_between - angle_excl
-        angle_R = angle_between + angle_excl
+                self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
+                self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
 
-        # finding where in the retina the projection belongs to
-        proj_L = supcalc.find_nearest(phis, angle_L) # CCW from center
-        proj_R = supcalc.find_nearest(phis, angle_R) # CW from center
-        ## - : left-side | + : right-side
+                if proj_L <= proj_R:
 
-        # saving relevant data to dict
-        self.field_obst_dict[i] = {}
-        self.field_obst_dict[i]["angle_excl"] = angle_excl
-        self.field_obst_dict[i]["distance"] = distance
+                    self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
+                    self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
 
-        self.field_obst_dict[i]["proj_L"] = proj_L
-        self.field_obst_dict[i]["proj_R"] = proj_R
+                # L/R edge cases (angle sign switches behind the agent)
+                else: # proj_L > proj_R 
 
-        self.field_obst_dict[i]["proj_L_ex"] = proj_L
-        self.field_obst_dict[i]["proj_R_ex"] = proj_R
+                    # L-endpoint is far enough L it becomes R (positive + end of visual field)
+                    if proj_L == len(self.phis)-1:
+                        self.vis_field_wall_dict[wall_name]['proj_L'] = 0
+                        self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
 
-        # marking whether observed agents were exploiting or not
-        if len_social > 0: # non-exploiting agents exist + are in the projection field
-            if i < len_social: # exploiting agents
-                self.field_obst_dict[i]["exploiting"] = True
-            else: # non-exploiting agents
-                self.field_obst_dict[i]["exploiting"] = False
-        else: # no non-expoiting agents exist and/or are observed
-            self.field_obst_dict[i]["exploiting"] = True
+                    else: # R-endpoint is far enough R it becomes L (negative + start of visual field)
+                        self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
+                        self.vis_field_wall_dict[wall_name]['proj_R'] = len(self.phis)-1
 
-    def calculate_perceptual_exclusions(self):
-        """
-        Iterates over pairs of obstacles, excluding occluded obstacles/parts
-        """
-        # ranks obstacles according to distance - low first
-        self.rank_projection_data("distance", reverse=False)
 
-        # combination operation, though itertools doesn't seem to provide performance benefit and is less understandable
-        for _, obs_close in self.field_obst_dict.items(): 
-            for _, obs_far in list(self.field_obst_dict.items())[1:]: 
-                if obs_far["distance"] > obs_close["distance"]: 
-                    # Partial R-side exclusion
-                    if obs_far["proj_R_ex"] > obs_close["proj_L"] > obs_far["proj_L_ex"]: 
-                        obs_far["proj_R_ex"] = obs_close["proj_L"]
-                        continue
-                    # Partial L-side exclusion
-                    if obs_far["proj_L_ex"] < obs_close["proj_R"] < obs_far["proj_R_ex"]:
-                        obs_far["proj_L_ex"] = obs_close["proj_R"]
-                        continue
-                    # Total exclusion
-                    if obs_close["proj_L"] <= obs_far["proj_L_ex"] and obs_close["proj_R"] >= obs_far["proj_R_ex"]:
-                        obs_far["proj_L_ex"] = 0
-                        obs_far["proj_R_ex"] = 0
-    
-    def rank_projection_data(self, ranking_key, reverse=True):
-        """
-        Ranks/sorts projection field data by specified key
-        :param: ranking_key: string
-        """
-        sorted_dict = sorted(self.field_obst_dict.items(), key=lambda kv: kv[1][ranking_key], reverse=reverse)
-        self.field_obst_dict = OrderedDict(sorted_dict)
+        if not self.vis_field_wall_dict: # no walls had endpoints within FOV - find closest wall via L endpoints
 
-    def remove_nonexploiting_agents(self):
-        """
-        Creates new data with purely social/exploiting agent data after calculating exclusions + before interaction processes
-        """
-        clean_sdata = {}
-        for k, v in self.field_obst_dict.items():
-            if v["exploiting"]: # == True
-                clean_sdata[k] = v
-        self.field_obst_dict = clean_sdata
+            # list endpoints left of L perception limit
+            nonvis_L_endpts = [(name,angle) for name,(_,_,angle,_) in self.boundary_endpt_dict.items() if angle < phi_L_limit]
 
-    def mark_projection_field(self, field, keep_distance_info, fov, phis):
-        """
-        Mark projection field of agent according to each relevant obstacle
-        """
-        for k, v in self.field_obst_dict.items():
-            proj_L = v["proj_L_ex"]
-            proj_R = v["proj_R_ex"]
-            distance = v["distance"]
-
-            # apply local periodic boundary conditions to wrap perception of objects behind agent
-            if proj_L < 0:
-                field[self.field_res + proj_L:self.field_res] = 1
-                proj_L = 0
-            if proj_R >= self.field_res:
-                field[0:proj_R - self.field_res] = 1
-                proj_R = self.field_res - 1
-
-            # weighing projection amplitude with rank information if requested
-            if not keep_distance_info: # for vision
-                field[proj_L:proj_R] = 1
-            else: # for collision
-                field[proj_L:proj_R] = (1 - distance / self.vision_range)
-
-        # imposing global FOV boundary conditions if applicable
-        if fov < 1:
-            field[phis < -fov*np.pi] = 0
-            field[phis > fov*np.pi] = 0
-
-        return field
-
-### -------------------------- DECISION MAKING FUNCTIONS -------------------------- ###
-
-    def calc_I_priv(self):
-        """returning I_priv according to the environment status. Note that this is not necessarily the same as
-        later on I_priv also includes the reward amount in the last n timesteps"""
-        # other part is coming from uncovered resource units
-        collected_unit = self.collected_r - self.collected_r_before
-
-        # calculating private info by weighting these
-        self.I_priv = self.F_N * np.max(self.novelty) + self.F_R * collected_unit
-
-    def evaluate_decision_processes(self):
-        """updating inner decision processes according to the current state and the visual projection field"""
-        w_p = self.w if self.w > self.T_w else 0
-        u_p = self.u if self.u > self.T_u else 0
-        dw = self.Eps_w * (np.mean(self.soc_vis_field)) - self.g_w * (
-                self.w - self.B_w) - u_p * self.S_uw  # self.tr_u() * self.S_uw
-        du = self.Eps_u * self.I_priv - self.g_u * (self.u - self.B_u) - w_p * self.S_wu  # self.tr_w() * self.S_wu
-        self.w += dw
-        self.u += du
-        if self.w > self.w_max:
-            self.w = self.w_max
-        if self.w < -self.w_max:
-            self.w = -self.w_max
-        if self.u > self.u_max:
-            self.u = self.u_max
-        if self.u < -self.u_max:
-            self.u = -self.u_max
-
-    def tr_w(self):
-        """Relocation threshold function that checks if decision variable w is above T_w"""
-        if self.w > self.T_w:
-            return True
-        else:
-            return False
-
-    def tr_u(self):
-        """Exploitation threshold function that checks if decision variable u is above T_w"""
-        if self.u > self.T_w:
-            return True
-        else:
-            return False
-
-### -------------------------- MODE FUNCTIONS -------------------------- ###
-    
-    def get_mode(self):
-        """returning the current mode of the agent according to it's inner decision mechanisms as a human-readable
-        string for external processes defined in the main simulation thread (such as collision that depends on the
-        state of the at and also overrides it as it counts as ana emergency)"""
-        if self.overriding_mode is None:
-            if self.tr_w():
-                return "relocate"
+            if nonvis_L_endpts:
+                # return endpt name with max angle of these L angles
+                closest_nonvis_L_endpt_name,_ = max(nonvis_L_endpts, key = lambda t: t[1])
+                # find corresponding wall_name + R endpt
+                for wall_name, pt_L, pt_R in walls:
+                    if pt_L == closest_nonvis_L_endpt_name:
+                        break
+                
+                # create dict entry for this wall
+                coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
+                coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
+                self.vis_field_wall_dict[wall_name] = {}
+                self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
+                self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
+                self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
+                self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
+                self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
+                self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
+            
             else:
-                return "explore"
-        else:
-            return self.overriding_mode
+                # list endpoints left of R perception limit
+                nonvis_R_endpts = [(name,angle) for name,(_,_,angle,_) in self.boundary_endpt_dict.items() if angle > phi_R_limit]
+                
+                if nonvis_R_endpts:
+                    # return endpt name with max angle of these R angles
+                    closest_nonvis_R_endpt_name,_ = min(nonvis_R_endpts, key = lambda t: t[1])
+                    # find corresponding wall_name + L endpt
+                    for wall_name, pt_L, pt_R in walls:
+                        if pt_R == closest_nonvis_R_endpt_name:
+                            break
+                    
+                    # create dict entry for this wall
+                    coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
+                    coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
+                    self.vis_field_wall_dict[wall_name] = {}
+                    self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
+                    self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
+                    self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
+                    self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
+                    self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
+                    self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
 
-    def set_mode(self, mode):
-        """setting the behavioral mode of the agent according to some human_readable flag. This can be:
-            -explore
-            -exploit
-            -relocate
-            -pool
-            -collide"""
-        if mode == "explore":
-            # self.w = 0
-            self.overriding_mode = None
-        elif mode == "relocate":
-            # self.w = self.T_w + 0.001
-            self.overriding_mode = None
-        elif mode == "collide":
-            self.overriding_mode = "collide"
-            # self.w = 0
-        elif mode == "exploit":
-            self.overriding_mode = "exploit"
-            # self.w = 0
-        elif mode == "pool":
-            self.overriding_mode = "pool"
-            # self.w = 0
-        self.mode = mode
+                else:
+                    print(self.vis_field_wall_dict)
+                    # self.vis_field_wall_dict = {'TL': (array([30, 30]), nan, nan, 0), 'TR': (array([430,  30]), nan, nan, 0), 'BL': (array([ 30, 430]), nan, nan, 0), 'BR': (array([430, 430]), nan, nan, 0)}
+                    self.vis_field_wall_dict = None
 
-### -------------------------- PHYSICAL FUNCTIONS -------------------------- ###
+    # def gather_agent_info(self, agents):
 
-    def prove_orientation(self):
-        """Restricting orientation angle between 0 and 2 pi"""
-        if self.orientation < 0:
+    #     # initialize agent dict
+    #     self.vis_field_agent_dict = {}
+
+    #     # for all agents in the simulation
+    #     for ag in agents:
+
+    #         # exclude self from list
+    #         agent_id = ag.id
+    #         if agent_id != self.id:
+
+    #             # exclude agents outside range of vision (calculate distance bw agent center + self eye)
+    #             agent_coord = ag.position + self.radius
+    #             vec_between = agent_coord - self.pt_eye
+    #             agent_distance = np.linalg.norm(vec_between)
+    #             if agent_distance <= self.vision_range:
+                    
+    #                 # exclude agents outside FOV limits (calculate visual boundaries of agent)
+
+    #                 # orientation angle relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
+    #                 angle_bw = supcalc.angle_between(self.vec_self_dir, vec_between, self.radius, agent_distance)
+    #                 # exclusionary angle between agent + self, taken to L/R boundaries
+    #                 angle_edge = np.arctan(self.radius / agent_distance)
+    #                 angle_L = angle_bw - angle_edge
+    #                 angle_R = angle_bw + angle_edge
+    #                 # unpack L/R angle limits of visual projection field
+    #                 phi_L_limit = self.phis[0]
+    #                 phi_R_limit = self.phis[-1]
+    #                 if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
+
+    #                     # find projection endpoints
+    #                     proj_L = supcalc.find_nearest(self.phis, angle_L)
+    #                     proj_R = supcalc.find_nearest(self.phis, angle_R)
+
+    #                     # calculate left edgepoint on agent's perimeter according to the angle in which it is perceived
+    #                     coord_L = np.array([
+    #                         agent_coord[0] + np.cos(self.orientation - angle_bw + np.pi/2) * self.radius, 
+    #                         agent_coord[1] - np.sin(self.orientation - angle_bw + np.pi/2) * self.radius])
+    #                     # exploiting symmetry to find right edge
+    #                     vec_agent_L_edge = agent_coord - coord_L
+    #                     coord_R = agent_coord + vec_agent_L_edge
+                    
+    #                     # update dictionary with all relevant info
+    #                     self.vis_field_agent_dict['agent_'+id] = {}
+    #                     self.vis_field_agent_dict['agent_'+id]['coord_center'] = agent_coord
+    #                     self.vis_field_agent_dict['agent_'+id]['mode'] = ag.get_mode()
+    #                     self.vis_field_agent_dict['agent_'+id]['distance'] = agent_distance
+    #                     self.vis_field_agent_dict['agent_'+id]['angle'] = angle_bw
+    #                     self.vis_field_agent_dict['agent_'+id]['proj_L'] = proj_L
+    #                     self.vis_field_agent_dict['agent_'+id]['proj_R'] = proj_R
+    #                     self.vis_field_agent_dict['agent_'+id]['proj_L_ex'] = proj_L
+    #                     self.vis_field_agent_dict['agent_'+id]['proj_R_ex'] = proj_R
+    #                     self.vis_field_agent_dict['agent_'+id]['coord_L'] = coord_L
+    #                     self.vis_field_agent_dict['agent_'+id]['coord_R'] = coord_R
+
+    #                     # key differences -->
+    #                     # dict includes both agent + boundary wall info
+    #                     # calculates visual exclusions from all agents
+    #                         # also includes those on the same exploited patch (patchwise_social_exclusion)
+    #                     # includes non-exploiting agents in end perception
+
+    # def calculate_perceptual_exclusions(self):
+    #     """
+    #     Iterates over pairs of obstacles, excluding occluded obstacles/parts
+    #     """
+    #     # filter visual dict for agents + rank according to distance from self (low first)
+    #     agent_by_dist_info = sorted(self.vis_field_agent_dict, key=lambda kv: kv[1]['distance'])
+    #     self.vis_field_agent_dict = OrderedDict(agent_by_dist_info)
+
+    #     # combination operation, though itertools doesn't seem to provide performance benefit and is less understandable
+    #     for id_close, obs_close in self.vis_field_agent_dict.items():
+    #         for id_far, obs_far in self.vis_field_agent_dict.items():
+    #             if obs_far["distance"] > obs_close["distance"]: 
+    #                 # Partial R-side exclusion
+    #                 if obs_far["proj_R_ex"] > obs_close["proj_L"] > obs_far["proj_L_ex"]: 
+    #                     obs_far["proj_R_ex"] = obs_close["proj_L"]
+    #                     continue
+    #                 # Partial L-side exclusion
+    #                 if obs_far["proj_L_ex"] < obs_close["proj_R"] < obs_far["proj_R_ex"]:
+    #                     obs_far["proj_L_ex"] = obs_close["proj_R"]
+    #                     continue
+    #                 # Total exclusion
+    #                 if obs_close["proj_L"] <= obs_far["proj_L_ex"] and obs_close["proj_R"] >= obs_far["proj_R_ex"]:
+    #                     obs_far["proj_L_ex"] = -1
+    #                     obs_far["proj_R_ex"] = -1
+    
+    def fill_vis_field(self, proj_dict, dict_type=None):
+        """
+        Mark projection field according to each wall or agent
+        """
+        # pull relevant info from dict
+        for obj_name, v in proj_dict.items():
+
+            if dict_type == 'walls':
+                phi_from = v["proj_L"]
+                phi_to = v["proj_R"]
+            else: # dict_type == 'agents
+                phi_from = v["proj_L_ex"]
+                phi_to = v["proj_R_ex"]
+                obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
+
+            # raycast to wall/agent for each discretized perception angle within FOV range
+            # fill in relevant identification information (wall name / agent mode)
+            for i in range(phi_from, phi_to + 1):
+                
+                self.vis_field[i] = obj_name
+
+    def visual_sensing(self):
+        # Zero vis_field from previous step
+        self.vis_field = [0] * self.vis_field_res
+        # Gather relevant info for self / boundary endpoints / walls
+        self.gather_self_percep_info()
+        self.gather_boundary_endpt_info()
+        self.gather_boundary_wall_info()
+
+        # crash condition --> agent isn't able to create visual projection field dictionary
+        if self.vis_field_wall_dict is None: return True
+
+        # Fill in vis_field with identification info for each visual perception ray
+        self.fill_vis_field(self.vis_field_wall_dict, dict_type='walls')
+
+### -------------------------- MOVEMENT FUNCTIONS -------------------------- ###
+
+    def block_angle(self, angle):
+        """
+        Updates contact_field (bool) + blocked_angle (float) with the agent's currently blocked direction
+        """
+        index = supcalc.find_nearest(self.contact_phis, angle)
+        self.contact_field[index] = 1
+        self.blocked_angles.append(angle)
+
+    def wall_contact_sensing(self):
+        """
+        Signals blocked directions to the agent for all boundary walls
+        """
+        # Call agent center coordinates
+        x, y = self.pt_center
+
+        # Zero contact_field + block_angles lists from previous step
+        self.contact_field = [0] * self.contact_field_res
+        self.blocked_angles = []
+
+        if y < self.y_min: # top wall
+            self.block_angle(np.pi/2)
+        if y > self.y_max: # bottom wall
+            self.block_angle(3*np.pi/2)
+        if x < self.x_min: # left wall
+            self.block_angle(np.pi)
+        if x > self.x_max: # right wall
+            self.block_angle(0)
+
+    def bind_velocity(self):
+        """
+        Restricts agent's absolute velocity to [0 : max_vel]
+        """
+        if self.velocity < 0:
+            self.velocity = 0
+        if self.velocity > self.max_vel:
+            self.velocity = self.max_vel
+
+    def bind_orientation(self):
+        """
+        Restricts agent's orientation angle to [0 : 2*pi]
+        """
+        while self.orientation < 0:
             self.orientation = 2 * np.pi + self.orientation
-        if self.orientation > np.pi * 2:
+        while self.orientation > np.pi * 2:
             self.orientation = self.orientation - 2 * np.pi
 
-    def prove_velocity(self, velocity_limit=1):
-        """Restricting the absolute velocity of the agent"""
-        vel_sign = np.sign(self.velocity)
-        if vel_sign == 0:
-            vel_sign = +1
-        if self.get_mode() == 'explore':
-            if np.abs(self.velocity) > velocity_limit:
-                # stopping agent if too fast during exploration
-                self.velocity = self.max_exp_vel
-                
-    def reflect_from_walls(self):
+    def wall_collision_impact(self):
         """
-        implementing reflection conditions on environmental boundaries according to agent position
+        Implements simple reflection conditions on environmental boundaries according to orientation
         """
+        # Agents set as non-colliding until proven otherwise
+        self.mode = "explore"
+        collision = False
 
-        # Boundary conditions according to center of agent (simple)
-        x = self.position[0] + self.radius
-        y = self.position[1] + self.radius
+        for angle in self.blocked_angles:
 
-        # Reflection from left wall
-        if x < self.boundaries_x[0]:
-            self.position[0] = self.boundaries_x[0] - self.radius
+            if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
+                self.orientation = -self.orientation
+                self.bind_orientation()
+                collision = True
 
-            if np.pi / 2 <= self.orientation < np.pi:
-                self.orientation -= np.pi / 2
-            elif np.pi <= self.orientation <= 3 * np.pi / 2:
-                self.orientation += np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
+            if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
+                self.orientation = -self.orientation
+                self.bind_orientation()
+                collision = True
 
-        # Reflection from right wall
-        if x > self.boundaries_x[1]:
+            if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
+                self.orientation = np.pi - self.orientation
+                self.bind_orientation()
+                collision = True
 
-            self.position[0] = self.boundaries_x[1] - self.radius - 1
+            if angle == 0 and (3*np.pi/2 < self.orientation < 2*np.pi or 0 < self.orientation < np.pi/2): # right wall
+                self.orientation = np.pi - self.orientation
+                self.bind_orientation()
+                collision = True
 
-            if 3 * np.pi / 2 <= self.orientation < 2 * np.pi:
-                self.orientation -= np.pi / 2
-            elif 0 <= self.orientation <= np.pi / 2:
-                self.orientation += np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
+        if collision is True:
+            # Collision absorbs the speed by specified ratio + changes agent mode
+            self.velocity = self.velocity * self.collision_slowdown
+            self.mode = "collide"
 
-        # Reflection from upper wall
-        if y < self.boundaries_y[0]:
-            self.position[1] = self.boundaries_y[0] - self.radius
-
-            if np.pi / 2 <= self.orientation <= np.pi:
-                self.orientation += np.pi / 2
-            elif 0 <= self.orientation < np.pi / 2:
-                self.orientation -= np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
-
-        # Reflection from lower wall
-        if y > self.boundaries_y[1]:
-            self.position[1] = self.boundaries_y[1] - self.radius - 1
-            if 3 * np.pi / 2 <= self.orientation <= 2 * np.pi:
-                self.orientation += np.pi / 2
-            elif np.pi <= self.orientation < 3 * np.pi / 2:
-                self.orientation -= np.pi / 2
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
-
-##############################################################################
-### -------------------------- MAIN UPDATE LOOP -------------------------- ###
-##############################################################################
-            
-    def update(self, agents):
+    def move(self, actions):
         """
-        main update method of the agent. This method is called in every timestep to calculate the new state/position
-        of the agent and visualize it in the environment
-        :param agents: a list of all obstacle/agents coordinates as (X, Y) in the environment. These are not necessarily
-                socially relevant, i.e. all agents.
+        Incorporates NN outputs (change in velocity + orientation)
+        Calculates next position with collisions as absorbing boundary conditions
         """
-        # calculate socially relevant projection field (Vsoc and Vsoc+)
-        self.calc_social_V_proj(agents)
+        # Unpack actions (NN outputs, tanh scales possible range to [-1 : +1])
+        dvel, dtheta = actions
 
-        # calculate private information
-        self.calc_I_priv()
+        # Update + bound velocity/orientation
+        self.velocity += dvel
+        self.bind_velocity()  # to [0 : max_vel]
+        self.orientation += dtheta
+        self.bind_orientation()  # to [0 : 2pi]
 
-        # update inner decision process according to visual field and private info
-        self.evaluate_decision_processes()
+        # Impelement collision boundary conditions (reflect orientation + absorb velocity)
+        self.wall_collision_impact()
 
-        # CALCULATING velocity and orientation change according to inner decision process (dv)
-        # we use if and not a + operator as this is less computationally heavy but the 2 is equivalent
-        # vel, theta = int(self.tr_w()) * VSWRM_flocking_state_variables(...) + (1 - int(self.tr_w())) * random_walk(...)
-        # or later when we define the individual and social forces
-        # vel, theta = int(self.tr_w()) * self.F_soc(...) + (1 - int(self.tr_w())) * self.F_exp(...)
-        if not self.get_mode() == "collide":
-            if not self.tr_w() and not self.tr_u():
-                vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel) 
-                self.set_mode("explore")
-            elif self.tr_w() and self.tr_u():
-                if self.env_status == 1:
-                    self.set_mode("exploit")
-                    vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                else:
-                    vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_vis_field, v_desired=self.max_exp_vel)
-                    self.set_mode("relocate")
-            elif self.tr_w() and not self.tr_u():
-                vel, theta = supcalc.F_reloc_LR(self.velocity, self.soc_vis_field, v_desired=self.max_exp_vel)
-                self.set_mode("relocate")
-            elif self.tr_u() and not self.tr_w():
-                if self.env_status == 1:
-                    self.set_mode("exploit")
-                    vel, theta = (-self.velocity * self.exp_stop_ratio, 0)
-                else:
-                    vel, theta = supcalc.random_walk(desired_vel=self.max_exp_vel)
-                    self.set_mode("explore")
-        else:
-            # COLLISION AVOIDANCE IS ACTIVE, let that guide us
-            # As we don't have proximity sensor interface as with e.g. real robots we will let
-            # the environment to enforce us into a collision maneuver from the simulation environment
-            # so we don't change the current velocity from here.
-            vel, theta = (0, 0)
+        # Calculate agent's next position
+        self.position[0] += self.velocity * np.cos(self.orientation)
+        self.position[1] -= self.velocity * np.sin(self.orientation)
 
-        if not self.is_moved_with_cursor:  # we freeze agents when we move them
-            # updating agent's state variables according to calculated vel and theta
-            self.orientation += theta
-            self.prove_orientation()  # bounding orientation into 0 and 2pi
-            self.velocity += vel
-            self.prove_velocity()  # possibly bounding velocity of agent
+### -------------------------- NEURAL NETWORK FUNCTIONS -------------------------- ###
 
-            # updating agent's position
-            self.position[0] += self.velocity * np.cos(self.orientation)
-            self.position[1] -= self.velocity * np.sin(self.orientation)
+    def encode_one_hot(self, field):
+        """
+        one hot encode the visual field according to class indices:
+            single-agent: (wall_north, wall_south, wall_east, wall_west)
+            multi-agent: (wall_north, wall_south, wall_east, wall_west, agent_expl, agent_nonexpl)
+        """
+        field_onehot = np.zeros((len(field), 4))
+        # field_onehot = np.zeros((len(field), 6))
 
-            # boundary conditions if applicable
-            self.reflect_from_walls()
+        for i,x in enumerate(field):
 
-        # updating agent visualization
-        self.draw_update()
-        self.collected_r_before = self.collected_r
+            if x == 'wall_north': field_onehot[i,0] = 1
+            elif x == 'wall_south': field_onehot[i,1] = 1
+            elif x == 'wall_east': field_onehot[i,2] = 1
+            else: # x == 'wall_west'
+                field_onehot[i,3] = 1
+            # elif x == 'agent_expl': field_onehot[i,4] = 1
+            # else: # x == 'agent_nonexpl
+            #     field_onehot[i,5] = 1
+
+        return field_onehot
+
+    def assemble_NN_inputs(self):
+
+        # transform visual/contact data to onehot encoding
+        vis_field_onehot = self.encode_one_hot(self.vis_field)
+        contact_field_onehot = self.encode_one_hot(self.contact_field)
+
+        # scale velocity + orientation to [0 : 1] boolean interval similar to visual/contact fields
+        vel_scaled = self.velocity / self.max_vel
+        orient_scaled = self.orientation / (2*np.pi)
+
+        # store data as 1D array
+        NN_input = np.zeros(self.input_size)
+        NN_input[0:self.vis_size] = vis_field_onehot.transpose().flatten()
+        NN_input[self.vis_size : self.vis_size + self.contact_size] = contact_field_onehot.transpose().flatten()
+
+        NN_input[-self.other_size :] = np.array([ vel_scaled, orient_scaled ])
+        # NN_input[-self.other_size :] = np.array([ self.on_resrc, self.velocity, self.orientation ])
+
+        return NN_input
 
 ### -------------------------- VISUALIZATION / HUMAN INTERACTION FUNCTIONS -------------------------- ###
 
     def change_color(self):
         """Changing color of agent according to the behavioral mode the agent is currently in."""
-        if self.get_mode() == "explore":
+        if self.mode == "explore":
             self.color = colors.BLUE
-        elif self.get_mode() == "flock" or self.get_mode() == "relocate":
-            self.color = colors.PURPLE
-        elif self.get_mode() == "collide":
-            self.color = colors.RED
-        elif self.get_mode() == "exploit":
+        elif self.mode == "exploit":
             self.color = colors.GREEN
-        elif self.get_mode() == "pool":
-            self.color = colors.YELLOW
+        elif self.mode == "collide":
+            self.color = colors.RED
 
     def draw_update(self):
         """
         updating the outlook of the agent according to position and orientation
         """
         # update position
-        self.rect.x = self.position[0]
-        self.rect.y = self.position[1]
+        self.rect.x, self.rect.y = self.position
 
         # change agent color according to mode
         self.change_color()
@@ -622,8 +588,7 @@ class Agent(pygame.sprite.Sprite):
         """Moving the agent with the mouse cursor, and rotating"""
         if self.rect.collidepoint(mouse):
             # setting position of agent to cursor position
-            self.position[0] = mouse[0] - self.radius
-            self.position[1] = mouse[1] - self.radius
+            self.position = mouse - self.radius
             if left_state:
                 self.orientation += 0.1
             if right_state:

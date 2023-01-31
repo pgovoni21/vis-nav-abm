@@ -2,9 +2,9 @@ from contextlib import ExitStack
 
 from abm.simulation.sims import Simulation
 from abm.simulation.sims_current import Simulation_current
-from abm.simulation.sims import Simulation
 from abm.simulation.isims import PlaygroundSimulation
 import abm.contrib.playgroundtool as pgt
+from abm.NN.EA import EvolAlgo
 
 import os
 # loading env variables from dotenv file
@@ -15,53 +15,58 @@ root_abm_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) # mo
 env_path = os.path.join(root_abm_dir, f"{EXP_NAME}.env") # concatenates grandpa dir with env/exp file name
 envconf = dotenv_values(env_path) # returns dict of this file
 
-def start(parallel=False):
-    window_pad = 30
+def start(NN=None):
     with ExitStack():
-        sim = Simulation(N=int(float(envconf["N"])),
-                         T=int(float(envconf["T"])),
-                         field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
-                         agent_fov=float(envconf['AGENT_FOV']),
-                         framerate=int(float(envconf["INIT_FRAMERATE"])),
-                         with_visualization=bool(int(float(envconf["WITH_VISUALIZATION"]))),
-                         width=int(float(envconf["ENV_WIDTH"])),
-                         height=int(float(envconf["ENV_HEIGHT"])),
-                         show_vis_field=bool(int(float(envconf["SHOW_VISUAL_FIELDS"]))),
-                         show_vis_field_return=bool(int(envconf['SHOW_VISUAL_FIELDS_RETURN'])),
-                         pooling_time=int(float(envconf["POOLING_TIME"])),
-                         pooling_prob=float(envconf["POOLING_PROBABILITY"]),
-                         agent_radius=int(float(envconf["RADIUS_AGENT"])),
-                         N_resrc=int(float(envconf["N_RESOURCES"])),
-                         min_resrc_perpatch=int(float(envconf["MIN_RESOURCE_PER_PATCH"])),
-                         max_resrc_perpatch=int(float(envconf["MAX_RESOURCE_PER_PATCH"])),
-                         min_resrc_quality=float(envconf["MIN_RESOURCE_QUALITY"]),
-                         max_resrc_quality=float(envconf["MAX_RESOURCE_QUALITY"]),
-                         patch_radius=int(float(envconf["RADIUS_RESOURCE"])),
-                         regenerate_patches=bool(int(float(envconf["REGENERATE_PATCHES"]))),
-                         agent_consumption=int(float(envconf["AGENT_CONSUMPTION"])),
-                         ghost_mode=bool(int(float(envconf["GHOST_WHILE_EXPLOIT"]))),
-                         patchwise_exclusion=bool(int(float(envconf["PATCHWISE_SOCIAL_EXCLUSION"]))),
-                         teleport_exploit=bool(int(float(envconf["TELEPORT_TO_MIDDLE"]))),
-                         vision_range=int(float(envconf["VISION_RANGE"])),
-                         visual_exclusion=bool(int(float(envconf["VISUAL_EXCLUSION"]))),
-                         show_vision_range=bool(int(float(envconf["SHOW_VISION_RANGE"]))),
-                         use_ifdb_logging=bool(int(float(envconf["USE_IFDB_LOGGING"]))),
-                         use_ram_logging=bool(int(float(envconf["USE_RAM_LOGGING"]))),
-                         save_csv_files=bool(int(float(envconf["SAVE_CSV_FILES"]))),
-                         use_zarr=bool(int(float(envconf["USE_ZARR_FORMAT"]))),
-                         parallel=parallel,
-                         window_pad=window_pad,
-                         collide_agents=bool(int(float(envconf["AGENT_AGENT_COLLISION"])))
+        sim = Simulation(N                      =int(envconf["N"]),
+                         T                      =int(envconf["T"]),
+                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                         agent_fov              =float(envconf['AGENT_FOV']),
+                         framerate              =int(envconf["INIT_FRAMERATE"]),
+                         with_visualization     =bool(envconf["WITH_VISUALIZATION"]),
+                         width                  =int(envconf["ENV_WIDTH"]),
+                         height                 =int(envconf["ENV_HEIGHT"]),
+                         show_vis_field         =bool(envconf["SHOW_VISUAL_FIELDS"]),
+                         show_vis_field_return  =bool(envconf['SHOW_VISUAL_FIELDS_RETURN']),
+                         agent_radius           =int(envconf["RADIUS_AGENT"]),
+                         N_resrc                =int(envconf["N_RESOURCES"]),
+                         min_resrc_perpatch     =int(envconf["MIN_RESOURCE_PER_PATCH"]),
+                         max_resrc_perpatch     =int(envconf["MAX_RESOURCE_PER_PATCH"]),
+                         min_resrc_quality      =float(envconf["MIN_RESOURCE_QUALITY"]),
+                         max_resrc_quality      =float(envconf["MAX_RESOURCE_QUALITY"]),
+                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
+                         regenerate_patches     =bool(envconf["REGENERATE_PATCHES"]),
+                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
+                         vision_range           =int(envconf["VISION_RANGE"]),
+                         visual_exclusion       =bool(envconf["VISUAL_EXCLUSION"]),
+                         show_vision_range      =bool(envconf["SHOW_VISION_RANGE"]),
+                         use_ifdb_logging       =bool(envconf["USE_IFDB_LOGGING"]),
+                         use_ram_logging        =bool(envconf["USE_RAM_LOGGING"]),
+                         save_csv_files         =bool(envconf["SAVE_CSV_FILES"]),
+                         use_zarr               =bool(envconf["USE_ZARR_FORMAT"]),
+                         parallel               =bool(envconf["PARALLEL"]),
+                         write_batch_size       =int(envconf["WRITE_BATCH_SIZE"]),
+                         window_pad             =int(envconf["WINDOW_PAD"]),
+                         collide_agents         =bool(envconf["AGENT_AGENT_COLLISION"]),
+                         contact_field_res      =int(envconf["CONTACT_FIELD_RESOLUTION"]),
+                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
+                         collision_slowdown     =float(envconf["COLLISION_SLOWDOWN"]),
+                         NN                     =NN,
+                         NN_weight_init         =None,
+                         NN_hidden_size         =int(envconf["NN_HIDDEN_SIZE"]),
+                         print_enabled          =bool(envconf["PRINT_ENABLED"]),
+                         plot_trajectory        =bool(envconf["PLOT_TRAJECTORY"]),
                          )
-        sim.write_batch_size = 100
-        sim.start()
+        fitness, elapsed_time, crash = sim.start()
+    return fitness, elapsed_time, crash
 
 
-def start_headless():
-    print("Start ABM in Headless Mode...")
+def start_headless(NN=None):
     os.environ['SDL_VIDEODRIVER'] = 'dummy'
-    envconf['WITH_VISUALIZATION'] = '0'
-    start()
+    envconf['WITH_VISUALIZATION'] = 0
+    envconf["PRINT_ENABLED"] = 0
+    # envconf["PLOT_TRAJECTORY"] = 0
+    fitness, elapsed_time, crash = start(NN=NN)
+    return fitness, elapsed_time, crash
 
 
 def start_playground():
@@ -151,7 +156,34 @@ def start_current(parallel=False, agent_behave_param_list=None):
         sim.start()
 
 def start_current_headless():
-    print("Start ABM in Headless Mode...")
     os.environ['SDL_VIDEODRIVER'] = 'dummy'
     envconf['WITH_VISUALIZATION'] = '0'
     start_current()
+
+
+def start_EA():
+
+    vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"])
+    contact_field_res=int(envconf["CONTACT_FIELD_RESOLUTION"])
+
+    num_class_elements = 4  # for single-agent (4 walls)
+    # num_class_elements = 6 # for multi-agent (4 walls + 2 agent modes)
+
+    vis_size = vis_field_res * num_class_elements
+    contact_size = contact_field_res * num_class_elements
+    other_size = 2 # velocity + orientation
+    # other_size = 3 # on_resrc + velocity + orientation
+    
+    input_size = vis_size + contact_size + other_size
+    hidden_size=int(envconf["NN_HIDDEN_SIZE"])
+    output_size = 2 # dvel + dtheta
+
+    EA = EvolAlgo(architecture=(input_size, hidden_size, output_size), 
+                    dt=100, 
+                    init=None, 
+                    population_size=96, 
+                    generations=5000, 
+                    episodes=5, 
+                    mutation_variance=0.02
+                    )
+    EA.fit()

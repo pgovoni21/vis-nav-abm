@@ -23,7 +23,8 @@ setup(
         'influxdb<5.3.0',
         'opencv-python',
         'xvfbwrapper',
-        'zarr'
+        'zarr',
+        'torch'
     ],
     extras_require={
         'test': [
@@ -40,9 +41,9 @@ setup(
             'headless-abm-start=abm.app:start_headless',
             'playground-start=abm.app:start_playground',
             'playground-start-coopsig=abm.app_collective_signaling:start_playground',
-            'abm-start-humanexp8=abm.app:start_humanexp8',
             'abm-start-current=abm.app:start_current',
-            'headless-abm-start-current=abm.app:start_current_headless'
+            'headless-abm-start-current=abm.app:start_current_headless',
+            'EA-start=abm.app:start_EA',
         ]
     },
     classifiers=[

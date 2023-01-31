@@ -2,8 +2,6 @@
 calc.py : Supplementary methods and calculations necessary for agents
 """
 import numpy as np
-from abm.contrib import movement_params
-
 
 def find_nearest(array, value):
     array = np.asarray(array)
@@ -25,6 +23,7 @@ def angle_between(v1, v2, v1_norm, v2_norm):
     v1_u = v1 / v1_norm
     v2_u = v2 / v2_norm
     angle = np.arccos(np.dot(v1_u, v2_u))
+    # sends RuntimeWarning for when v1_u = -v2_u // outputs angle = nan --> fix
 
     # marks left side with negative angles, taking into account flipped y-axis
     if v1_u[0] * v2_u[1] - v1_u[1] * v2_u[0] < 0: 
@@ -33,56 +32,6 @@ def angle_between(v1, v2, v1_norm, v2_norm):
     return angle
 
 
-def random_walk(desired_vel=None): 
-    """Pooling a small orientation and absolute velocity increment from some distribution"""
-    if desired_vel is None:
-        desired_vel = movement_params.exp_vel_max
-
-    dtheta = np.random.uniform(movement_params.exp_theta_min,
-                               movement_params.exp_theta_max)
-
-    return desired_vel, dtheta
-
-
-# def distance_coords(x1, y1, x2, y2, vectorized=False):
-#     """Distance between 2 points in 2D space calculated from point coordinates.
-#     if vectorized is True, we use multidimensional (i.e. vectorized) form of distance
-#     calculation that preserved original dimensions of coordinate arrays in the dimensions of the output and the output
-#     will contain pairwise distance measures according to coordinate matrices."""
-#     c1 = np.array([x1, y1])
-#     c2 = np.array([x2, y2])
-#     if not vectorized:
-#         distance = np.linalg.norm(c2 - c1)
-#     else:
-#         distance = np.linalg.norm(c2 - c1, axis=0)
-#     return distance
-
-
-def distance(agent1, agent2):
+def distance(coord1, coord2):
     """Euclidean distance between 2 agent class agents in the environment as pixels""" ## todo - hamming dist for calc speed
-    c1 = agent1.position + agent1.radius
-    c2 = agent2.position + agent2.radius
-    distance = np.linalg.norm(c2 - c1)
-    return distance
-
-
-def F_reloc_LR(vel_now, V_now, v_desired=None): 
-    """Calculating relocation force according to the visual field/source data of the agent according to left-right
-    algorithm"""
-    if v_desired is None:
-        v_desired = movement_params.reloc_des_vel
-
-    # sets agent direction according to L/R side of greater (exploting agent) visual field magnitude
-    V_field_len = len(V_now)
-    left_excitation = np.mean(V_now[0:int(V_field_len / 2)])
-    right_excitation = np.mean(V_now[int(V_field_len / 2)::])
-    D_leftright = left_excitation - right_excitation
-    D_theta_max = movement_params.reloc_theta_max
-    theta = D_leftright * D_theta_max
-
-    return (v_desired - vel_now), theta
-
-def F_reloc_WTA(Phi, V_now):
-    """Calculating relocation force according to the visual field/source data of the agent according to winner-takes-all
-    mechanism"""
-    pass
+    return np.linalg.norm(coord1 - coord2)
