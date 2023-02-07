@@ -538,8 +538,9 @@ class Agent(pygame.sprite.Sprite):
         NN_input[0:self.vis_size] = vis_field_onehot.transpose().flatten()
         NN_input[self.vis_size : self.vis_size + self.contact_size] = contact_field_onehot.transpose().flatten()
 
-        NN_input[-self.other_size :] = np.array([ vel_scaled, orient_scaled ])
         # NN_input[-self.other_size :] = np.array([ self.on_resrc, self.velocity, self.orientation ])
+        NN_input[-self.other_size :] = np.array([ vel_scaled, orient_scaled ])
+        # NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
 
         return NN_input
 

@@ -89,4 +89,9 @@ class CTRNN(nn.Module):
         x = torch.tanh(x)
         actions = x.detach().numpy()[0]
 
+        # clip gradients to prevent exploding hidden values
+        # nn.utils.clip_grad_norm(self.parameters(), max_norm=.1) # --> doesn't work
+
+        # print(hidden)
+
         return actions, hidden

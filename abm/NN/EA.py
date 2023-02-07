@@ -54,11 +54,13 @@ class EvolAlgo():
             best_network = self.networks[np.argmax(fitness_gen)]
 
             # pickle it
-            with open(f"best_NN_gen{i+1}_avg{int(max_fitness_gen)}.bin", "wb") as f:
+            input, hidden, output = self.architecture
+            with open(f"_best_NN_gen{i+1}_{input}_{hidden}_{output}_avg{int(max_fitness_gen)}.bin", "wb") as f:
                 pickle.dump(best_network, f)
-            # pickle the generational trend
-            with open("best_NN_avg_fitness_per_generation.bin", "wb") as f:
-                pickle.dump(self.fitness_evol, f)
+
+            # # pickle the generational trend
+            # with open("best_NN_avg_fitness_per_generation.bin", "wb") as f:
+            #     pickle.dump(self.fitness_evol, f)
 
             # checks stopping condition --> reached 95% of max for X episodes
             # if max_fitness_gen >= self.max_episode_length * 0.95:

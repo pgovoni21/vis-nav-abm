@@ -511,27 +511,43 @@ class Simulation:
         return turned_on_vfield
 
 
-    def plot_map(self, x_explore, y_explore, x_exploit, y_exploit, x_collide, y_collide, w, h):
+    def plot_map(self, traj_explore, traj_exploit, traj_collide, w, h):
 
-        fig, ax = plt.subplots() 
+        fig, axes = plt.subplots() 
 
+        # rescale plotting area to square
         l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
         fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
 
-        ax.plot( [self.x_min, self.x_max], [self.y_min, self.y_min], color='k')
-        ax.plot( [self.x_min, self.x_max], [self.y_max, self.y_max], color='k')
-        ax.plot( [self.x_min, self.x_min], [self.y_min, self.y_max], color='k')
-        ax.plot( [self.x_max, self.x_max], [self.y_min, self.y_max], color='k')
+        # simulation boundaries via lines
+        axes.plot( [self.x_min, self.x_max], [self.y_min, self.y_min], color='k')
+        axes.plot( [self.x_min, self.x_max], [self.y_max, self.y_max], color='k')
+        axes.plot( [self.x_min, self.x_min], [self.y_min, self.y_max], color='k')
+        axes.plot( [self.x_max, self.x_max], [self.y_min, self.y_max], color='k')
 
+        # resource patches via circles
         for x,y in self.resrc_pos: 
-            ax.add_patch( plt.Circle((x,y),self.resrc_radius, color='m') )
+            axes.add_patch( plt.Circle((x,y),self.resrc_radius, color='lightgray', zorder=0) )
 
-        ax.plot(x_explore, y_explore, '--bo', ms=5)
-        ax.plot(x_exploit, y_exploit, 'go', ms=5)
-        ax.plot(x_collide, y_collide, 'ro', ms=5)
+        # convert agent data to arrays to exploit vectorization
+        traj_explore = np.array(traj_explore)
+        traj_exploit = np.array(traj_exploit)
+        traj_collide = np.array(traj_collide)
 
-        ax.set_xlim(0,self.x_max + self.window_pad)
-        ax.set_ylim(0,self.y_max + self.window_pad)
+        # agent directional trajectory via arrows 
+        self.arrows(axes, traj_explore)
+
+        # agent positional trajectory + mode via points
+        axes.plot(traj_explore[:,0], traj_explore[:,1], 'o', color='royalblue', ms=.5, zorder=2)
+        axes.plot(traj_exploit[:,0], traj_exploit[:,1], 'o', color='green', ms=5, zorder=2)
+        axes.plot(traj_collide[:,0], traj_collide[:,1], 'o', color='red', ms=5, zorder=2)
+
+        # agent start/end points
+        axes.plot(traj_explore[0,0], traj_explore[0,1], 'wo', ms=10, markeredgecolor='k', zorder=4)
+        axes.plot(traj_explore[-1,0], traj_explore[-1,1], 'ko', ms=10, zorder=4)
+
+        axes.set_xlim(0,self.x_max + self.window_pad)
+        axes.set_ylim(0,self.y_max + self.window_pad)
 
         plt.show()
 
@@ -540,6 +556,64 @@ class Simulation:
         # plt.clf
         # plt.draw()
         # plt.pause(0.001)
+
+    def arrows(self, axes, traj_data, ahl=6, ahw=3):
+        # from here: https://stackoverflow.com/questions/8247973/how-do-i-specify-an-arrow-like-linestyle-in-matplotlib
+
+        x = traj_data[:,0]
+        y = traj_data[:,1]
+
+        # r is the distance spanned between pairs of points
+        r = [0]
+        for i in range(1,len(x)):
+            dx = x[i]-x[i-1]
+            dy = y[i]-y[i-1]
+            r.append(np.sqrt(dx*dx+dy*dy))
+        r = np.array(r)
+
+        # set arrow spacing
+        num_arrows = int(self.T / 15)
+        aspace = r.sum() / (num_arrows + 1)
+        
+        # set inital arrow position at first space
+        arrowPos = 0
+        
+        # rtot is a cumulative sum of r, it's used to save time
+        rtot = []
+        for i in range(len(r)):
+            rtot.append(r[0:i].sum())
+        rtot.append(r.sum())
+
+        arrowData = [] # will hold tuples of x,y,theta for each arrow
+
+        ndrawn = 0
+        rcount = 1 
+        while arrowPos < r.sum() and ndrawn < num_arrows:
+            x1, x2 = x[rcount-1], x[rcount]
+            y1, y2 = y[rcount-1], y[rcount]
+            da = arrowPos - rtot[rcount]
+            theta = np.arctan2((x2-x1),(y2-y1))
+            ax = np.sin(theta)*da + x1
+            ay = np.cos(theta)*da + y1
+            arrowData.append((ax,ay,theta))
+            ndrawn += 1
+            arrowPos += aspace
+            while arrowPos > rtot[rcount+1]: 
+                rcount += 1
+                if arrowPos > rtot[-1]:
+                    break
+
+        for ax,ay,theta in arrowData:
+            # use aspace as a guide for size and length of things
+            # scaling factors were chosen by experimenting a bit
+
+            dx0 = np.sin(theta)*ahl/2. + ax
+            dy0 = np.cos(theta)*ahl/2. + ay
+            dx1 = -1.*np.sin(theta)*ahl/2. + ax
+            dy1 = -1.*np.cos(theta)*ahl/2. + ay
+
+            axes.annotate('', xy=(dx0, dy0), xytext=(dx1, dy1),
+                    arrowprops=dict( headwidth=ahw, headlength=ahl, ec='royalblue', fc='royalblue', zorder=1))
 
 ##################################################################################
 ### -------------------------- MAIN SIMULATION LOOP -------------------------- ###
@@ -555,8 +629,8 @@ class Simulation:
         self.stats, self.stats_pos = self.create_vis_field_graph()
         # turned_on_vfield = 0 # local var to decide when to show visual fields 
 
-        if self.plot_trajectory: 
-            x_explore, y_explore, x_exploit, y_exploit, x_collide, y_collide = [],[],[],[],[],[]
+        if self.plot_trajectory: # start lists to track agent positional/mode activity
+            traj_explore, traj_exploit, traj_collide = [],[],[]
 
         while self.t < self.T:
 
@@ -581,14 +655,11 @@ class Simulation:
                     if self.plot_trajectory: 
                         x,y = agent.pt_center
                         if agent.mode == 'explore':
-                            x_explore.append(x)
-                            y_explore.append(self.y_max - y + self.y_min)
+                            traj_explore.append([x, self.y_max - y + self.y_min])
                         elif agent.mode == 'exploit':
-                            x_exploit.append(x)
-                            y_exploit.append(self.y_max - y + self.y_min)
+                            traj_exploit.append([x, self.y_max - y + self.y_min])
                         elif agent.mode == 'collide':
-                            x_collide.append(x)
-                            y_collide.append(self.y_max - y + self.y_min)
+                            traj_collide.append([x, self.y_max - y + self.y_min])
 
                 ## Agent-Resource collisions
 
@@ -639,8 +710,8 @@ class Simulation:
                     actions, agent.hidden = agent.NN.forward(NN_input, agent.hidden)
 
                     ## Consumption
-                    if agent.on_resrc == 1:
-                    # if agent.on_resrc == 1 and agent.velocity == 0: # --> too complicated? local optima for non-moving agents?
+                    if agent.on_resrc == 1: # --> consume upon collision
+                    # if agent.on_resrc == 1 and agent.velocity == 0: # --> agent must learn to read on_resrc signal
                         self.consume(agent) # (sets agent.mode to exploit if still resources available)
 
                     ## Movement
@@ -673,7 +744,7 @@ class Simulation:
             # elif self.save_in_ram:
             #     # saving data in ram for data processing, only when not paused
             #     if not self.is_paused:
-            #         ifdb.save_agent_data_RAM(self.agents, self.t)
+                    # ifdb.save_agent_data_RAM(self.agents, self.t)
             #         ifdb.save_resource_data_RAM(self.resources, self.t)
 
             # # Moving time forward
@@ -692,8 +763,8 @@ class Simulation:
 
         # if self.save_csv_files:
         #     if self.save_in_ifd or self.save_in_ram and self.print_enabled:
-        #         ifdb.save_ifdb_as_csv(exp_hash=self.ifdb_hash, use_ram=self.save_in_ram, as_zar=self.use_zarr,
-        #                               save_extracted_vfield=False, pop_num=pop_num)
+                # ifdb.save_ifdb_as_csv(exp_hash=self.ifdb_hash, use_ram=self.save_in_ram, as_zar=self.use_zarr,
+                #                       save_extracted_vfield=False, pop_num=pop_num) # saves agent/res dict's into files
         #         env_saver.save_env_vars([self.env_path], "env_params.json", pop_num=pop_num)
         #     else:
         #         raise Exception("Tried to save simulation data as csv file due to env configuration, "
@@ -712,6 +783,6 @@ class Simulation:
             print(fitness, elapsed_time.total_seconds())
         
         if self.plot_trajectory:
-            self.plot_map(x_explore, y_explore, x_exploit, y_exploit, x_collide, y_collide, w=4, h=4)
+            self.plot_map(traj_explore, traj_exploit, traj_collide, w=4, h=4)
 
         return fitness, elapsed_time.total_seconds(), False
