@@ -269,8 +269,9 @@ class Agent(pygame.sprite.Sprite):
                     self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
 
                 else:
-                    print(self.vis_field_wall_dict)
-                    # self.vis_field_wall_dict = {'TL': (array([30, 30]), nan, nan, 0), 'TR': (array([430,  30]), nan, nan, 0), 'BL': (array([ 30, 430]), nan, nan, 0), 'BR': (array([430, 430]), nan, nan, 0)}
+                    # parameters = nans from exploding gradient
+                    # gradient clipping not a viable method for RL
+                    # --> send signal to parent function + crash simulation + return 0 fitness
                     self.vis_field_wall_dict = None
 
     # def gather_agent_info(self, agents):

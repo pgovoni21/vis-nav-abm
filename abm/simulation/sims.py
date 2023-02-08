@@ -129,8 +129,10 @@ class Simulation:
         self.NN = NN
         self.NN_weight_init = NN_weight_init
 
-        num_class_elements = 4  # for single-agent (4 walls)
-        # num_class_elements = 6 # for multi-agent (4 walls + 2 agent modes)
+        if N == 1:
+            num_class_elements = 4 # single-agent --> perception of 4 walls
+        else:
+            num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
 
         self.vis_size = vis_field_res * num_class_elements
         self.contact_size = contact_field_res * num_class_elements

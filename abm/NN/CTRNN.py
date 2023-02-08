@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 
+# import wandb
+# wandb.init(project="testing_ground")
+
 class CTRNN(nn.Module):
     """Continuous-time RNN
 
@@ -17,11 +20,12 @@ class CTRNN(nn.Module):
         self.i2h = nn.Linear(input_size, hidden_size)
         self.h2h = nn.Linear(hidden_size, hidden_size)
         self.h2o = nn.Linear(hidden_size, output_size)
+        # self.ordered_layers = [self.i2h, self.h2h, self.h2o]
 
         self.tau = 100
         self.alpha = dt / self.tau # default --> alpha = 1
 
-        # initialize weights 
+        # init NN parameters
         self.init_weightbias(init, copy_network, var)
 
 
@@ -88,10 +92,5 @@ class CTRNN(nn.Module):
         x = self.h2o(x)
         x = torch.tanh(x)
         actions = x.detach().numpy()[0]
-
-        # clip gradients to prevent exploding hidden values
-        # nn.utils.clip_grad_norm(self.parameters(), max_norm=.1) # --> doesn't work
-
-        # print(hidden)
 
         return actions, hidden

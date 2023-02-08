@@ -163,27 +163,31 @@ def start_current_headless():
 
 def start_EA():
 
-    vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"])
-    contact_field_res=int(envconf["CONTACT_FIELD_RESOLUTION"])
-
-    num_class_elements = 4  # for single-agent (4 walls)
-    # num_class_elements = 6 # for multi-agent (4 walls + 2 agent modes)
-
-    vis_size = vis_field_res * num_class_elements
-    contact_size = contact_field_res * num_class_elements
-    other_size = 2 # velocity + orientation
-    # other_size = 3 # on_resrc + velocity + orientation
+    # calculate NN input size (visual/contact perception + other)
+    N                   =int(envconf["N"])
+    vis_field_res       =int(envconf["VISUAL_FIELD_RESOLUTION"])
+    contact_field_res   =int(envconf["CONTACT_FIELD_RESOLUTION"])
     
-    input_size = vis_size + contact_size + other_size
-    hidden_size=int(envconf["NN_HIDDEN_SIZE"])
-    output_size = 2 # dvel + dtheta
+    if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
+    else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
 
-    EA = EvolAlgo(architecture=(input_size, hidden_size, output_size), 
-                    dt=100, 
-                    init=None, 
-                    population_size=96, 
-                    generations=5000, 
-                    episodes=5, 
-                    mutation_variance=0.02
-                    )
+    vis_input_num = vis_field_res * num_class_elements
+    contact_input_num = contact_field_res * num_class_elements
+    other_input_num = int(envconf["OTHER_INPUT_NUM"]) # velocity + orientation + on_resrc
+    
+    # assemble NN architecture
+    input_size = vis_input_num + contact_input_num + other_input_num
+    hidden_size = int(envconf["NN_HIDDEN_SIZE"])
+    output_size = int(envconf["NN_OUTPUT_SIZE"]) # dvel + dtheta
+    architecture = (input_size, hidden_size, output_size)
+
+    EA = EvolAlgo(architecture        =architecture, 
+                  dt                  =int(envconf["EA_DISCRETIZATION_TIMESTEP"]), 
+                  init                =str(envconf["EA_NN_INIT_SCHEME"]), 
+                  population_size     =int(envconf["EA_POPULATION_SIZE"]), 
+                  generations         =int(envconf["EA_GENERATIONS"]), 
+                  episodes            =int(envconf["EA_EPISODES"]), 
+                  mutation_variance   =float(envconf["EA_MUTATION_VARIANCE"]),
+                  repop_method        =str(envconf["EA_REPOP_METHOD"])
+                  )
     EA.fit()
