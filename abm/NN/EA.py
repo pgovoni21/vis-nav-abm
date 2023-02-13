@@ -3,15 +3,21 @@ from abm.NN.CTRNN import CTRNN
 import abm.app as sim
 import pickle
 import random
+import os
+import shutil
+import zarr
+from abm.monitoring import plot_funcs
 
 class EvolAlgo():
     
-    def __init__(self, architecture=(99,128,2), dt=100, init=None, population_size=50, generations=500, episodes=10, 
-                 mutation_variance=0.02, repop_method='ES'):
+    def __init__(self, architecture=(50,128,2), dt=100, init=None, population_size=96, generations=500, episodes=5, 
+                 mutation_variance=0.02, repop_method='ES', hybrid_scaling_factor=0.001, hybrid_new_intro_num=5, 
+                 num_top_saved=5, EA_save_name=None):
         
         # Initialize NN population + fitness lists
         self.architecture = architecture
         self.dt = dt
+        self.init = init
         self.networks = [CTRNN(architecture, dt, init) for _ in range(population_size)]
         self.fitness_evol = []
 
@@ -21,6 +27,14 @@ class EvolAlgo():
         self.episodes = episodes
         self.mutation_variance = mutation_variance
         self.repop_method = repop_method
+        self.hybrid_scaling_factor = hybrid_scaling_factor
+        self.hybrid_new_intro_num = hybrid_new_intro_num
+
+        # Saving parameters
+        self.num_top_saved = num_top_saved
+        self.EA_save_name = EA_save_name
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+        self.sim_data_dir = os.path.join(root_dir, 'abm\data\simulation_data')
         
     def fit(self):
 
@@ -31,9 +45,13 @@ class EvolAlgo():
             for n, NN in enumerate(self.networks):
 
                 fitness_ep = []
-                for _ in range(self.episodes):
+                for x in range(self.episodes):
 
-                    fitness, elapsed_time, crash = sim.start_headless(NN=NN)
+                    # construct save name for current simulation, to be called later if needed
+                    sim_save_name = fr'{self.EA_save_name}\running\NN{n}\ep{x}'
+
+                    # run sim + record fitness/time
+                    fitness, elapsed_time, crash = sim.start_headless(NN=NN, sim_save_name=sim_save_name)
                     fitness_ep.append(fitness)
                     print(f'Episode Fitness: {fitness} \t| Elapsed Time: {elapsed_time}')
 
@@ -51,34 +69,57 @@ class EvolAlgo():
             avg_fitness_gen = int(np.mean(fitness_gen))
             print(f'---+--- Generation: {i+1} | Highest Across Gen: {max_fitness_gen} | Avg Across Gen: {avg_fitness_gen} ---+---')
 
-            # pickle top performing NN
-            best_network = self.networks[np.argmax(fitness_gen)]
-            input, hidden, output = self.architecture
-            with open(f"_best_NN_gen{i+1}_{input}_{hidden}_{output}_avg{max_fitness_gen}.bin", "wb") as f:
-                pickle.dump(best_network, f)
 
-            # pickle generational fitness data
+            # cycle through the top X performers
+            top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_saved : -1] # best in generation : first (n_top = 1)
+            for n_top, n_gen in enumerate(top_indices):
+
+                # pull saved sim runs from 'running' directory + archive in parent directory
+                # ('running' directory is rewritten each generation)
+                NN_load_name = fr'{self.EA_save_name}\running\NN{n_gen}'
+                NN_save_name = fr'{self.EA_save_name}\gen{i}\NN{n_top}_fitness{int(fitness_gen[n_gen])}'
+
+                NN_load_dir = os.path.join(self.sim_data_dir, NN_load_name)
+                NN_save_dir = os.path.join(self.sim_data_dir, NN_save_name)
+
+                shutil.move(NN_load_dir, NN_save_dir)
+
+                # plot saved runs + output in parent directory
+                for x in range(self.episodes):
+
+                    ag_zarr = zarr.open(fr'{NN_save_dir}\ep{x}\ag.zarr', mode='r')
+                    res_zarr = zarr.open(fr'{NN_save_dir}\ep{x}\res.zarr', mode='r')
+                    plot_data = ag_zarr, res_zarr
+
+                    plot_funcs.plot_map(plot_data, x_max=400, y_max=400, save_dir=NN_save_dir, save_name=f'ep{x}')
+
+                # pickle NN
+                NN = self.networks[n_gen]
+                with open(rf'{NN_save_dir}\NN_pickle.bin','wb') as f:
+                    pickle.dump(NN, f)
+            
+            # update/pickle generational fitness data in parent directory
             self.fitness_evol.append(fitness_gen)
-            with open("fitness_spread_per_generation.bin", "wb") as f:
+
+            gen_save_dir = os.path.join(self.sim_data_dir, self.EA_save_name)
+            with open(rf'{gen_save_dir}\fitness_spread_per_generation.bin', 'wb') as f:
                 pickle.dump(self.fitness_evol, f)
-
-            # checks stopping condition --> reached 95% of max for X episodes
-            # if max_fitness_gen >= self.max_episode_length * 0.95:
-
-            #     # Return best NN from evolutionary run
-            #     self.best_network = best_network
-            #     return i+1
 
             # Select/Mutate to generate next generation NNs according to method specified
             if self.repop_method == 'ES':
+                best_network = self.networks[np.argmax(fitness_gen)]
                 self.repop_ES(best_network)
             elif self.repop_method == 'ROULETTE':
                 self.repop_roulette(fitness_gen)
+            elif self.repop_method == 'HYBRID':
+                self.repop_hybrid(fitness_gen, top_indices, self.hybrid_scaling_factor, self.hybrid_new_intro_num)
             else: 
                 return f'Invalid repopulation method specified: {self.repop_method}'
 
 
     def repop_ES(self, best_network):
+
+        # Fully elitist method - risk of over-convergence/exploitation via local optima traps
 
         # Create child NNs as mutations of the top NN
         new_networks = []
@@ -92,7 +133,7 @@ class EvolAlgo():
 
     def repop_roulette(self, fitness_gen):
 
-        # Select parent NNs via roulette wheel (randomly chosen proportionate to fitness)
+        # Random choice proportionate to fitness - risk of over-divergence/exploration via gradient loss
 
         # Calculate ratio of fitness:total fitness for each colony, add to previous, append
         sum_fitness_gen = np.sum(fitness_gen)
@@ -115,3 +156,49 @@ class EvolAlgo():
 
         # Set child NNs as mutations of parents
         self.networks = [CTRNN(self.architecture, self.dt, copy_network=parent, var=self.mutation_variance) for parent in parents]
+
+
+    def repop_hybrid(self, fitness_gen, top_indices, scaling_factor, new_intro_num):
+
+        # Combines Elitist convergence + Roulette divergence + adding new networks each generation
+
+        ## elitism : best X NNs passed on
+        top_networks = []
+        for i in top_indices:
+            top_networks.append(self.networks[i])
+
+        ## scaled fitness proportionate : biased roulette wheel selection to favor top performers
+        
+            # Calculate ratio of fitness:total fitness for each colony, add to previous, append
+        fitness_gen_array = np.array(fitness_gen)
+        scaled_fitness_gen = fitness_gen_array * np.exp (scaling_factor * fitness_gen_array)
+
+        print(f'Nonscaled fitnesses: {np.sort(fitness_gen_array)[::-1]}')
+        print(f'Scaled fitnesses: {np.sort(scaled_fitness_gen)[::-1]}')
+
+        sum_scaled_fitness_gen = np.sum(scaled_fitness_gen)
+        breeding_probs = [0]
+        for i in range(self.population_size):
+            breeding_prob = scaled_fitness_gen[i] / sum_scaled_fitness_gen + breeding_probs[i]
+            breeding_probs.append(breeding_prob)
+
+            # Pick parents randomly according to breeding probability line
+        parent_fitnesses = []
+        parents = []
+        for _ in range(self.population_size - len(top_indices) - new_intro_num):
+            
+            rand_num = random.random()
+            for i in range(self.population_size + 1):
+                if rand_num < breeding_probs[i]:
+                    parent_fitnesses.append(fitness_gen[i-1])
+                    parents.append(self.networks[i-1])
+                    break
+        
+            # Set child NNs as mutations of parents
+        roulette_networks = [CTRNN(self.architecture, self.dt, copy_network=parent, var=self.mutation_variance) for parent in parents]
+
+        ## new network introduction : random NNs added to enhance exploration
+        new_networks = [CTRNN(self.architecture, self.dt, self.init) for _ in range(new_intro_num)]
+
+        ## compile list of NNs for the next generation
+        self.networks = top_networks + roulette_networks + new_networks
