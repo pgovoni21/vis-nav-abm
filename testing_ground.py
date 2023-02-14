@@ -1,17 +1,17 @@
-### ---- Simulate saved NN ---- ###
-import pickle
+# ### ---- Simulate saved NN ---- ###
+# import pickle
 
-file_name = r"abm\data\NNs\50_128_2_avg572_chaotic_swarm"
-# file_name = "crashed_NN"
+# file_name = r"abm\data\NNs\50_128_2_avg572_chaotic_swarm"
+# # file_name = "crashed_NN"
 
-with open(f"{file_name}.bin", "rb") as f:
-    NN = pickle.load(f)
+# with open(f"{file_name}.bin", "rb") as f:
+#     NN = pickle.load(f)
 
-# from abm.app import start
-# start(NN=NN)
+# # from abm.app import start
+# # start(NN=NN)
 
-from abm.app import start_headless
-start_headless(NN=NN, sim_save_name='test')
+# from abm.app import start_headless
+# start_headless(NN=NN, sim_save_name='test')
 
 
 # ### ---- Plot saved simulation ---- ###
@@ -39,19 +39,18 @@ start_headless(NN=NN, sim_save_name='test')
 # import numpy as np
 # import matplotlib.pyplot as plt
 
-# file_name = "fitness_spread_per_generation_50_128_2_roulette"
+# file_name = r'abm\data\simulation_data\fitness_spread_per_generation_roulette_A50_128_2_T4000'
+# # file_name = r'abm\data\simulation_data\hybrid_A50_128_2_T2000\fitness_spread_per_generation'
 # with open(f"{file_name}.bin", "rb") as f:
 #     data_per_gen = pickle.load(f)
 # data_per_gen = np.array(data_per_gen)
 
-# # num_gens, pop_size = data_per_gen.shape
-# # for gen in range(num_gens):
-# #     for NN in data_per_gen[:,gen]:
-# #         plt.scatter(gen, NN)
-# # plt.show()
-
-# plt.imshow(data_per_gen)
+# data_per_gen_tp = data_per_gen.transpose()
+# plt.violinplot(data_per_gen_tp, widths=1, showmeans=True, showextrema=False)
 # plt.show()
+
+# # plt.imshow(data_per_gen)
+# # plt.show()
 
 
 # ### ---- NN weights plotting ---- ###
@@ -69,3 +68,17 @@ start_headless(NN=NN, sim_save_name='test')
 #         x = m.weight.detach().numpy()
 #         plt.imshow(x)
 #         plt.show()
+
+
+import numpy as np
+
+l = [0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi]
+
+vel = 10
+
+for ang in l:
+
+    x = np.abs(np.cos(ang))*vel
+    y = np.sin(ang)*vel
+
+    print(int(x), int(y))

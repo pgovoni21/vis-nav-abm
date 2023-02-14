@@ -17,37 +17,35 @@ from abm.monitoring import tracking, plot_funcs
 # from abm.monitoring import env_saver
 
 class Simulation:
-    def __init__(self, N, T, vis_field_res=800, width=600, height=480,
-                 framerate=25, window_pad=30, with_visualization=True, agent_radius=10, max_vel=5, collision_slowdown=0.5,
-                 N_resrc=10, min_resrc_perpatch=200, max_resrc_perpatch=1000, min_resrc_quality=0.1, max_resrc_quality=1,
-                 patch_radius=30, regenerate_patches=True, agent_consumption=1, 
-                 vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False,
-                 collide_agents=True, contact_field_res=4, NN=None, NN_weight_init=None, NN_hidden_size=128, 
-                 print_enabled=False, plot_trajectory=False, log_zarr_file=False, sim_save_name=None):
+    def __init__(self, width=600, height=480, window_pad=30, 
+                 N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, plot_trajectory=False, 
+                 log_zarr_file=False, sim_save_name=None,
+                 agent_radius=10, max_vel=5, collision_slowdown=0.5, vis_field_res=8, contact_field_res=4, collide_agents=True, 
+                 vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
+                 N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
+                 min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
+                 NN=None, NN_weight_init=None, NN_input_other_size=3, NN_hidden_size=128, NN_output_size=1
+                 ):
         """
         Initializing the main simulation instance
-        :param N: number of agents
-        :param T: simulation time
-        :param vis_field_res: projection field (visual + proximity) resolution in pixels
         :param width: real width of environment (not window size)
         :param height: real height of environment (not window size)
-        :param framerate: framerate of simulation
         :param window_pad: padding of the environment in simulation window in pixels
+        :param N: number of agents
+        :param T: simulation time
         :param with_visualization: turns visualization on or off. For large batch autmatic simulation should be off so
-            that we can use a higher/maximal framerate.
-        :param show_vis_field: (Bool) turn on visualization for visual field of agents
-        :param show_vis_field_return: (Bool) sow visual fields when return/enter is pressed
+            that we can use a higher/maximal framerate
+        :param framerate: framerate of simulation
+        :param print_enabled:
+        :param plot_trajectory:
+        :param log_zarr_file:
+        :param sim_save_name:
         :param agent_radius: radius of the agents
-        :param N_resrc: number of resource patches in the environment
-        :param min_resrc_perpatch: minimum resource unit per patch
-        :param max_resrc_perpatch: maximum resource units per patch
-        :param min_resrc_quality: minimum resource quality in unit/timesteps that is allowed for each agent on a patch
-            to exploit from the patch
-        : param max_resrc_quality: maximum resource quality in unit/timesteps that is allowed for each agent on a patch
-            to exploit from the patch
-        :param patch_radius: radius of resrcaurce patches
-        :param regenerate_patches: bool to decide if patches shall be regenerated after depletion
-        :param agent_consumption: agent consumption (exploitation speed) in res. units / time units
+        :param max_vel:
+        :param collision_slowdown:
+        :param vis_field_res: projection field (visual + proximity) resolution in pixels
+        :param contact_field_res:
+        :param collide_agents: boolean switch agents can overlap if false
         :param vision_range: range (in px) of agents' vision
         :param agent_fov (float): the field of view of the agent as percentage. e.g. if 0.5, the the field of view is
                                 between -pi/2 and pi/2
@@ -55,17 +53,21 @@ class Simulation:
                                 projection field
         :param show_vision_range: bool to switch visualization of visual range for agents. If true the limit of far
                                 and near field visual field will be drawn around the agents
-        :param use_ifdb_logging: Switch to turn IFDB save on or off
-        :param use_ram_logging: log data into memory (RAM) only use this if ifdb is problematic and you have enough
-            resources
-        :param save_csv_files: Save all recorded IFDB data as csv file. Only works if IFDB looging was turned on
-        :param parallel: if True we request to run the simulation parallely with other simulation instances and hence
-            the influxDB saving will be handled accordingly.
-        :param use_zarr: using zarr compressed data format to save single run data
-        :param allow_border_patch_overlap: boolean switch to allow resource patches to overlap arena border
-        :param collide_agents: boolean switch agents can overlap if false
-        :param print_enabled:
-        :param plot_trajectory:
+        :param agent_consumption: agent consumption (exploitation speed) in res. units / time units
+        :param N_resrc: number of resource patches in the environment
+        :param patch_radius: radius of resrcaurce patches
+        :param min_resrc_perpatch: minimum resource unit per patch
+        :param max_resrc_perpatch: maximum resource units per patch
+        :param min_resrc_quality: minimum resource quality in unit/timesteps that is allowed for each agent on a patch
+            to exploit from the patch
+        : param max_resrc_quality: maximum resource quality in unit/timesteps that is allowed for each agent on a patch
+            to exploit from the patch
+        :param regenerate_patches: bool to decide if patches shall be regenerated after depletion
+        :param NN:
+        :param NN_weight_init:
+        :param NN_input_other_size:
+        :param NN_hidden_size:
+        :param NN_output_size:
         """
         # Arena parameters
         self.WIDTH = width
@@ -102,20 +104,18 @@ class Simulation:
         self.crash = False
         self.sim_save_name = sim_save_name
 
-        # Visualization parameters
-        self.show_vision_range = show_vision_range
-
         # Agent parameters
         self.agent_radii = agent_radius
         self.max_vel = max_vel
         self.collision_slowdown = collision_slowdown
         self.vis_field_res = vis_field_res
         self.contact_field_res = contact_field_res
-        self.agent_consumption = agent_consumption
+        self.collide_agents = collide_agents
         self.vision_range = vision_range
         self.agent_fov = agent_fov
         self.visual_exclusion = visual_exclusion
-        self.collide_agents = collide_agents
+        self.show_vision_range = show_vision_range
+        self.agent_consumption = agent_consumption
 
         # Resource parameters
         self.N_resrc = N_resrc
@@ -137,19 +137,16 @@ class Simulation:
         self.NN = NN
         self.NN_weight_init = NN_weight_init
 
-        if N == 1:
-            num_class_elements = 4 # single-agent --> perception of 4 walls
-        else:
-            num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+        if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
+        else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
 
         self.vis_size = vis_field_res * num_class_elements
         self.contact_size = contact_field_res * num_class_elements
-        self.other_size = 2 # velocity + orientation
-        # self.other_size = 3 # on_resrc + velocity + orientation
+        self.other_size = NN_input_other_size # on_resrc + velocity + orientation
         
         self.NN_input_size = self.vis_size + self.contact_size + self.other_size
-        self.NN_hidden_size = NN_hidden_size # input via env variable
-        self.NN_output_size = 2 # dvel + dtheta
+        self.NN_hidden_size = NN_hidden_size
+        self.NN_output_size = NN_output_size # dvel + dtheta
         
         if print_enabled: 
             print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
@@ -300,17 +297,16 @@ class Simulation:
                     visual_exclusion=self.visual_exclusion,
                     contact_field_res=self.contact_field_res,
                     consumption=self.agent_consumption,
-                    NN=self.NN,
-                    NN_weight_init=self.NN_weight_init,
                     vis_size=self.vis_size,
                     contact_size=self.contact_size,
                     NN_input_size=self.NN_input_size,
                     NN_hidden_size=self.NN_hidden_size,
                     NN_output_size=self.NN_output_size,
+                    NN=self.NN,
+                    NN_weight_init=self.NN_weight_init,
                     boundary_info=self.boundary_info,
                     radius=self.agent_radii,
                     color=colors.BLUE,
-                    print_enabled=self.print_enabled
                 )
             )
 
@@ -551,7 +547,7 @@ class Simulation:
 
                     # Pass observables through NN to calculate actions (dvel + dtheta) & advance agent's hidden state
                     NN_input = agent.assemble_NN_inputs()
-                    actions, agent.hidden = agent.NN.forward(NN_input, agent.hidden)
+                    NN_output, agent.hidden = agent.NN.forward(NN_input, agent.hidden)
 
                     # Food present --> consume + set mode to exploit (if food is still available)
                     if agent.on_resrc == 1:
@@ -559,7 +555,7 @@ class Simulation:
                         self.consume(agent) 
 
                     # No food --> move via decided actions + set mode to collide if collided
-                    else: agent.move(actions) 
+                    else: agent.move(NN_output) 
 
             ### ---- BACKGROUND PROCESSES ---- ###
         

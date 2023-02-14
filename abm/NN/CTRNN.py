@@ -91,6 +91,9 @@ class CTRNN(nn.Module):
         # reduce to action dimension + pass through Tanh function (bounding to -1:1)
         x = self.h2o(x)
         x = torch.tanh(x)
-        actions = x.detach().numpy()[0]
 
-        return actions, hidden
+        # convert to np.array (requires one strip for NN_output_size>1 // two strips for NN_output_size=1)
+        # output = x.detach().numpy()[0]
+        output = x.detach().numpy()[0][0]
+
+        return output, hidden

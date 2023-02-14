@@ -17,38 +17,40 @@ envconf = dotenv_values(env_path) # returns dict of this file
 
 def start(NN=None, sim_save_name=None):
     with ExitStack():
-        sim = Simulation(N                      =int(envconf["N"]),
-                         T                      =int(envconf["T"]),
-                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
-                         agent_fov              =float(envconf['AGENT_FOV']),
-                         framerate              =int(envconf["INIT_FRAMERATE"]),
-                         with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
-                         width                  =int(envconf["ENV_WIDTH"]),
+        sim = Simulation(width                  =int(envconf["ENV_WIDTH"]),
                          height                 =int(envconf["ENV_HEIGHT"]),
+                         window_pad             =int(envconf["WINDOW_PAD"]),
+                         N                      =int(envconf["N"]),
+                         T                      =int(envconf["T"]),
+                         with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
+                         framerate              =int(envconf["INIT_FRAMERATE"]),
+                         print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
+                         plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
+                         log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
+                         sim_save_name          =sim_save_name,
                          agent_radius           =int(envconf["RADIUS_AGENT"]),
+                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
+                         collision_slowdown     =float(envconf["COLLISION_SLOWDOWN"]),
+                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                         contact_field_res      =int(envconf["CONTACT_FIELD_RESOLUTION"]),
+                         collide_agents         =bool(int(envconf["AGENT_AGENT_COLLISION"])),
+                         vision_range           =int(envconf["VISION_RANGE"]),
+                         agent_fov              =float(envconf['AGENT_FOV']),
+                         visual_exclusion       =bool(int(envconf["VISUAL_EXCLUSION"])),
+                         show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
+                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
                          N_resrc                =int(envconf["N_RESOURCES"]),
+                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
                          min_resrc_perpatch     =int(envconf["MIN_RESOURCE_PER_PATCH"]),
                          max_resrc_perpatch     =int(envconf["MAX_RESOURCE_PER_PATCH"]),
                          min_resrc_quality      =float(envconf["MIN_RESOURCE_QUALITY"]),
                          max_resrc_quality      =float(envconf["MAX_RESOURCE_QUALITY"]),
-                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
-                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
-                         vision_range           =int(envconf["VISION_RANGE"]),
-                         visual_exclusion       =bool(int(envconf["VISUAL_EXCLUSION"])),
-                         show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
-                         window_pad             =int(envconf["WINDOW_PAD"]),
-                         collide_agents         =bool(int(envconf["AGENT_AGENT_COLLISION"])),
-                         contact_field_res      =int(envconf["CONTACT_FIELD_RESOLUTION"]),
-                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
-                         collision_slowdown     =float(envconf["COLLISION_SLOWDOWN"]),
                          NN                     =NN,
                          NN_weight_init         =None,
+                         NN_input_other_size    =int(envconf["NN_INPUT_OTHER_SIZE"]),
                          NN_hidden_size         =int(envconf["NN_HIDDEN_SIZE"]),
-                         print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
-                         plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
-                         log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
-                         sim_save_name          =sim_save_name
+                         NN_output_size         =int(envconf["NN_OUTPUT_SIZE"]),
                          )
         fitnesses, elapsed_time, crash = sim.start()
     return fitnesses, elapsed_time, crash
@@ -164,7 +166,7 @@ def start_EA():
 
     vis_input_num = vis_field_res * num_class_elements
     contact_input_num = contact_field_res * num_class_elements
-    other_input_num = int(envconf["OTHER_INPUT_NUM"]) # velocity + orientation + on_resrc
+    other_input_num = int(envconf["NN_INPUT_OTHER_SIZE"]) # velocity + orientation + on_resrc
     
     # assemble NN architecture
     input_size = vis_input_num + contact_input_num + other_input_num

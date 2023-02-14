@@ -16,30 +16,31 @@ class Agent(pygame.sprite.Sprite):
     and to make decisions.
     """
 
-    def __init__(self, id, position, orientation, max_vel, collision_slowdown, vis_field_res, FOV, vision_range, visual_exclusion, 
-                 contact_field_res, consumption, NN, NN_weight_init, vis_size, contact_size, NN_input_size, NN_hidden_size, 
-                 NN_output_size, boundary_info, radius, color, print_enabled):
+    def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
+                 vis_field_res, FOV, vision_range, visual_exclusion, contact_field_res, consumption, 
+                 vis_size, contact_size, NN_input_size, NN_hidden_size, NN_output_size, NN, NN_weight_init, 
+                 boundary_info, radius, color):
         """
         Initalization method of main agent class of the simulations
 
         :param id: ID of agent (int)
         :param position: position of the agent in env as (x, y)
+        :param orientation: absolute orientation of the agent (0: right, pi/2: up, pi: left, 3*pi/2: down)
         :param max_vel: 
         :param collision_slowdown: 
-        :param orientation: absolute orientation of the agent (0: right, pi/2: up, pi: left, 3*pi/2: down)
         :param vis_field_res: resolution of the visual projection field of the agent in pixels
         :param FOV: visual field as a tuple of min max visible angles e.g. (-np.pi, np.pi)
         :param vision_range: in px the range/radius in which the agent is able to see other agents
         :param visual_exclusion: if True social cues can be visually excluded by non social cues
         :param contact_field_res: resolution of the contact projection field of the agent in pixels
         :param consumption: (resource unit/time unit) consumption efficiency of agent
-        :param NN: 
-        :param NN_weight_init: 
         :param vis_size: 
         :param contact_size: 
         :param NN_input_size: 
         :param NN_hidden_size: 
         :param NN_output_size: 
+        :param NN: 
+        :param NN_weight_init: 
         :param boundary_info: 
         :param radius: radius of the agent in pixels
         :param color: color of the agent as (R, G, B)
@@ -417,13 +418,13 @@ class Agent(pygame.sprite.Sprite):
         self.contact_field = [0] * self.contact_field_res
         self.blocked_angles = []
 
-        if y < self.y_min: # top wall
+        if y < self.y_min + self.radius: # top wall
             self.block_angle(np.pi/2)
-        if y > self.y_max: # bottom wall
+        if y > self.y_max - self.radius: # bottom wall
             self.block_angle(3*np.pi/2)
-        if x < self.x_min: # left wall
+        if x < self.x_min + self.radius: # left wall
             self.block_angle(np.pi)
-        if x > self.x_max: # right wall
+        if x > self.x_max - self.radius: # right wall
             self.block_angle(0)
 
     def bind_velocity(self):
@@ -444,7 +445,7 @@ class Agent(pygame.sprite.Sprite):
         while self.orientation > np.pi * 2:
             self.orientation = self.orientation - 2 * np.pi
 
-    def wall_collision_impact(self):
+    def wall_collision_reflection(self):
         """
         Implements simple reflection conditions on environmental boundaries according to orientation
         """
@@ -469,7 +470,7 @@ class Agent(pygame.sprite.Sprite):
                 self.bind_orientation()
                 collision = True
 
-            if angle == 0 and (3*np.pi/2 < self.orientation < 2*np.pi or 0 < self.orientation < np.pi/2): # right wall
+            if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
                 self.orientation = np.pi - self.orientation
                 self.bind_orientation()
                 collision = True
@@ -479,26 +480,130 @@ class Agent(pygame.sprite.Sprite):
             self.velocity = self.velocity * self.collision_slowdown
             self.mode = "collide"
 
-    def move(self, actions):
+    def wall_collision_absorption(self):
         """
-        Incorporates NN outputs (change in velocity + orientation)
+        Implements simple absorption conditions on environmental boundaries according to orientation
+        - x/y component of velocity is reduced to zero upon impact with a vertical/horizontal wall, respectively
+        - orientation is unchanged
+        - moving_dir used to calculate position at next time step without changing agent orientation
+        - mode is set to 'collide'
+        """
+        # Set agent as non-colliding (exploring at max velocity) until proven otherwise
+        self.velocity = self.max_vel
+        moving_dir = None
+        self.mode = "explore"
+
+        for angle in self.blocked_angles:
+
+            if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
+                self.velocity -= np.abs( np.sin(self.orientation) ) * self.velocity # v_y = 0
+                if self.orientation < np.pi/2:
+                    moving_dir = 0
+                else:
+                    moving_dir = np.pi
+                self.mode = "collide"
+
+            if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
+                self.velocity -= np.abs( np.sin(self.orientation) ) * self.velocity # v_y = 0
+                if self.orientation > 3*np.pi/2:
+                    moving_dir = 0
+                else:
+                    moving_dir = np.pi
+                self.mode = "collide"
+
+            if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
+
+                if moving_dir: # agent is next to top or bottom wall
+                    self.velocity = 0
+                else:
+                    self.velocity -= np.abs( np.cos(self.orientation) ) * self.velocity # v_x = 0
+                    if self.orientation < np.pi:
+                        moving_dir = np.pi/2
+                    else:
+                        moving_dir = 3*np.pi/2
+                    self.mode = "collide"
+
+            if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
+                
+                if moving_dir: # agent is next to top or bottom wall
+                    self.velocity = 0
+                else:
+                    self.velocity -= np.abs( np.cos(self.orientation) ) * self.velocity # v_x = 0
+                    if self.orientation < np.pi/2:
+                        moving_dir = np.pi/2
+                    else:
+                        moving_dir = np.pi
+                    self.mode = "collide"
+        
+        print(self.velocity, moving_dir)
+        return moving_dir
+
+    def wall_collision_sticky(self):
+        """
+        Implements sticky conditions on environmental boundaries according to orientation
+        - v = 0 when orientation is facing into a wall
+        - agent only allowed to move when orientation changes
+        - mode is set to 'collide'
+        """
+        # Set agent as non-colliding (exploring at max velocity) until proven otherwise
+        self.velocity = self.max_vel
+        self.mode = "explore"
+
+        for angle in self.blocked_angles:
+
+            if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
+                self.velocity = 0
+                self.mode = "collide"
+
+            if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
+                self.velocity = 0
+                self.mode = "collide"
+
+            if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
+                self.velocity = 0
+                self.mode = "collide"
+
+            if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
+                self.velocity = 0
+                self.mode = "collide"
+
+    def move(self, NN_output):
+        """
+        Incorporates NN outputs (change in orientation, or velocity + orientation)
         Calculates next position with collisions as absorbing boundary conditions
         """
-        # Unpack actions (NN outputs, tanh scales possible range to [-1 : +1])
-        dvel, dtheta = actions
+        # NN output via tanh scales to a range of [-1 : 1]
+        # Scale to max 45 deg turns [-pi/4 : pi/4] per timestep
+        turn = NN_output * np.pi / 4
 
-        # Update + bound velocity/orientation
-        self.velocity += dvel
-        self.bind_velocity()  # to [0 : max_vel]
-        self.orientation += dtheta
-        self.bind_orientation()  # to [0 : 2pi]
+        # Shift orientation accordingly + bind to [0 : 2pi]
+        self.orientation += turn
+        self.bind_orientation()
 
-        # Impelement collision boundary conditions (reflect orientation + absorb velocity)
-        self.wall_collision_impact()
+        ### For NN_output_size = 2 ###
+        # # Unpack actions (NN outputs, tanh scales possible range to [-1 : +1])
+        # dvel, dtheta = actions
+
+        # # Update + bound velocity/orientation
+        # self.velocity += dvel
+        # self.bind_velocity()  # to [0 : max_vel]
+        # self.orientation += dtheta
+        # self.bind_orientation()  # to [0 : 2pi]
+
+        # Impelement collision boundary conditions
+        self.wall_collision_sticky()
+        # moving_dir = self.wall_collision_absorbtion()
+        # self.wall_collision_reflection()
 
         # Calculate agent's next position
         self.position[0] += self.velocity * np.cos(self.orientation)
         self.position[1] -= self.velocity * np.sin(self.orientation)
+        # if moving_dir:
+        #     self.position[0] += self.velocity * np.cos(moving_dir)
+        #     self.position[1] -= self.velocity * np.sin(moving_dir)
+        # else:
+        #     self.position[0] += self.velocity * np.cos(self.orientation)
+        #     self.position[1] -= self.velocity * np.sin(self.orientation)
 
 ### -------------------------- NEURAL NETWORK FUNCTIONS -------------------------- ###
 
@@ -530,18 +635,22 @@ class Agent(pygame.sprite.Sprite):
         vis_field_onehot = self.encode_one_hot(self.vis_field)
         contact_field_onehot = self.encode_one_hot(self.contact_field)
 
-        # scale velocity + orientation to [0 : 1] boolean interval similar to visual/contact fields
-        vel_scaled = self.velocity / self.max_vel
-        orient_scaled = self.orientation / (2*np.pi)
-
         # store data as 1D array
         NN_input = np.zeros(self.input_size)
         NN_input[0:self.vis_size] = vis_field_onehot.transpose().flatten()
         NN_input[self.vis_size : self.vis_size + self.contact_size] = contact_field_onehot.transpose().flatten()
 
-        # NN_input[-self.other_size :] = np.array([ self.on_resrc, self.velocity, self.orientation ])
-        NN_input[-self.other_size :] = np.array([ vel_scaled, orient_scaled ])
-        # NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
+        # scale velocity + orientation to [0 : 1] boolean interval similar to visual/contact fields
+        vel_scaled = self.velocity / self.max_vel
+        orient_scaled = self.orientation / (2*np.pi)
+
+        # store higher level data in the remaining input locations
+        NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
+        # if self.other_size == 3:
+        #     NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
+        # elif self.other_size == 2:
+        #     NN_input[-self.other_size :] = np.array([ vel_scaled, orient_scaled ])
+        # else: raise Exception('NN_input_other_size not valid')
 
         return NN_input
 
