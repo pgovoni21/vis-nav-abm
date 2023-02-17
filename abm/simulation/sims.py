@@ -322,7 +322,7 @@ class Simulation:
             if agent.mode == 'explore': mode_num = 0
             elif agent.mode == 'exploit': mode_num = 1
             elif agent.mode == 'collide': mode_num = 2
-            else: print('Agent Mode not tracked')
+            else: raise Exception('Agent Mode not tracked')
 
             self.data_agent[agent.id, self.t, :] = np.array((pos_x, pos_y, mode_num, agent.collected_r))
 
@@ -515,8 +515,9 @@ class Simulation:
                     
                     if crash: # position = nan : RNN weight explosion due to spinning
                         pygame.quit()
+                        tracking.clean_global_dicts() # clean global data structures
                         self.crash = True
-                        return 0,0,True
+                        return 0,0,self.crash
 
                     # Update collisions with walls (contact_field)
                     agent.wall_contact_sensing() 

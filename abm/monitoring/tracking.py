@@ -85,6 +85,7 @@ def save_zarr_file(sim_time, sim_save_name):
     the unique measurement in the database"""
     global agents_dict, resources_dict
 
+    ### construct save directory according to sim_save_name, timestamping if not provided
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
     if sim_save_name is None:
         import datetime
@@ -95,11 +96,10 @@ def save_zarr_file(sim_time, sim_save_name):
     os.makedirs(save_dir, exist_ok=True)
     # print(f"Saving in {save_dir}")
 
-    # construct agent N-dimensional array of saved data
+    ### construct agent N-dimensional array of saved data
     num_ag = len(agents_dict)
     num_ag_data_entries = len(list(agents_dict[0]))
     save_data_ag_shape = (num_ag, sim_time, num_ag_data_entries)
-
     # print(f"Saving agent data as {len(save_data_ag_shape)}-D zarr array of shape {save_data_ag_shape}")
 
     ag_zarr = zarr.open(os.path.join(save_dir, "ag.zarr"), mode='w', shape=save_data_ag_shape,
@@ -112,7 +112,7 @@ def save_zarr_file(sim_time, sim_save_name):
         ag_zarr[ag_id, :, 2] = agents_dict[ag_id]['mode']
         ag_zarr[ag_id, :, 3] = agents_dict[ag_id]['collected_r']
 
-    # construct resource N-dimensional array of saved data
+    ### construct resource N-dimensional array of saved data
     num_res = len(resources_dict)
     num_res_data_entries = len(list(resources_dict[0]))
     save_data_res_shape = (num_res, sim_time, num_res_data_entries)
@@ -133,8 +133,16 @@ def save_zarr_file(sim_time, sim_save_name):
         res_zarr[res_id, start_time:end_time, 3] = resources_dict[res_id]['resrc_left']
         res_zarr[res_id, start_time:end_time, 4] = resources_dict[res_id]['quality']
 
-    # clean global data structure after loading instance info to file
-    resources_dict = {}
-    agents_dict = {}
+    clean_global_dicts()
 
     return ag_zarr, res_zarr
+
+def clean_global_dicts():
+    # clean global data structures
+    # - after loading instance info to file
+    # - for crashed simulations (without offloading to a file)
+
+    global agents_dict, resources_dict
+
+    resources_dict = {}
+    agents_dict = {}

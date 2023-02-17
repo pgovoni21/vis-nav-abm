@@ -1,3 +1,4 @@
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -63,6 +64,7 @@ def plot_map(plot_data, x_max, y_max, w=4, h=4, save_dir=None, save_name=None):
         #     elif mode_num == 3: axes.plot(x, y,'o', color='red', ms=5, zorder=3) # colliding, large red
 
     if save_dir:
+        matplotlib.use('Agg') # to sidestep backend memory issues in matplotlib 3.5+
         plt.savefig(fr'{save_dir}\{save_name}.png')
     else:
         plt.show()
@@ -127,3 +129,18 @@ def arrows(axes, x, y, ahl=6, ahw=3):
 
         axes.annotate('', xy=(dx0, dy0), xytext=(dx1, dy1),
                 arrowprops=dict( headwidth=ahw, headlength=ahl, ec='royalblue', fc='royalblue', zorder=1))
+        
+
+def plot_EA_trend_violin(trend_data, save_dir=False):
+
+    # convert from array shape: (number of generations, population size)
+    # convert to array shape: (population size, number of generations)
+    data_per_gen_tp = trend_data.transpose()
+
+    # plot population distributions + means of fitnesses for each generation
+    plt.violinplot(data_per_gen_tp, widths=1, showmeans=True, showextrema=False)
+
+    if save_dir: 
+        plt.savefig(fr'{save_dir}\fitness_spread_violin.png')
+    else: 
+        plt.show()

@@ -418,13 +418,13 @@ class Agent(pygame.sprite.Sprite):
         self.contact_field = [0] * self.contact_field_res
         self.blocked_angles = []
 
-        if y < self.y_min + self.radius: # top wall
+        if y < self.y_min: # top wall
             self.block_angle(np.pi/2)
-        if y > self.y_max - self.radius: # bottom wall
+        if y > self.y_max: # bottom wall
             self.block_angle(3*np.pi/2)
-        if x < self.x_min + self.radius: # left wall
+        if x < self.x_min: # left wall
             self.block_angle(np.pi)
-        if x > self.x_max - self.radius: # right wall
+        if x > self.x_max: # right wall
             self.block_angle(0)
 
     def bind_velocity(self):

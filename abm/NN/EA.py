@@ -2,6 +2,7 @@ import numpy as np
 from abm.NN.CTRNN import CTRNN
 import abm.app as sim
 import pickle
+# import json
 import random
 import os
 import shutil
@@ -57,8 +58,9 @@ class EvolAlgo():
 
                     if crash: # save crashed NN in binary mode + continue
                         print('Crashed agent - pickled NN')
-                        with open("crashed_NN.bin", "wb") as f: 
+                        with open("crashed_NN.bin", "wb") as f:
                             pickle.dump(NN, f)
+                            # json.dump(NN, f)
                 
                 avg_fitness = np.mean(fitness_ep)
                 fitness_gen.append(avg_fitness)
@@ -97,6 +99,17 @@ class EvolAlgo():
                 NN = self.networks[n_gen]
                 with open(rf'{NN_save_dir}\NN_pickle.bin','wb') as f:
                     pickle.dump(NN, f)
+
+                # # pull/pickle weights/biases from network
+                # param_list = NN.pull_parameters()
+
+                # print(type(param_list))
+                # print(type(param_list[-1]))
+                # print(type(param_list[0][-1]))
+                # print(param_list[0][0][-1], type(param_list[0][0][-1]))
+
+                # with open(rf'{NN_save_dir}\NN_params.json','wb') as f:
+                #     json.dump(param_list, f)
             
             # update/pickle generational fitness data in parent directory
             self.fitness_evol.append(fitness_gen)
@@ -104,6 +117,7 @@ class EvolAlgo():
             gen_save_dir = os.path.join(self.sim_data_dir, self.EA_save_name)
             with open(rf'{gen_save_dir}\fitness_spread_per_generation.bin', 'wb') as f:
                 pickle.dump(self.fitness_evol, f)
+                # json.dump(self.fitness_evol, f)
 
             # Select/Mutate to generate next generation NNs according to method specified
             if self.repop_method == 'ES':
