@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-class CTRNN(nn.Module):
+class RNN(nn.Module):
     """
     RNN model
     Euler-discretized dynamical system
