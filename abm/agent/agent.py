@@ -7,7 +7,7 @@ import pygame
 import numpy as np
 from abm.contrib import colors, decision_params, movement_params
 from abm.agent import supcalc
-from abm.NN.CTRNN import CTRNN
+from abm.NN.RNNs import RNN
 import importlib
 
 class Agent(pygame.sprite.Sprite):
@@ -18,7 +18,8 @@ class Agent(pygame.sprite.Sprite):
 
     def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
                  vis_field_res, FOV, vision_range, visual_exclusion, contact_field_res, consumption, 
-                 vis_size, contact_size, NN_input_size, NN_hidden_size, NN_output_size, NN, NN_weight_init, 
+                 vis_size, contact_size, NN_input_size, NN_hidden_size, NN_output_size, NN, 
+                 NN_type, NN_rule, NN_activ, NN_dt, NN_init,
                  boundary_info, radius, color):
         """
         Initalization method of main agent class of the simulations
@@ -40,7 +41,6 @@ class Agent(pygame.sprite.Sprite):
         :param NN_hidden_size: 
         :param NN_output_size: 
         :param NN: 
-        :param NN_weight_init: 
         :param boundary_info: 
         :param radius: radius of the agent in pixels
         :param color: color of the agent as (R, G, B)
@@ -97,8 +97,10 @@ class Agent(pygame.sprite.Sprite):
         NN_arch = (NN_input_size, NN_hidden_size, NN_output_size)
         # use given NN to control agent or initialize a new NN
         if NN: self.NN = NN
-        else:  self.NN = CTRNN(architecture=NN_arch, init=NN_weight_init, dt=100) 
-        self.hidden = None # to store hidden activity each time step
+        else:  self.NN = RNN(NN_arch, NN_type, NN_rule, NN_activ, NN_dt, NN_init) 
+        # store hidden/hebbian activity for each simulation timestep
+        self.hidden = None
+        self.hebb = None 
 
         # Environment related parameters
         self.x_min, self.x_max, self.y_min, self.y_max = boundary_info

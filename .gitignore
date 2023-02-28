@@ -250,3 +250,5 @@ cython_debug/
 # ignore data
 /abm/data/*
 *.bin
+...start.bat
+..data.lnk

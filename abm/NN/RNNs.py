@@ -1,10 +1,20 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
 class RNN(nn.Module):
     """
     RNN model
     Euler-discretized dynamical system
+
+    Types:
+        Static:
+            Traditional NN parameters (weights/biases) static in simulation time + updated in evolutionary time
+            Time constant static in sim + evolutionary time
+        Plastic:
+            Hebbian trace plastic in simulation time + zeroed at start (non-evolved)
+            Other parameters (weights/biases / plasticity coefficients / learning constants) static in sim time + evolved
+            Time constant static in sim + evolutionary time
 
     Parameters:
         architecture: 3-int tuple : input / hidden / output size (# neurons)
@@ -13,51 +23,92 @@ class RNN(nn.Module):
 
     forward() eqns from + layout inspired by: https://colab.research.google.com/github/gyyang/nn-brain/blob/master/RNN_tutorial.ipynb
     """
-    def __init__(self, architecture, dt=100, init=None, copy_network=None, var=0.05):
+    def __init__(self, arch, RNN_type, rule='hebb', activ='relu', dt=100, init='xavier', copy_network=None, var=0.05):
         super().__init__()
-        input_size, hidden_size, output_size = architecture
+
+        # construct architecture of NN
+        input_size, hidden_size, output_size = arch
         self.hidden_size = hidden_size
         
         self.i2h = nn.Linear(input_size, hidden_size)
-        self.h2h = nn.Linear(hidden_size, hidden_size)
         self.h2o = nn.Linear(hidden_size, output_size)
-        self.ordered_layers = [self.i2h, self.h2h, self.h2o]
 
+        self.RNN_type = RNN_type
+        self.rule = rule
+        if RNN_type == 'static-Yang' or RNN_type == 'static-Yang-noise':
+            self.h2h = nn.Linear(hidden_size, output_size)
+        elif RNN_type == 'static-Miconi':
+            self.w = nn.Parameter( .01 * torch.rand(hidden_size, hidden_size) )
+        elif RNN_type == 'plastic-Miconi':
+            self.w = nn.Parameter( .01 * torch.rand(hidden_size, hidden_size) )
+            self.plas = nn.Parameter( .01 * torch.rand(hidden_size, hidden_size) )
+            self.learn = nn.Parameter( .01 * torch.ones(1) )
+        else: raise ValueError('Invalid RNN type')
+
+        # set activation function
+        if activ == 'relu':
+            self.activ = torch.relu
+        elif activ == 'tanh':
+            self.activ = torch.tanh
+        else:
+            raise ValueError('Invalid activation function')
+
+        # set time constant
         self.tau = 100
         self.alpha = dt / self.tau # default --> alpha = 1
 
-        # initialize NN parameters
-        if init: # gen = 0  &  weight initialization scheme specified
-            type, spec = init
-            if type == 'sparse':
-                for m in self.modules():
-                    if isinstance(m, nn.Linear):
-                        nn.init.sparse_(m.weight, sparsity = spec)
+        # set parameter noise values
+        sigma_in = 0.1
+        sigma_rec = 0.5
+        self.std_noise_in = np.sqrt(2 / self.alpha) * sigma_in
+        self.std_noise_rec = np.sqrt(2 / self.alpha) * sigma_rec
+
+        # set params
+        if init: # gen = 0 --> initialize params from specified scheme
+            self.initialize_params(init, activ)
 
         elif copy_network: # gen > 0 --> mutate child NN from parents
             self.mutate(copy_network, var)
 
+
+    def initialize_params(self, init, activ):
+
+        if init == 'normal':
+            for p in self.parameters():
+                nn.init.normal_(p, mean=0, std=1)
+            return # does not run for-loop below
+        
+        elif init == 'identity':
+            for p in self.parameters():
+                if p.dim() > 1: 
+                    nn.init.eye_(p)
+        
+        elif init == 'xavier':
+            for p in self.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p, gain = nn.init.calculate_gain(activ))
+
+        elif init == 'sparse':
+            for p in self.parameters():
+                if p.dim() > 1:
+                    nn.init.sparse_(p, sparsity = 0.1, std=0.01)
+
+        # above initialization schemes cannot be performed on tensors of 1 dimension -> pull from normal
+        for p in self.parameters():
+            if p.dim() == 1:
+                nn.init.normal_(p, mean=0, std=1)
+
+
     def mutate(self, copy_network, var):
-        # copy parent layers
-        parent_layers = copy_network.ordered_layers
-        self_layers = self.ordered_layers
-        # parent_layers = [m for m in copy_network.modules() if isinstance(m, nn.Linear)]
-        # self_layers = [m for m in self.modules() if isinstance(m, nn.Linear)]
-
-        # iterate over self layers
-        for parent_layer, self_layer in zip(parent_layers, self_layers):
+        # iterate over copied (parent) layers + self (child) layers
+        for parent_param, self_param in zip(copy_network.parameters(), self.parameters()):
             
-            # shift weights by perturbation chosen from normal/gaussian dist of mean = 0 / var = 1
-            w = parent_layer.weight
-            noise = var * torch.randn(w.shape) # rescale noise to desired degree
-            self_layer.weight.data = w + noise
+            # shift by perturbation chosen from normal/gaussian dist of mean = 0 / var = 1
+            noise = var * torch.randn(parent_param.shape) # rescale noise to desired degree
+            self_param.data = parent_param + noise
 
-            # shift biases as well
-            b = parent_layer.bias
-            noise = var * torch.randn(b.shape)
-            self_layer.bias.data = b + noise
 
-    def forward(self, input, hidden):
+    def forward(self, input, hidden, hebb=None):
         """Propagate input through RNN
         
         Inputs:
@@ -70,19 +121,43 @@ class RNN(nn.Module):
         """
         # run calculations without storing parameters since we're not computing gradient
         with torch.no_grad():
-
+            
             # initialize hidden state activity (t = 0 for sim run)
             if hidden is None:
-                hidden = torch.zeros(self.hidden_size)
+                hidden, hebb = self.initialize_activities()
 
             # converts np.array to torch.tensor + adds 1 dimension --> size [4] becomes [1, 4]
             input = torch.from_numpy(input).float().unsqueeze(0)
 
-            # carry out recurrent calculation given input + existing hidden state using ReLu
-            x = torch.relu(self.i2h(input) + self.h2h(hidden))
-            x = hidden * (1 - self.alpha) + x * self.alpha
+            # carry out recurrent calculations according to model formulation
+            # pull current hidden (+ hebbian) activity post calculation (saved in Agent) for next time step
+            if self.RNN_type == 'static-Yang':
+                x = self.activ(self.i2h(input) + self.h2h(hidden))
+                x = hidden * (1 - self.alpha) + x * self.alpha 
+                hidden = x 
 
-            hidden = x # --> pull current hidden activity for next time step
+            elif self.RNN_type == 'static-Yang-noise':
+                input = input + torch.randn(input.shape) * self.std_noise_in
+                x = self.activ(self.i2h(input) + self.h2h(hidden))
+                x = hidden * (1 - self.alpha) + x * self.alpha
+                x = x + torch.randn(hidden.shape) * self.std_noise_in 
+                hidden = x 
+
+            elif self.RNN_type == 'static-Miconi':
+                x = self.activ(self.i2h(input) + hidden.mm(self.w))
+                hidden = x
+            
+            elif self.RNN_type == 'plastic-Miconi':
+                x = self.activ(self.i2h(input) + hidden.mm(self.w + torch.mul(self.plas, hebb)))
+
+                if self.rule == 'hebb':
+                    hebb = (1 - self.learn) * hebb + self.learn * torch.bmm(hidden.unsqueeze(2), x.unsqueeze(1))[0]
+                elif self.rule == 'oja':
+                    hebb = hebb + self.learn * torch.mul((hidden[0].unsqueeze(1) - torch.mul(hebb , x[0].unsqueeze(0))) , x[0].unsqueeze(0)) 
+                else:
+                    raise ValueError("Invalid learning rule")
+                
+                hidden = x
 
             # reduce to action dimension + pass through Tanh function (bounding to -1:1)
             x = self.h2o(x)
@@ -92,24 +167,21 @@ class RNN(nn.Module):
             # output = x.detach().numpy()[0]
             output = x.detach().numpy()[0][0]
 
-        return output, hidden
+        return output, hidden, hebb
 
-    # def pull_parameters(self):
-    #     # extract weights/biases for each layer + output as list of numpy arrays
-    #     parameter_list = []
-    #     for layer in self.ordered_layers:
-    #         layer_weight_np = layer.weight.data.numpy()
-    #         layer_bias_np = layer.bias.data.numpy()
 
-    #         layer_weight_nestedlist = layer_weight_np.tolist()
-    #         layer_bias_nestedlist = layer_bias_np.tolist()
+    def initialize_activities(self):
 
-    #         parameter_list.append(layer_weight_nestedlist)
-    #         parameter_list.append(layer_bias_nestedlist)
+        if self.RNN_type == 'static-Yang' or self.RNN_type == 'static-Yang-noise':
+            hidden = torch.zeros(self.hidden_size)
+            hebb = None
 
-    #     return parameter_list
+        elif self.RNN_type == 'static-Miconi':
+            hidden = torch.zeros(self.hidden_size, self.hidden_size)
+            hebb = None
 
-    # def push_parameters(self, parameter_list):
-    #     # input list of numpy arrays as weights/biases for each layer
-    #     for i, param in enumerate(parameter_list):
-    #         self.ordered_layers[i].weight.data = torch.from_numpy(param)
+        elif self.RNN_type == 'plastic-Miconi':
+            hidden = torch.zeros(self.hidden_size, self.hidden_size)
+            hebb = torch.zeros(self.hidden_size, self.hidden_size)
+
+        return hidden, hebb

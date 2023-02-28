@@ -24,7 +24,8 @@ class Simulation:
                  vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
                  N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
                  min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
-                 NN=None, NN_weight_init=None, NN_input_other_size=3, NN_hidden_size=128, NN_output_size=1
+                 NN=None, NN_input_other_size=3, NN_hidden_size=128, NN_output_size=1,
+                 NN_type='static-Yang', NN_rule='hebb', NN_activ='relu', NN_dt=100, NN_init='xavier',
                  ):
         """
         Initializing the main simulation instance
@@ -64,10 +65,14 @@ class Simulation:
             to exploit from the patch
         :param regenerate_patches: bool to decide if patches shall be regenerated after depletion
         :param NN:
-        :param NN_weight_init:
         :param NN_input_other_size:
         :param NN_hidden_size:
         :param NN_output_size:
+        :param NN_type
+        :param NN_rule:
+        :param NN_activ:
+        :param NN_dt:
+        :param NN_init:
         """
         # Arena parameters
         self.WIDTH = width
@@ -135,7 +140,6 @@ class Simulation:
 
         # Neural Network parameters
         self.NN = NN
-        self.NN_weight_init = NN_weight_init
 
         if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
         else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
@@ -147,11 +151,18 @@ class Simulation:
         self.NN_input_size = self.vis_size + self.contact_size + self.other_size
         self.NN_hidden_size = NN_hidden_size
         self.NN_output_size = NN_output_size # dvel + dtheta
+
+        self.NN_type = NN_type
+        self.NN_rule = NN_rule
+        self.NN_activ = NN_activ
+        self.NN_dt = NN_dt
+        self.NN_init = NN_init
         
         if print_enabled: 
             print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
             print(f" + {self.other_size} (velocity + orientation) = {self.NN_input_size}")
             print(f"Agent NN architecture = {(self.NN_input_size, NN_hidden_size, self.NN_output_size)}")
+            print(f"NN_type: {NN_type}, NN_rule: {NN_rule}, NN_activ: {NN_activ}, NN_dt: {NN_dt}, NN_init: {NN_init}")
 
         # Initializing pygame
         if self.with_visualization:
@@ -303,7 +314,11 @@ class Simulation:
                     NN_hidden_size=self.NN_hidden_size,
                     NN_output_size=self.NN_output_size,
                     NN=self.NN,
-                    NN_weight_init=self.NN_weight_init,
+                    NN_type=self.NN_type,
+                    NN_rule = self.NN_rule,
+                    NN_activ = self.NN_activ,
+                    NN_dt = self.NN_dt,
+                    NN_init = self.NN_init,
                     boundary_info=self.boundary_info,
                     radius=self.agent_radii,
                     color=colors.BLUE,
@@ -322,7 +337,7 @@ class Simulation:
             if agent.mode == 'explore': mode_num = 0
             elif agent.mode == 'exploit': mode_num = 1
             elif agent.mode == 'collide': mode_num = 2
-            else: raise Exception('Agent Mode not tracked')
+            else: raise ValueError('Agent Mode not tracked')
 
             self.data_agent[agent.id, self.t, :] = np.array((pos_x, pos_y, mode_num, agent.collected_r))
 
@@ -349,7 +364,7 @@ class Simulation:
 
         while len(colliding_resources) > 0 or len(colliding_agents) > 0:
             if retries > max_retries:
-                raise Exception("Reached timeout while trying to create resources without overlap!")
+                raise RuntimeError("Reached timeout while trying to create resources without overlap!")
             
             x = np.random.randint(self.x_min, self.x_max - 2*radius)
             y = np.random.randint(self.y_min, self.y_max - 2*radius)
@@ -460,8 +475,8 @@ class Simulation:
                     self.framerate = 1
             if event.type == pygame.KEYDOWN and event.key == pygame.K_f:
                 self.framerate += 1
-                if self.framerate > 35:
-                    self.framerate = 35
+                if self.framerate > 50:
+                    self.framerate = 50
             if event.type == pygame.KEYDOWN and event.key == pygame.K_d:
                 self.framerate = self.framerate_orig
 
@@ -517,7 +532,7 @@ class Simulation:
                         pygame.quit()
                         tracking.clean_global_dicts() # clean global data structures
                         self.crash = True
-                        return 0,0,self.crash
+                        return [0.], 0, self.crash
 
                     # Update collisions with walls (contact_field)
                     agent.wall_contact_sensing() 
@@ -548,7 +563,7 @@ class Simulation:
 
                     # Pass observables through NN to calculate actions (dvel + dtheta) & advance agent's hidden state
                     NN_input = agent.assemble_NN_inputs()
-                    NN_output, agent.hidden = agent.NN.forward(NN_input, agent.hidden)
+                    NN_output, agent.hidden, agent.hebb = agent.NN.forward(NN_input, agent.hidden, agent.hebb)
 
                     # Food present --> consume + set mode to exploit (if food is still available)
                     if agent.on_resrc == 1:

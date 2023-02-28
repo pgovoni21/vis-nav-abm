@@ -1,5 +1,5 @@
 import numpy as np
-from abm.NN.CTRNN import CTRNN
+from abm.NN.RNNs import RNN
 import abm.app as sim
 import pickle
 # import json
@@ -11,15 +11,18 @@ from abm.monitoring import plot_funcs
 
 class EvolAlgo():
     
-    def __init__(self, architecture=(50,128,2), dt=100, init=None, population_size=96, generations=500, episodes=5, 
-                 mutation_variance=0.02, repop_method='ES', hybrid_scaling_factor=0.001, hybrid_new_intro_num=5, 
-                 num_top_saved=5, EA_save_name=None):
+    def __init__(self, arch=(50,128,2), RNN_type='static-Yang', rule='hebb', activ='relu', dt=100, init=None, 
+                 population_size=96, generations=500, episodes=5, mutation_variance=0.02, repop_method='ES', 
+                 hybrid_scaling_factor=0.001, hybrid_new_intro_num=5, num_top_saved=5, EA_save_name=None):
         
         # Initialize NN population + fitness lists
-        self.architecture = architecture
+        self.arch = arch
+        self.RNN_type = RNN_type
+        self.rule = rule
+        self.activ = activ
         self.dt = dt
         self.init = init
-        self.networks = [CTRNN(architecture, dt, init) for _ in range(population_size)]
+        self.networks = [RNN(arch, type, rule, activ, dt, init) for _ in range(population_size)]
         self.fitness_evol = []
 
         # Evolution + Simulation parameters
@@ -48,7 +51,7 @@ class EvolAlgo():
                 fitness_ep = []
                 for x in range(self.episodes):
 
-                    # construct save name for current simulation, to be called later if needed
+                    # construct save name for current simulation, to be called later if needed (e.g. to plot top performers)
                     sim_save_name = fr'{self.EA_save_name}\running\NN{n}\ep{x}'
 
                     # run sim + record fitness/time
@@ -138,7 +141,8 @@ class EvolAlgo():
         # Create child NNs as mutations of the top NN
         new_networks = []
         for _ in range(self.population_size - 1):
-            new_network = CTRNN(self.architecture, self.dt, copy_network=best_network, var=self.mutation_variance)
+            new_network = RNN(self.arch, self.RNN_type, self.rule, self.activ, self.dt, 
+                              copy_network=best_network, var=self.mutation_variance)
             new_networks.append(new_network)
         
         # Set NNs for next generation
@@ -169,7 +173,8 @@ class EvolAlgo():
                     break
 
         # Set child NNs as mutations of parents
-        self.networks = [CTRNN(self.architecture, self.dt, copy_network=parent, var=self.mutation_variance) for parent in parents]
+        self.networks = [RNN(self.arch, self.RNN_type, self.rule, self.activ, self.dt, 
+                              copy_network=parent, var=self.mutation_variance) for parent in parents]
 
 
     def repop_hybrid(self, fitness_gen, top_indices, scaling_factor, new_intro_num):
@@ -209,10 +214,11 @@ class EvolAlgo():
                     break
         
             # Set child NNs as mutations of parents
-        roulette_networks = [CTRNN(self.architecture, self.dt, copy_network=parent, var=self.mutation_variance) for parent in parents]
+        roulette_networks = [RNN(self.arch, self.RNN_type, self.rule, self.activ, self.dt, 
+                              copy_network=parent, var=self.mutation_variance) for parent in parents]
 
         ## new network introduction : random NNs added to enhance exploration
-        new_networks = [CTRNN(self.architecture, self.dt, self.init) for _ in range(new_intro_num)]
+        new_networks = [RNN(self.arch, self.RNN_type, self.rule, self.activ, self.dt, self.init) for _ in range(new_intro_num)]
 
         ## compile list of NNs for the next generation
         self.networks = top_networks + roulette_networks + new_networks

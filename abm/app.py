@@ -47,10 +47,14 @@ def start(NN=None, sim_save_name=None):
                          max_resrc_quality      =float(envconf["MAX_RESOURCE_QUALITY"]),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                          NN                     =NN,
-                         NN_weight_init         =None,
                          NN_input_other_size    =int(envconf["NN_INPUT_OTHER_SIZE"]),
                          NN_hidden_size         =int(envconf["NN_HIDDEN_SIZE"]),
                          NN_output_size         =int(envconf["NN_OUTPUT_SIZE"]),
+                         NN_type                =str(envconf["NN_TYPE"]), 
+                         NN_rule                =str(envconf["NN_LEARNING_RULE"]), 
+                         NN_activ               =str(envconf["NN_ACTIVATION_FUNCTION"]),
+                         NN_dt                  =int(envconf["NN_DT"]), 
+                         NN_init                =str(envconf["NN_INIT"]),
                          )
         fitnesses, elapsed_time, crash = sim.start()
     return fitnesses, elapsed_time, crash
@@ -174,9 +178,12 @@ def start_EA():
     output_size = int(envconf["NN_OUTPUT_SIZE"]) # dvel + dtheta
     architecture = (input_size, hidden_size, output_size)
 
-    EA = EvolAlgo(architecture              =architecture, 
-                  dt                        =int(envconf["EA_DISCRETIZATION_TIMESTEP"]), 
-                  init                      =str(envconf["EA_NN_INIT_SCHEME"]), 
+    EA = EvolAlgo(arch                      =architecture, 
+                  RNN_type                  =str(envconf["NN_TYPE"]), 
+                  rule                      =str(envconf["NN_LEARNING_RULE"]), 
+                  activ                     =str(envconf["NN_ACTIVATION_FUNCTION"]),
+                  dt                        =int(envconf["NN_DT"]), 
+                  init                      =str(envconf["NN_INIT"]), 
                   population_size           =int(envconf["EA_POPULATION_SIZE"]), 
                   generations               =int(envconf["EA_GENERATIONS"]), 
                   episodes                  =int(envconf["EA_EPISODES"]), 

@@ -35,8 +35,8 @@ def plot_map(plot_data, x_max, y_max, w=4, h=4, save_dir=None, save_name=None):
         mode_nums = ag_data[agent,:,2]
 
         # agent start/end points
-        axes.plot(pos_x[0], pos_y[0], 'wo', ms=10, markeredgecolor='k', zorder=4)
-        axes.plot(pos_x[-1], pos_y[-1], 'ko', ms=10, zorder=4)
+        axes.plot(pos_x[0], pos_y[0], 'wo', ms=10, markeredgecolor='k', zorder=4, clip_on=False)
+        axes.plot(pos_x[-1], pos_y[-1], 'ko', ms=10, zorder=4, clip_on=False)
 
         # build arrays according to agent mode (~5x faster plot runtime than using compressed save_data)
         traj_explore, traj_exploit, traj_collide = [],[],[]
