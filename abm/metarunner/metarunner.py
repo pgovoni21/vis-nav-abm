@@ -1,31 +1,17 @@
 """
-metarunner.py: including the main classes and methods to programatically ruzn metaprotocols of simulations, i.e.
+metarunner.py: including the main classes and methods to programatically run metaprotocols of simulations, i.e.
      for some parameter search.
 """
 import shutil
 import numpy as np
 import os
+from pathlib import Path
 import itertools
 from dotenv import dotenv_values
 import warnings
 from abm import app
 import glob
 from time import sleep
-
-EXP_NAME = os.getenv("EXPERIMENT_NAME", "")
-root_abm_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-env_path = os.path.join(root_abm_dir, f"{EXP_NAME}.env")
-envconf = dotenv_values(env_path)
-
-
-def generate_env_file(env_data, file_name, save_folder):
-    """Generating a single env file under save_folder with file_name including env_data as env format"""
-    os.makedirs(save_folder, exist_ok=True)
-    file_path = os.path.join(save_folder, file_name)
-    with open(file_path, "a") as file:
-        for k, v in env_data.items():
-            file.write(f"{k}={v}\n")
-
 
 class Constant:
     """A constant parameter value for a given parameter that shall be used for simulations"""
@@ -40,7 +26,7 @@ class Constant:
 
     def print(self):
         """printing method"""
-        print(f"Constant {self.tunable.name} = {self.tunable.values[0]}")
+        print(f"---Added Constant:\t {self.tunable.name} = {self.tunable.values[0]}")
 
 class TunedPairRestrain:
     """Parameter pair to be restrained together with multiplication"""
@@ -88,8 +74,7 @@ class Tunable:
 
     def print(self):
         """printing method"""
-        print(f"Tunable: {self.name} = {self.min_val}  -  -  -n={self.n_data}-  -  -  {self.max_val}")
-        print(f"Values : {self.values}")
+        print(f"---Added Tunable:\t {self.name} = {self.values}")
 
     def get_values(self):
         return self.values
@@ -98,8 +83,7 @@ class Tunable:
 class MetaProtocol:
     """Metaprotocol class that is initialized with Tunables and runs through the desired simulations accordingly"""
 
-    def __init__(self, experiment_name=None, num_batches=1, parallel=False, description=None, headless=False):
-        self.default_envconf = envconf
+    def __init__(self, experiment_name, num_batches=1, parallel=False, description=None, headless=False):
         self.tunables = []
         self.tuned_pairs = []
         self.q_tuned_pairs = []
@@ -107,19 +91,15 @@ class MetaProtocol:
         self.num_batches = num_batches
         self.description = description
         self.headless = headless
-        # in case we want to run multiple experiemnts in different terminals set this to True
-        if experiment_name is None and parallel==True:
-            raise Exception("Can't run multiple experiments parallely without experiment name!")
         self.parallel_run = parallel
-        if self.experiment_name is not None:
-            self.temp_dir = f"abm/data/metaprotocol/temp/{self.experiment_name}"
-        else:
-            self.temp_dir = "abm/data/metaprotocol/temp"
+
+        self.root_dir = Path(__file__).parent.parent.parent
+        self.temp_dir = Path(self.root_dir, "abm/data/metaprotocol/temp", self.experiment_name)
+        self.save_dir = Path(self.root_dir, "abm/data/simulation_data")
 
     def add_criterion(self, criterion):
         """Adding a criterion to the metaprotocol as a Tunable or Constant"""
         self.tunables.append(criterion)
-        print("---Added new criterion to MetaProtocol: ")
         criterion.print()
 
     def add_tuned_pair(self, tuned_pair):
@@ -167,84 +147,102 @@ class MetaProtocol:
 
     def generate_temp_env_files(self):
         """generating a batch of env files that will describe the metaprotocol in a temporary folder"""
-        root_abm_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-        temp_dir = os.path.join(root_abm_dir, self.temp_dir)
 
-        if os.path.isdir(temp_dir):
-            warnings.warn("Temprary directory for env files is not empty and will be overwritten")
-            shutil.rmtree(temp_dir)
+        # check for existing files in temp + save directories, overwrite if found
+        if os.path.isdir(self.temp_dir):
+            warnings.warn("Temporary directory for env files is not empty and will be overwritten")
+            shutil.rmtree(self.temp_dir)
 
+        if os.path.isdir(Path(self.save_dir, self.experiment_name)):
+            warnings.warn("Save directory for env + zarr files is not empty and will be overwritten")
+            shutil.rmtree(Path(self.save_dir, self.experiment_name))
+
+        # generate combinations of variables
         tunable_names = [t.name for t in self.tunables]
         tunable_values = [t.get_values() for t in self.tunables]
         combos = list(itertools.product(*tunable_values))
 
+        # remove generated combos that do not follow constraint
         combos = self.consider_tuned_pairs(combos)
 
         print(f"Generating {len(combos)} env files for simulations")
 
+        # for number of metaprotocol batches
         for nb in range(self.num_batches):
+
+            # for each combination of variables
             for i, combo in enumerate(combos):
-                new_envconf = self.default_envconf.copy()
+
+                # initialize env dict
+                new_envconf = dict()
+
+                # for each contant/tunable variable
                 for j, value in enumerate(combo):
                     name = tunable_names[j]
                     if not isinstance(value, bool):
                         new_envconf[name] = value
                     else:
                         new_envconf[name] = int(value)
-                if self.experiment_name is None:
-                    new_envconf["SAVE_ROOT_DIR"] = os.path.join("abm/data/simulation_data", "UnknownExp", f"batch_{nb}")
-                else:
-                    new_envconf["SAVE_ROOT_DIR"] = os.path.join("abm/data/simulation_data", self.experiment_name, f"batch_{nb}")
 
-                generate_env_file(new_envconf, f"{i}_b{nb}.env", temp_dir)
+                # create save folder + append sim_save_name to env file
+                save_ext = Path(self.experiment_name, f"batch_{nb}", f"combo_{i+1}")
+                os.makedirs(Path(self.save_dir, save_ext))
+                new_envconf["SAVE_EXT"] = save_ext
+
+                # generate temporary env file
+                os.makedirs(self.temp_dir, exist_ok=True)
+                file_path = Path(self.temp_dir, f"{self.experiment_name}_b{nb}_c{i+1}.env")
+                with open(file_path, "a") as file:
+                    for k, v in new_envconf.items():
+                        file.write(f"{k}={v}\n")
 
         print(f"Env files generated according to criterions!")
 
     def save_description(self):
         """Saving description text as txt file in the experiment folder"""
         if self.description is not None:
-            root_abm_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-            if self.experiment_name is None:
-                experiment_folder = os.path.join(root_abm_dir, "abm/data/simulation_data", "UnknownExp")
-            else:
-                experiment_folder = os.path.join(root_abm_dir, "abm/data/simulation_data", self.experiment_name)
-            description_path = os.path.join(experiment_folder, "README.txt")
-            os.makedirs(experiment_folder, exist_ok=True)
+            description_path = Path(self.save_dir, self.experiment_name, "README.txt")
+            os.makedirs(self.save_dir, exist_ok=True)
             with open(description_path, "w") as readmefile:
                 readmefile.write(self.description)
 
-    def run_protocol(self, env_path, project="Base"):
+    def run_protocol(self, temp_env, project="Base"):
         """Runs a single simulation run according to an env file given by the env path"""
-        root_abm_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-        default_env_path = os.path.join(root_abm_dir, f"{EXP_NAME}.env")
-        backup_default_env = os.path.join(root_abm_dir, ".env-orig")
-        if os.path.isfile(default_env_path) and not os.path.isfile(backup_default_env):
-            shutil.copyfile(default_env_path, backup_default_env)
-        os.remove(default_env_path)
-        shutil.copy(env_path, default_env_path)
-        os.remove(env_path)
-        # here we run the simulation
+
+        # pull protocol name + set as env path
+        protocol_name = Path(temp_env).stem
+        os.environ["EXPERIMENT_NAME"] = protocol_name
+
+        # call save extension (batch#/combo#)
+        envconf = dotenv_values(temp_env)
+        save_ext = envconf["SAVE_EXT"]
+
+        # move temporary .env file to root_dir + save_dir
+        shutil.copyfile(temp_env, f"{Path(self.root_dir, protocol_name)}.env") # concatenates with protocol stem
+        shutil.copyfile(temp_env, Path(self.save_dir, save_ext, ".env")) # creates invidual env for the folder
+        
+        # run sim via current .env file (in root_dir)
         if project == "Base":
-            app.start(parallel=self.parallel_run, headless=self.headless)
-        elif project == "CoopSignaling":
-            from abm import app_collective_signaling
-            app_collective_signaling.start(parallel=self.parallel_run, headless=self.headless)
-        os.remove(default_env_path)
-        shutil.copyfile(backup_default_env, default_env_path)
+            app.start()
+        # elif project == "CoopSignaling":
+        #     from abm import app_collective_signaling
+        #     app_collective_signaling.start(parallel=self.parallel_run, headless=self.headless)
+
+        # remove temp + current .env files
+        os.remove(temp_env)
+        os.remove(f"{Path(self.root_dir, protocol_name)}.env")
+
         sleep(2)
 
     def run_protocols(self, project="Base"):
-        """Running all remaining protocols in tep env folder"""
+        """Iterates through list of protocols in temp env folder"""
+
+        # save experiment README.txt
         self.save_description()
+        
+        # iterates through list
+        for i, temp_env in enumerate(self.temp_dir.glob("*.env")):
+            self.run_protocol(temp_env, project=project)
 
-        root_abm_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-        temp_dir = os.path.join(root_abm_dir, self.temp_dir)
-
-        glob_pattern = os.path.join(temp_dir, "*.env")
-        print("found files: ", sorted(glob.iglob(glob_pattern)))
-
-        i = 1
-        for env_path in sorted(glob.iglob(glob_pattern)):
-            print(f"Running protocol {i}/{len(sorted(glob.iglob(glob_pattern)))}")
-            self.run_protocol(env_path, project=project)
-            i += 1
+        # remove temp folder
+        os.rmdir(self.temp_dir)

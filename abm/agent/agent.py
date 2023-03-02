@@ -5,10 +5,9 @@ agent.py : including the main classes to create an agent. Supplementary calculat
 
 import pygame
 import numpy as np
-from abm.contrib import colors, decision_params, movement_params
+from abm.contrib import colors
 from abm.agent import supcalc
 from abm.NN.RNNs import RNN
-import importlib
 
 class Agent(pygame.sprite.Sprite):
     """
@@ -47,10 +46,6 @@ class Agent(pygame.sprite.Sprite):
         """
         # PyGame Sprite superclass
         super().__init__()
-
-        # in case we run multiple simulations, we reload the env parameters
-        importlib.reload(decision_params)
-        importlib.reload(movement_params)
 
         # Unique parameters
         self.id = id 

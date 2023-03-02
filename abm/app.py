@@ -1,21 +1,28 @@
 from contextlib import ExitStack
 
 from abm.simulation.sims import Simulation
-# from abm.simulation.sims_current import Simulation_current
-# from abm.simulation.isims import PlaygroundSimulation
-# import abm.contrib.playgroundtool as pgt
 from abm.NN.EA import EvolAlgo
 
 import os
-# loading env variables from dotenv file
+from pathlib import Path
 from dotenv import dotenv_values
 
-EXP_NAME = os.getenv("EXPERIMENT_NAME", "") # returns associated path if available, nothing if it doesn't exist
-root_abm_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) # moves up 2 levels (grandpa dir)
-env_path = os.path.join(root_abm_dir, f"{EXP_NAME}.env") # concatenates grandpa dir with env/exp file name
-envconf = dotenv_values(env_path) # returns dict of this file
-
 def start(NN=None, sim_save_name=None):
+
+    # calls relevant env dict (exp_name.env if in metarunner, .env if not)
+    EXP_NAME = os.getenv("EXPERIMENT_NAME", "") # returns filename if available, nothing if it doesn't exist
+    env_path = Path(__file__).parent.parent / f"{EXP_NAME}.env" # moves up 2 dir levels + concatenates with env filename
+    envconf = dotenv_values(env_path) # returns dict of this file
+    print(f"Running: {EXP_NAME}.env")
+
+    # to run headless
+    if int(envconf['WITH_VISUALIZATION']) == 0:
+        os.environ['SDL_VIDEODRIVER'] = 'dummy'
+
+    # specify save name if found in env dict
+    if envconf["SAVE_EXT"]:
+        sim_save_name = envconf["SAVE_EXT"]
+
     with ExitStack():
         sim = Simulation(width                  =int(envconf["ENV_WIDTH"]),
                          height                 =int(envconf["ENV_HEIGHT"]),
@@ -59,11 +66,11 @@ def start(NN=None, sim_save_name=None):
         fitnesses, elapsed_time, crash = sim.start()
     return fitnesses, elapsed_time, crash
 
-def start_headless(NN=None, sim_save_name=None):
-    os.environ['SDL_VIDEODRIVER'] = 'dummy'
-    envconf['WITH_VISUALIZATION'] = 0
-    fitnesses, elapsed_time, crash = start(NN=NN, sim_save_name=sim_save_name)
-    return fitnesses, elapsed_time, crash
+# def start_headless(NN=None, sim_save_name=None):
+#     os.environ['SDL_VIDEODRIVER'] = 'dummy'
+#     envconf['WITH_VISUALIZATION'] = 0
+#     fitnesses, elapsed_time, crash = start(NN=NN, sim_save_name=sim_save_name)
+#     return fitnesses, elapsed_time, crash
 
 
 # def start_playground():

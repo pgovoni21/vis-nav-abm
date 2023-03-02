@@ -4,17 +4,13 @@ with contextlib.redirect_stdout(None): # blocks pygame initialization messages
 
 import numpy as np
 import sys
-# import os
-# import uuid
 from datetime import datetime
-import time
 
 from abm.agent import supcalc
 from abm.agent.agent import Agent
 from abm.environment.resource import Resource
 from abm.contrib import colors
 from abm.monitoring import tracking, plot_funcs
-# from abm.monitoring import env_saver
 
 class Simulation:
     def __init__(self, width=600, height=480, window_pad=30, 
@@ -280,8 +276,6 @@ class Simulation:
         self.draw_framerate()
         self.draw_agent_stats()
 
-        
-        
         # vision range + projection field
         if self.show_vision_range and self.x_max > self.vision_range: 
             self.draw_visual_fields()
