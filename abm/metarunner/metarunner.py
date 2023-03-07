@@ -10,8 +10,8 @@ import itertools
 from dotenv import dotenv_values
 import warnings
 from abm import app
-import glob
-from time import sleep
+import multiprocessing
+import time
 
 class Constant:
     """A constant parameter value for a given parameter that shall be used for simulations"""
@@ -183,14 +183,14 @@ class MetaProtocol:
                         new_envconf[name] = value
                     else:
                         new_envconf[name] = int(value)
-
+    
                 # create save folder + append sim_save_name to env file
                 save_ext = Path(self.experiment_name, f"batch_{nb}", f"combo_{i+1}")
-                os.makedirs(Path(self.save_dir, save_ext))
+                Path(self.save_dir, save_ext).mkdir(parents=True)
                 new_envconf["SAVE_EXT"] = save_ext
 
                 # generate temporary env file
-                os.makedirs(self.temp_dir, exist_ok=True)
+                Path(self.temp_dir).mkdir(parents=True, exist_ok=True)
                 file_path = Path(self.temp_dir, f"{self.experiment_name}_b{nb}_c{i+1}.env")
                 with open(file_path, "a") as file:
                     for k, v in new_envconf.items():
@@ -202,14 +202,15 @@ class MetaProtocol:
         """Saving description text as txt file in the experiment folder"""
         if self.description is not None:
             description_path = Path(self.save_dir, self.experiment_name, "README.txt")
-            os.makedirs(self.save_dir, exist_ok=True)
             with open(description_path, "w") as readmefile:
                 readmefile.write(self.description)
 
     def run_protocol(self, temp_env, project="Base"):
         """Runs a single simulation run according to an env file given by the env path"""
 
-        # pull protocol name + set as env path
+        start_protocol = time.time()
+
+        ## pull protocol name + set as env path
         protocol_name = Path(temp_env).stem
         os.environ["EXPERIMENT_NAME"] = protocol_name
 
@@ -221,9 +222,12 @@ class MetaProtocol:
         shutil.copyfile(temp_env, f"{Path(self.root_dir, protocol_name)}.env") # concatenates with protocol stem
         shutil.copyfile(temp_env, Path(self.save_dir, save_ext, ".env")) # creates invidual env for the folder
         
-        # run sim via current .env file (in root_dir)
-        if project == "Base":
-            app.start()
+        # run sim via specified .env file (in root_dir)
+        fitness, sim_time, crash = app.start(sim_name = protocol_name)
+
+        # for differentiating simulation types (commented out for now)
+        # if project == "Base":
+        #     app.start()
         # elif project == "CoopSignaling":
         #     from abm import app_collective_signaling
         #     app_collective_signaling.start(parallel=self.parallel_run, headless=self.headless)
@@ -232,17 +236,36 @@ class MetaProtocol:
         os.remove(temp_env)
         os.remove(f"{Path(self.root_dir, protocol_name)}.env")
 
-        sleep(2)
+        # calculate time spent on
+        protocol_time = round( time.time() - start_protocol ,2)
+
+        return protocol_name, sim_time, protocol_time
 
     def run_protocols(self, project="Base"):
-        """Iterates through list of protocols in temp env folder"""
+        """Iterates through protocols in temp env folder"""
 
         # save experiment README.txt
         self.save_description()
+
+        # generates list
+        protocol_list = list(self.temp_dir.glob("*.env"))
         
-        # iterates through list
-        for i, temp_env in enumerate(self.temp_dir.glob("*.env")):
-            self.run_protocol(temp_env, project=project)
+        start_batch = time.time()
+        # iterates through protocols
+
+        # sequential, no parallel processing (left commented out)
+        # for temp_env in protocol_list:
+        #     filename, protocol_time = self.run_protocol(temp_env)
+        #     print(f'Done: {filename} in {protocol_time} sec')
+
+        # parallel processing, number of processes used at once automatically chosen
+        with multiprocessing.Pool() as pool:
+            results = pool.imap_unordered(self.run_protocol, protocol_list)
+
+            for filename, sim_time, protocol_time in results:
+                print(f'Done: {filename} \t Sim time: {sim_time} sec \t Protocol time: {protocol_time} sec')
+
+        print(f'Batch time: {round( time.time() - start_batch ,2)} sec')
 
         # remove temp folder
         os.rmdir(self.temp_dir)

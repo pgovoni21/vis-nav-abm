@@ -5,8 +5,7 @@
 # import importlib
 # import abm.contrib.tracking_params as tp
 
-import pathlib
-import os
+from pathlib import Path
 import zarr
 
 resources_dict = {}
@@ -79,30 +78,32 @@ def save_resource_data_RAM(sim):
         resources_dict[res.id]["quality"].append(res.quality)
 
 
-def save_zarr_file(sim_time, sim_save_name):
+def save_zarr_file(sim_time, save_ext, print_enabled=False):
     """Saving agent/resource dictionaries as zarr file
     if multiple simulations are running in parallel a uuid hash must be passed as experiment hash to find
     the unique measurement in the database"""
     global agents_dict, resources_dict
 
-    ### construct save directory according to sim_save_name, timestamping if not provided
-    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-    if sim_save_name is None:
+    ### construct save directory according to save_ext, timestamping if not provided
+    root_dir = Path(__file__).parent.parent.parent
+    if save_ext:
+        save_dir = Path(root_dir, 'abm\data\simulation_data', save_ext)
+    else:
         import datetime
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        save_dir = os.path.join(root_dir, 'abm\data\simulation_data', timestamp)
-    else:
-        save_dir = os.path.join(root_dir, 'abm\data\simulation_data', sim_save_name)
-    os.makedirs(save_dir, exist_ok=True)
-    # print(f"Saving in {save_dir}")
+        save_dir = Path(root_dir, 'abm\data\simulation_data', timestamp)
+
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+
+    if print_enabled: print(f"Saving in {save_dir}")
 
     ### construct agent N-dimensional array of saved data
     num_ag = len(agents_dict)
     num_ag_data_entries = len(list(agents_dict[0]))
     save_data_ag_shape = (num_ag, sim_time, num_ag_data_entries)
-    # print(f"Saving agent data as {len(save_data_ag_shape)}-D zarr array of shape {save_data_ag_shape}")
+    if print_enabled: print(f"Saving agent data as {len(save_data_ag_shape)}-D zarr array of shape {save_data_ag_shape}")
 
-    ag_zarr = zarr.open(os.path.join(save_dir, "ag.zarr"), mode='w', shape=save_data_ag_shape,
+    ag_zarr = zarr.open(Path(save_dir, "ag.zarr"), mode='w', shape=save_data_ag_shape,
                             chunks=save_data_ag_shape, dtype='float')
 
     # populate zarr array from dict
@@ -116,9 +117,9 @@ def save_zarr_file(sim_time, sim_save_name):
     num_res = len(resources_dict)
     num_res_data_entries = len(list(resources_dict[0]))
     save_data_res_shape = (num_res, sim_time, num_res_data_entries)
-    # print(f"Saving resource data as {len(save_data_res_shape)}-D zarr array of shape {save_data_res_shape}")
+    if print_enabled: print(f"Saving resource data as {len(save_data_res_shape)}-D zarr array of shape {save_data_res_shape}")
 
-    res_zarr = zarr.open(os.path.join(save_dir, "res.zarr"), mode='w', shape=save_data_res_shape,
+    res_zarr = zarr.open(Path(save_dir, "res.zarr"), mode='w', shape=save_data_res_shape,
                             chunks=save_data_res_shape, dtype='float')
 
     # populate zarr array from dict

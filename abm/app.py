@@ -7,21 +7,16 @@ import os
 from pathlib import Path
 from dotenv import dotenv_values
 
-def start(NN=None, sim_save_name=None):
+def start(NN=None, sim_name=""):
 
-    # calls relevant env dict (exp_name.env if in metarunner, .env if not)
-    EXP_NAME = os.getenv("EXPERIMENT_NAME", "") # returns filename if available, nothing if it doesn't exist
-    env_path = Path(__file__).parent.parent / f"{EXP_NAME}.env" # moves up 2 dir levels + concatenates with env filename
+    # calls relevant env dict (sim_name.env if in metarunner, .env if not)found
+    env_path = Path(__file__).parent.parent / f"{sim_name}.env" # moves up 2 dir levels + concatenates with env filename
     envconf = dotenv_values(env_path) # returns dict of this file
-    print(f"Running: {EXP_NAME}.env")
+    print(f"Running: {sim_name}.env")
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
-
-    # specify save name if found in env dict
-    if envconf["SAVE_EXT"]:
-        sim_save_name = envconf["SAVE_EXT"]
 
     with ExitStack():
         sim = Simulation(width                  =int(envconf["ENV_WIDTH"]),
@@ -34,7 +29,7 @@ def start(NN=None, sim_save_name=None):
                          print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
                          plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
                          log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
-                         sim_save_name          =sim_save_name,
+                         save_ext               =str(envconf["SAVE_EXT"]),
                          agent_radius           =int(envconf["RADIUS_AGENT"]),
                          max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
                          collision_slowdown     =float(envconf["COLLISION_SLOWDOWN"]),
@@ -65,12 +60,6 @@ def start(NN=None, sim_save_name=None):
                          )
         fitnesses, elapsed_time, crash = sim.start()
     return fitnesses, elapsed_time, crash
-
-# def start_headless(NN=None, sim_save_name=None):
-#     os.environ['SDL_VIDEODRIVER'] = 'dummy'
-#     envconf['WITH_VISUALIZATION'] = 0
-#     fitnesses, elapsed_time, crash = start(NN=NN, sim_save_name=sim_save_name)
-#     return fitnesses, elapsed_time, crash
 
 
 # def start_playground():

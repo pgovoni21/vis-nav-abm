@@ -15,7 +15,7 @@ from abm.monitoring import tracking, plot_funcs
 class Simulation:
     def __init__(self, width=600, height=480, window_pad=30, 
                  N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, plot_trajectory=False, 
-                 log_zarr_file=False, sim_save_name=None,
+                 log_zarr_file=False, save_ext="",
                  agent_radius=10, max_vel=5, collision_slowdown=0.5, vis_field_res=8, contact_field_res=4, collide_agents=True, 
                  vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
                  N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
@@ -36,7 +36,7 @@ class Simulation:
         :param print_enabled:
         :param plot_trajectory:
         :param log_zarr_file:
-        :param sim_save_name:
+        :param save_ext:
         :param agent_radius: radius of the agents
         :param max_vel:
         :param collision_slowdown:
@@ -103,7 +103,7 @@ class Simulation:
         self.elapsed_time = 0
         self.fitnesses = []
         self.crash = False
-        self.sim_save_name = sim_save_name
+        self.save_ext = save_ext
 
         # Agent parameters
         self.agent_radii = agent_radius
@@ -575,7 +575,7 @@ class Simulation:
                 # Step clock time to calculate fps
                 self.clock.tick(self.framerate)
                 if self.print_enabled and (self.t % 500 == 0):
-                    print(f"t={self.t} \t| FPS: {self.clock.get_fps()}")
+                    print(f"t={self.t} \t| FPS: {round(self.clock.get_fps(),1)}")
 
             # Carry out user interactions even when not paused
             if self.with_visualization:
@@ -587,14 +587,14 @@ class Simulation:
         pygame.quit()
 
         # compute simulation time in seconds
-        self.elapsed_time = (datetime.now() - start_time).total_seconds()
+        self.elapsed_time = round( (datetime.now() - start_time).total_seconds() , 2)
         if self.print_enabled:
             print(f"Elapsed_time: {self.elapsed_time}")
 
         # conclude agent/resource tracking
         if self.log_zarr_file:
             # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
-            ag_zarr, res_zarr = tracking.save_zarr_file(self.T, self.sim_save_name)
+            ag_zarr, res_zarr = tracking.save_zarr_file(self.T, self.save_ext, self.print_enabled)
 
             # assign plot data as zarr arrays
             plot_data = ag_zarr, res_zarr
