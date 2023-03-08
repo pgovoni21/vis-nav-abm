@@ -133,6 +133,7 @@ class Simulation:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
         self.res_id_counter = 0
+        self.check_resrc_gen = False
 
         # Neural Network parameters
         self.NN = NN
@@ -339,10 +340,11 @@ class Simulation:
 
     def create_resources(self):
         """Creating resource patches according to how the simulation class was initialized"""
-        for i in range(self.N_resrc):
-            self.add_new_resource_patch()
+        # for i in range(self.N_resrc):
+        #     self.add_new_resource_patch_random()
+        self.add_new_resource_patch_stationary_single()
 
-    def add_new_resource_patch(self):
+    def add_new_resource_patch_random(self):
         """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
         prove_resource method so that the distribution and overlap is following some predefined rules"""
         # takes current id, increments counter for next patch
@@ -384,6 +386,38 @@ class Simulation:
 
             self.data_res.append([pos_x, pos_y, radius])
 
+    def add_new_resource_patch_stationary_single(self):
+        """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
+        prove_resource method so that the distribution and overlap is following some predefined rules"""
+        
+        # creates single resource patch in middle of top-left quadrant
+        id = 0
+        x = self.x_min + int(self.WIDTH/4) - self.resrc_radius
+        y = self.y_min + int(self.HEIGHT/4) - self.resrc_radius
+
+        units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
+        quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
+        
+        resource = Resource(id, self.resrc_radius, (x, y), units, quality)
+
+        # check for overlap with agent + add patch if not
+        colliding_agents = pygame.sprite.spritecollide(resource, self.agents, False, pygame.sprite.collide_circle)
+        if len(colliding_agents) == 0:
+            self.resources.add(resource)
+            self.check_resrc_gen = False
+
+            if not self.log_zarr_file: # save in sim instance
+
+                # convert positional coordinates
+                x,y = resource.pt_center
+                pos_x = x - self.window_pad
+                pos_y = self.y_max - y
+
+                self.data_res.append([pos_x, pos_y, self.resrc_radius])
+
+        else:
+            self.check_resrc_gen = True
+
     def consume(self, agent):
         """
         Carry out agent-resource interactions (depletion, destroying, notifying)
@@ -405,8 +439,8 @@ class Simulation:
         if destroy_resrc:
             resource.kill()
             if self.regenerate_resources:
-                # self.add_new_resource_patch(force_id=resource.id)
-                self.add_new_resource_patch()
+                # self.add_new_resource_patch_random()
+                self.add_new_resource_patch_stationary_single()
 
 ### -------------------------- MULTIAGENT INTERACTION FUNCTIONS -------------------------- ###
 
@@ -566,6 +600,9 @@ class Simulation:
 
                     # No food --> move via decided actions + set mode to collide if collided
                     else: agent.move(NN_output) 
+
+                if self.check_resrc_gen: # check if agent still on resource patch, waiting to be generated
+                    self.add_new_resource_patch_stationary_single()
 
             ### ---- BACKGROUND PROCESSES ---- ###
         

@@ -85,30 +85,3 @@
 
 #         plt.imshow(x)
 #         plt.show()
-
-
-import os
-
-root_abm_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) 
-env_path = os.path.join(root_abm_dir, f".env")
-
-# print(root_abm_dir)
-# print(env_path)
-
-from pathlib import Path
-
-from dotenv import dotenv_values
-
-print(Path(__file__))
-print(Path(__file__).parent)
-
-print(os.getenv("EXPERIMENT_NAME", ""))
-print(os.getenv("AGENT_FOV", ""))
-print(os.getenv("N", ""))
-
-EXP_NAME = os.getenv("EXPERIMENT_NAME", "")
-env_path = Path(__file__).parent.parent / f"{EXP_NAME}.env" 
-envconf = dotenv_values(env_path)
-
-for x in list(os.environ):
-    print(x)

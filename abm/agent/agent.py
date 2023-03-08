@@ -639,10 +639,11 @@ class Agent(pygame.sprite.Sprite):
 
         # scale velocity + orientation to [0 : 1] boolean interval similar to visual/contact fields
         vel_scaled = self.velocity / self.max_vel
-        orient_scaled = self.orientation / (2*np.pi)
+        # orient_scaled = self.orientation / (2*np.pi)
 
         # store higher level data in the remaining input locations
-        NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
+        NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled ])
+        # NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
         # if self.other_size == 3:
         #     NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
         # elif self.other_size == 2:

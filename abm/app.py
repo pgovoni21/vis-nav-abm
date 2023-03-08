@@ -1,18 +1,24 @@
-from contextlib import ExitStack
-
 from abm.simulation.sims import Simulation
 from abm.NN.EA import EvolAlgo
 
-import os
+from contextlib import ExitStack
 from pathlib import Path
 from dotenv import dotenv_values
+import os
 
-def start(NN=None, sim_name=""):
+def start(NN=None, temp_name="", save_ext=None):
 
-    # calls relevant env dict (sim_name.env if in metarunner, .env if not)found
-    env_path = Path(__file__).parent.parent / f"{sim_name}.env" # moves up 2 dir levels + concatenates with env filename
+    # calls relevant env dict (temp_name.env if in metarunner, .env if not)
+    env_path = Path(__file__).parent.parent / f"{temp_name}.env" # moves up 2 dir levels + concatenates with env filename
     envconf = dotenv_values(env_path) # returns dict of this file
-    print(f"Running: {sim_name}.env")
+
+    # current simulation is referencing from the following env file
+    if bool(int(envconf["PRINT_ENABLED"])): 
+        print(f"Running: {temp_name}.env")
+
+    # evolutionary algorithm calls specific save_ext for each start()
+    if not save_ext:
+        save_ext = str(envconf["SAVE_EXT"])
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
@@ -29,7 +35,7 @@ def start(NN=None, sim_name=""):
                          print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
                          plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
                          log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
-                         save_ext               =str(envconf["SAVE_EXT"]),
+                         save_ext               =save_ext,
                          agent_radius           =int(envconf["RADIUS_AGENT"]),
                          max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
                          collision_slowdown     =float(envconf["COLLISION_SLOWDOWN"]),
@@ -155,6 +161,10 @@ def start(NN=None, sim_name=""):
 
 
 def start_EA():
+
+    # calls env dict from root folder
+    env_path = Path(__file__).parent.parent / ".env"
+    envconf = dotenv_values(env_path)
 
     # calculate NN input size (visual/contact perception + other)
     N                   =int(envconf["N"])

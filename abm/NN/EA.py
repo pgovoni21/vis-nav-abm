@@ -2,9 +2,8 @@ import numpy as np
 from abm.NN.RNNs import RNN
 import abm.app as sim
 import pickle
-# import json
 import random
-import os
+from pathlib import Path
 import shutil
 import zarr
 from abm.monitoring import plot_funcs
@@ -22,7 +21,7 @@ class EvolAlgo():
         self.activ = activ
         self.dt = dt
         self.init = init
-        self.networks = [RNN(arch, type, rule, activ, dt, init) for _ in range(population_size)]
+        self.networks = [RNN(arch, RNN_type, rule, activ, dt, init) for _ in range(population_size)]
         self.fitness_evol = []
 
         # Evolution + Simulation parameters
@@ -37,8 +36,15 @@ class EvolAlgo():
         # Saving parameters
         self.num_top_saved = num_top_saved
         self.EA_save_name = EA_save_name
-        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-        self.sim_data_dir = os.path.join(root_dir, 'abm\data\simulation_data')
+        self.root_dir = Path(__file__).parent.parent.parent
+        self.EA_save_dir = Path(self.root_dir, 'abm\data\simulation_data', EA_save_name)
+        
+        # Create save directory + copy .env file over
+        Path(self.EA_save_dir).mkdir()
+        shutil.copy(
+            Path(self.root_dir, '.env'), 
+            Path(self.EA_save_dir, EA_save_name, '.env')
+            )
         
     def fit(self):
 
@@ -52,10 +58,10 @@ class EvolAlgo():
                 for x in range(self.episodes):
 
                     # construct save name for current simulation, to be called later if needed (e.g. to plot top performers)
-                    sim_save_name = fr'{self.EA_save_name}\running\NN{n}\ep{x}'
+                    save_ext = fr'{self.EA_save_name}\running\NN{n}\ep{x}'
 
                     # run sim + record fitness/time
-                    fitness, elapsed_time, crash = sim.start_headless(NN=NN, sim_save_name=sim_save_name)
+                    fitness, elapsed_time, crash = sim.start(NN=NN, save_ext=save_ext)
                     fitness_ep.append(fitness)
                     print(f'Episode Fitness: {fitness} \t| Elapsed Time: {elapsed_time}')
 
@@ -63,7 +69,6 @@ class EvolAlgo():
                         print('Crashed agent - pickled NN')
                         with open("crashed_NN.bin", "wb") as f:
                             pickle.dump(NN, f)
-                            # json.dump(NN, f)
                 
                 avg_fitness = np.mean(fitness_ep)
                 fitness_gen.append(avg_fitness)
@@ -81,11 +86,11 @@ class EvolAlgo():
 
                 # pull saved sim runs from 'running' directory + archive in parent directory
                 # ('running' directory is rewritten each generation)
-                NN_load_name = fr'{self.EA_save_name}\running\NN{n_gen}'
-                NN_save_name = fr'{self.EA_save_name}\gen{i}\NN{n_top}_fitness{int(fitness_gen[n_gen])}'
+                NN_load_name = fr'running\NN{n_gen}'
+                NN_save_name = fr'gen{i}\NN{n_top}_fitness{int(fitness_gen[n_gen])}'
 
-                NN_load_dir = os.path.join(self.sim_data_dir, NN_load_name)
-                NN_save_dir = os.path.join(self.sim_data_dir, NN_save_name)
+                NN_load_dir = Path(self.EA_save_dir, NN_load_name)
+                NN_save_dir = Path(self.EA_save_dir, NN_save_name)
 
                 shutil.move(NN_load_dir, NN_save_dir)
 
@@ -102,25 +107,12 @@ class EvolAlgo():
                 NN = self.networks[n_gen]
                 with open(rf'{NN_save_dir}\NN_pickle.bin','wb') as f:
                     pickle.dump(NN, f)
-
-                # # pull/pickle weights/biases from network
-                # param_list = NN.pull_parameters()
-
-                # print(type(param_list))
-                # print(type(param_list[-1]))
-                # print(type(param_list[0][-1]))
-                # print(param_list[0][0][-1], type(param_list[0][0][-1]))
-
-                # with open(rf'{NN_save_dir}\NN_params.json','wb') as f:
-                #     json.dump(param_list, f)
             
             # update/pickle generational fitness data in parent directory
             self.fitness_evol.append(fitness_gen)
 
-            gen_save_dir = os.path.join(self.sim_data_dir, self.EA_save_name)
-            with open(rf'{gen_save_dir}\fitness_spread_per_generation.bin', 'wb') as f:
+            with open(rf'{self.EA_save_dir}\fitness_spread_per_generation.bin', 'wb') as f:
                 pickle.dump(self.fitness_evol, f)
-                # json.dump(self.fitness_evol, f)
 
             # Select/Mutate to generate next generation NNs according to method specified
             if self.repop_method == 'ES':
