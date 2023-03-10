@@ -1,10 +1,12 @@
-import numpy as np
 from abm.NN.RNNs import RNN
 import abm.app as sim
+from abm.app import start as start_sim
+
+import numpy as np
 import pickle
 import random
 from pathlib import Path
-import shutil
+import shutil, os, warnings
 import zarr
 from abm.monitoring import plot_funcs
 
@@ -40,10 +42,13 @@ class EvolAlgo():
         self.EA_save_dir = Path(self.root_dir, 'abm\data\simulation_data', EA_save_name)
         
         # Create save directory + copy .env file over
+        if os.path.isdir(self.EA_save_dir):
+            warnings.warn("Temporary directory for env files is not empty and will be overwritten")
+            shutil.rmtree(self.EA_save_dir)
         Path(self.EA_save_dir).mkdir()
         shutil.copy(
             Path(self.root_dir, '.env'), 
-            Path(self.EA_save_dir, EA_save_name, '.env')
+            Path(self.EA_save_dir, '.env')
             )
         
     def fit(self):
@@ -82,6 +87,139 @@ class EvolAlgo():
 
             # cycle through the top X performers
             top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_saved : -1] # best in generation : first (n_top = 1)
+            for n_top, n_gen in enumerate(top_indices):
+
+                # pull saved sim runs from 'running' directory + archive in parent directory
+                # ('running' directory is rewritten each generation)
+                NN_load_name = fr'running\NN{n_gen}'
+                NN_save_name = fr'gen{i}\NN{n_top}_fitness{int(fitness_gen[n_gen])}'
+
+                NN_load_dir = Path(self.EA_save_dir, NN_load_name)
+                NN_save_dir = Path(self.EA_save_dir, NN_save_name)
+
+                shutil.move(NN_load_dir, NN_save_dir)
+
+                # plot saved runs + output in parent directory
+                for x in range(self.episodes):
+
+                    ag_zarr = zarr.open(fr'{NN_save_dir}\ep{x}\ag.zarr', mode='r')
+                    res_zarr = zarr.open(fr'{NN_save_dir}\ep{x}\res.zarr', mode='r')
+                    plot_data = ag_zarr, res_zarr
+
+                    plot_funcs.plot_map(plot_data, x_max=400, y_max=400, save_dir=NN_save_dir, save_name=f'ep{x}')
+
+                # pickle NN
+                NN = self.networks[n_gen]
+                with open(rf'{NN_save_dir}\NN_pickle.bin','wb') as f:
+                    pickle.dump(NN, f)
+            
+            # update/pickle generational fitness data in parent directory
+            self.fitness_evol.append(fitness_gen)
+
+            with open(rf'{self.EA_save_dir}\fitness_spread_per_generation.bin', 'wb') as f:
+                pickle.dump(self.fitness_evol, f)
+
+            # Select/Mutate to generate next generation NNs according to method specified
+            if self.repop_method == 'ES':
+                best_network = self.networks[np.argmax(fitness_gen)]
+                self.repop_ES(best_network)
+            elif self.repop_method == 'ROULETTE':
+                self.repop_roulette(fitness_gen)
+            elif self.repop_method == 'HYBRID':
+                self.repop_hybrid(fitness_gen, top_indices, self.hybrid_scaling_factor, self.hybrid_new_intro_num)
+            else: 
+                return f'Invalid repopulation method specified: {self.repop_method}'
+            
+    def fit_parallel(self):
+
+        import multiprocessing
+        # from collections import defaultdict
+        import time
+
+        for i in range(self.generations):
+
+            sim_inputs_per_gen = []
+            for n, NN in enumerate(self.networks):
+                for e in range(self.episodes):
+                    # construct temporary save extension for sim data files
+                    save_ext = fr'{self.EA_save_name}\running\NN{n}\ep{e}'
+                    # pack inputs for current generation sims as tuple
+                    sim_inputs_per_gen.append( (NN, save_ext) )
+
+            start = time.time()
+
+            # # non parallel (comment out)
+            # results = map(start_sim, sim_inputs_per_gen)
+
+            # # without executor (comment out)
+            # processes = []
+            # for inputs in sim_inputs_per_gen:
+            #     proc = multiprocessing.Process(target=start_sim, kwargs={'inputs': inputs})
+            #     proc.start()
+            #     processes.append(proc)
+            # for proc in processes:    
+            #     proc.join()
+
+            # using process pool executor/manager
+            with multiprocessing.Pool() as pool:
+
+                # # individually send tasks to pool
+                # results = []
+                # for inputs in sim_inputs_per_gen:
+                #     print(inputs)
+                #     result = pool.apply_async(start_sim, args=(inputs,))
+                #     results.append(result)
+
+                # iterate through tasks, send individually to pool (non-blocking + non-ordered)
+                # results = pool.imap_unordered( start_sim, sim_inputs_per_gen)
+
+                # issue all tasks at once (non-blocking + ordered)
+                results = pool.starmap_async( start_sim, sim_inputs_per_gen)
+
+                pool.close()
+                pool.join()
+
+            print('run_time: ', time.time() - start)
+
+            # convert results iterator to list
+            results_list = results.get()
+
+            # skip to start of each episodes series/chunk
+            fitness_gen = []
+            for n, NN_index in enumerate(range(0, len(results_list), self.episodes)):
+
+                # pull sim data for each episode
+                fitness_ep = []
+                simtime_ep = []
+                for save_ext, fitnesses, elapsed_time, crash in results_list[NN_index : NN_index + self.episodes]:
+
+                    fitness_ep.append(fitnesses[0])
+                    simtime_ep.append(elapsed_time)
+
+                avg_fitness = np.mean(fitness_ep)
+                fitness_gen.append(avg_fitness)
+                print(f'--- NN {n+1} of {self.population_size} \t| Avg Across Episodes: {avg_fitness} ---')
+
+            print(fitness_gen)
+            
+            # Track top fitness per generation
+            max_fitness_gen = int(np.max(fitness_gen))
+            avg_fitness_gen = int(np.mean(fitness_gen))
+            print(f'---+--- Generation: {i+1} | Highest Across Gen: {max_fitness_gen} | Avg Across Gen: {avg_fitness_gen} ---+---')
+
+
+            # # map NN to list of fitnesses per episode (comment out - use for imap_unordered)
+            # d = defaultdict(list)
+            # for num, NN, save_ext, fitnesses, elapsed_time, crash_bool in results:
+            #     d[num].append(fitnesses[0])
+            # NN_to_avg_fitness = []
+            # for NN, fitness_list in d.items():
+            #     avg_fitness = np.mean(fitness_list)
+            #     NN_to_avg_fitness.append( (NN, avg_fitness) )
+
+
+            # cycle through the top X performers
+            top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_saved : -1] # best in gen : first (n_top = 1)
             for n_top, n_gen in enumerate(top_indices):
 
                 # pull saved sim runs from 'running' directory + archive in parent directory

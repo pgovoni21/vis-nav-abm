@@ -102,7 +102,7 @@ class Simulation:
 
         self.elapsed_time = 0
         self.fitnesses = []
-        self.crash = False
+        self.crash_bool = False
         self.save_ext = save_ext
 
         # Agent parameters
@@ -557,10 +557,9 @@ class Simulation:
                     crash = agent.visual_sensing()
                     
                     if crash: # position = nan : RNN weight explosion due to spinning
-                        pygame.quit()
+                        pygame.quit() # stop simulation
                         tracking.clean_global_dicts() # clean global data structures
-                        self.crash = True
-                        return [0.], 0, self.crash
+                        return [0.], 0, True # as fitnesses, elapsed_time, crash_bool
 
                     # Update collisions with walls (contact_field)
                     agent.wall_contact_sensing() 
@@ -659,4 +658,4 @@ class Simulation:
         if self.plot_trajectory:
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
 
-        return self.fitnesses, self.elapsed_time, False
+        return self.fitnesses, self.elapsed_time, self.crash_bool

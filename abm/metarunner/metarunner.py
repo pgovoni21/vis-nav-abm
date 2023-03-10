@@ -13,6 +13,23 @@ from abm import app
 import multiprocessing
 import time
 
+"""
+Put this in app.start():
+
+# calls relevant env dict (temp_name.env if in metarunner, .env if not)
+env_path = Path(__file__).parent.parent / f"{temp_name}.env" # moves up 2 dir levels + concatenates with env filename
+envconf = dotenv_values(env_path) # returns dict of this file
+
+# current simulation is referencing from the following env file
+if bool(int(envconf["PRINT_ENABLED"])): 
+    print(f"Running: {temp_name}.env")
+
+# evolutionary algorithm calls specific save_ext for each start()
+if not save_ext:
+    save_ext = str(envconf["SAVE_EXT"])
+
+"""
+
 class Constant:
     """A constant parameter value for a given parameter that shall be used for simulations"""
 
