@@ -81,17 +81,22 @@ def save_resource_data_RAM(sim):
 def save_zarr_file(sim_time, save_ext, print_enabled=False):
     """Saving agent/resource dictionaries as zarr file
     if multiple simulations are running in parallel a uuid hash must be passed as experiment hash to find
-    the unique measurement in the database"""
+    the unique measurement in the database
+    
+    Note - fwd slashes needed for Linux folder pathing, while Windows is ambivalent
+    """
     global agents_dict, resources_dict
 
     ### construct save directory according to save_ext, timestamping if not provided
     root_dir = Path(__file__).parent.parent.parent
     if save_ext:
-        save_dir = Path(root_dir, 'abm\data\simulation_data', save_ext)
+        save_dir = Path(root_dir, 'abm/data/simulation_data', save_ext)
+        # print(f'Saving: {save_dir}')
     else:
         import datetime
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        save_dir = Path(root_dir, 'abm\data\simulation_data', timestamp)
+        save_dir = Path(root_dir, 'abm/data/simulation_data', timestamp)
+        print(f'Saving: {save_dir}')
 
     Path(save_dir).mkdir(parents=True, exist_ok=True)
 

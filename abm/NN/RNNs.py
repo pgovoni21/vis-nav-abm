@@ -43,7 +43,7 @@ class RNN(nn.Module):
             self.w = nn.Parameter( .01 * torch.rand(hidden_size, hidden_size) )
             self.plas = nn.Parameter( .01 * torch.rand(hidden_size, hidden_size) )
             self.learn = nn.Parameter( .01 * torch.ones(1) )
-        else: raise ValueError('Invalid RNN type')
+        else: raise ValueError(f'Invalid RNN type: {RNN_type}')
 
         # set activation function
         if activ == 'relu':
@@ -51,7 +51,7 @@ class RNN(nn.Module):
         elif activ == 'tanh':
             self.activ = torch.tanh
         else:
-            raise ValueError('Invalid activation function')
+            raise ValueError(f'Invalid activation function: {activ}')
 
         # set time constant
         self.tau = 100
@@ -155,7 +155,7 @@ class RNN(nn.Module):
                 elif self.rule == 'oja':
                     hebb = hebb + self.learn * torch.mul((hidden[0].unsqueeze(1) - torch.mul(hebb , x[0].unsqueeze(0))) , x[0].unsqueeze(0)) 
                 else:
-                    raise ValueError("Invalid learning rule")
+                    raise ValueError(f'Invalid learning rule: {self.RNN_type}')
                 
                 hidden = x
 

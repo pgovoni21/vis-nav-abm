@@ -400,9 +400,9 @@ class Simulation:
         
         resource = Resource(id, self.resrc_radius, (x, y), units, quality)
 
-        # check for overlap with agent + add patch if not
+        # check for overlap with agent + add patch if agent is not on patch (or t = 0)
         colliding_agents = pygame.sprite.spritecollide(resource, self.agents, False, pygame.sprite.collide_circle)
-        if len(colliding_agents) == 0:
+        if len(colliding_agents) == 0 or self.t == 0:
             self.resources.add(resource)
             self.check_resrc_gen = False
 
@@ -559,7 +559,7 @@ class Simulation:
                     if crash: # position = nan : RNN weight explosion due to spinning
                         pygame.quit() # stop simulation
                         tracking.clean_global_dicts() # clean global data structures
-                        return [0.], 0, True # as fitnesses, elapsed_time, crash_bool
+                        return np.array([0.]), 0, True # as fitnesses, elapsed_time, crash_bool
 
                     # Update collisions with walls (contact_field)
                     agent.wall_contact_sensing() 

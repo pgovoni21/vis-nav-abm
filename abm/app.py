@@ -5,18 +5,22 @@ from contextlib import ExitStack
 from pathlib import Path
 from dotenv import dotenv_values
 import os
+import numpy as np
 
 # calls env dict from root folder
 env_path = Path(__file__).parent.parent / ".env"
 envconf = dotenv_values(env_path)
 
-def start(NN, save_ext):
+def start(NN=None, save_ext=None, seed=None):
 
-    print(f'Running {save_ext}')
+    # print(f'Running {save_ext}')
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
+
+    # Set seed according to EA parent function to circumvent multiprocessing bug
+    np.random.seed(seed)
 
     with ExitStack():
         sim = Simulation(width                  =int(envconf["ENV_WIDTH"]),
@@ -60,7 +64,7 @@ def start(NN, save_ext):
                          )
         fitnesses, elapsed_time, crash = sim.start()
 
-        print(f'Finished {save_ext} in {elapsed_time} sec, fitness: {fitnesses[0]}')
+        # print(f'Finished {save_ext} in {elapsed_time} sec, fitness: {fitnesses[0]}')
 
     return save_ext, fitnesses, elapsed_time, crash
 

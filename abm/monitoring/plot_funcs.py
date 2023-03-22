@@ -2,7 +2,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_map(plot_data, x_max, y_max, w=4, h=4, save_dir=None, save_name=None):
+def plot_map(plot_data, x_max, y_max, w=4, h=4, save_name=None):
 
     ag_data, res_data = plot_data
 
@@ -63,9 +63,10 @@ def plot_map(plot_data, x_max, y_max, w=4, h=4, save_dir=None, save_name=None):
         #     if mode_num == 2: axes.plot(x, y,'o', color='green', ms=5, zorder=3) # exploiting, large green
         #     elif mode_num == 3: axes.plot(x, y,'o', color='red', ms=5, zorder=3) # colliding, large red
 
-    if save_dir:
-        matplotlib.use('Agg') # to sidestep backend memory issues in matplotlib 3.5+
-        plt.savefig(fr'{save_dir}\{save_name}.png')
+    if save_name:
+        # matplotlib.use('Agg') # to sidestep backend memory issues in matplotlib 3.5+ ##not sure if still needed?
+        plt.savefig(fr'{save_name}.png')
+        plt.close()
     else:
         plt.show()
 

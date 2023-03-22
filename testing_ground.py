@@ -16,23 +16,23 @@
 
 
 # ### ---- Plot saved simulation ---- ###
-# import os
+# from pathlib import Path
 # import zarr
 # from abm.monitoring import plot_funcs
 
-# sim_save_name = 'test'
+# sim_save_name = 'stationarypatch_ES_50_128_1_sticky_T2000/gen1/NN0_fitness5/ep1'
 
-# root_dir = os.path.dirname(os.path.realpath(__file__))
-# save_dir = os.path.join(root_dir, 'abm\data\simulation_data', sim_save_name)
+# root_dir = Path(__file__).parent.parent.parent
+# save_dir = Path(root_dir, 'abm/data/simulation_data', sim_save_name)
 # print("save_dir: ", save_dir)
 
-# ag_zarr = zarr.open(rf'{save_dir}\ag.zarr', mode='r')
-# res_zarr = zarr.open(rf'{save_dir}\res.zarr', mode='r')
+# ag_zarr = zarr.open(fr'{save_dir}/ag.zarr', mode='r')
+# res_zarr = zarr.open(fr'{save_dir}/res.zarr', mode='r')
 # plot_data = ag_zarr, res_zarr
 # print("ag_zarr.shape: ", ag_zarr.shape)
 # print("res_zarr.shape: ", res_zarr.shape)
 
-# plot_funcs.plot_map(plot_data, x_max=400, y_max=400, save_dir=save_dir, save_name=sim_save_name)
+# plot_funcs.plot_map(plot_data, x_max=400, y_max=400)
 
 
 # ### ---- EA trend plotting ---- ###
