@@ -6,7 +6,6 @@ class RNN(nn.Module):
     """
     RNN model
     Euler-discretized dynamical system
-
     Types:
         Static:
             Traditional NN parameters (weights/biases) static in simulation time + updated in evolutionary time
@@ -15,12 +14,10 @@ class RNN(nn.Module):
             Hebbian trace plastic in simulation time + zeroed at start (non-evolved)
             Other parameters (weights/biases / plasticity coefficients / learning constants) static in sim time + evolved
             Time constant static in sim + evolutionary time
-
     Parameters:
         architecture: 3-int tuple : input / hidden / output size (# neurons)
         dt: discretization time step *in ms* <-- check
             If None, equals time constant tau
-
     forward() eqns from + layout inspired by: https://colab.research.google.com/github/gyyang/nn-brain/blob/master/RNN_tutorial.ipynb
     """
     def __init__(self, arch, params=None, activ='relu', dt=100):
@@ -39,15 +36,6 @@ class RNN(nn.Module):
         for layer in self.layers:
             layer.requires_grad_(False)
 
-        # construct param vector if not provided by EA
-        if params is None:
-            num_weights = hidden_size * (input_size + hidden_size + output_size)
-            num_biases = 2*hidden_size + output_size
-            params = np.random.randn(num_weights + num_biases) * np.sqrt(2/hidden_size)
-        
-        # assign w+b parameters
-        self.assign_params(params)
-
         # set activation function
         if activ == 'relu':
             self.activ = torch.relu
@@ -56,21 +44,15 @@ class RNN(nn.Module):
         else:
             raise ValueError(f'Invalid activation function: {activ}')
 
-        # # set time constant ## uncomment for time constant
-        # tau = 100
-        # self.alpha = dt / tau # default --> alpha = 1
+        # set time constant
+        self.tau = 100
+        self.alpha = dt / self.tau # default --> alpha = 1
 
-
-    def assign_params(self, param_vector):
-
-        # set params by chunking according to model architecture
-        param_num = 0
-        for l in self.layers:
-            for param in [l.weight, l.bias]:
-
-                chunk = param_vector[param_num : param_num + param.numel()]
-                param.data = chunk.reshape(param.shape)
-                param_num += param.numel()
+        # # set parameter noise values ## uncomment for noise
+        # sigma_in = 0.1
+        # sigma_rec = 0.5
+        # self.std_noise_in = np.sqrt(2 / self.alpha) * sigma_in
+        # self.std_noise_rec = np.sqrt(2 / self.alpha) * sigma_rec
 
 
     def forward(self, input, hidden):
@@ -83,27 +65,26 @@ class RNN(nn.Module):
         Outputs:
             hidden: tensor of shape (hidden_size)
             actions: 1D array of shape (output_shape)
-        """
+        """            
         # initialize hidden state activity (t = 0 for sim run, saved in Agent instance)
         if hidden is None:
-            hidden = torch.zeros(self.hidden_size).unsqueeze(0)
+            hidden = torch.zeros(self.hidden_size)
 
         # converts np.array to torch.tensor + adds 1 dimension --> size [4] becomes [1, 4]
         input = torch.from_numpy(input).float().unsqueeze(0)
 
         # carry out recurrent calculations according to model formulation (with or without noisy activations)
         # input += torch.randn(input.shape) * self.std_noise_in ## uncomment for noise
-        i = self.i2h(input)
-        h = self.h2h(hidden)
-        x = self.activ(i + h)
-        # x = hidden * (1 - self.alpha) + x * self.alpha ## uncomment for time constant
+        x = self.activ(self.i2h(input) + self.h2h(hidden))
+        x = hidden * (1 - self.alpha) + x * self.alpha 
         # x += torch.randn(hidden.shape) * self.std_noise_rec ## uncomment for noise
 
         # pull current hidden activity for next time step
         hidden = x 
 
-        # pass output through final layer
+        # reduce to action dimension + pass through Tanh function (bounding to -1:1)
         x = self.h2o(x)
+        x = torch.tanh(x)
 
         # convert to np.array (requires one strip for NN_output_size>1 // two strips for NN_output_size=1)
         # output = x.detach().numpy()[0]

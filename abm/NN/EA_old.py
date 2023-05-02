@@ -1,4 +1,4 @@
-from abm.NN.RNNs import RNN
+from abm.NN.RNNs_old import RNN
 from abm.app import start as start_sim
 from abm.monitoring import plot_funcs
 
@@ -9,7 +9,7 @@ import shutil, os, warnings
 import zarr
 
 import time
-import cma
+# from cma import CMAEvolutionStrategy as cmaES
 import multiprocessing
 
 class EvolAlgo():
@@ -34,24 +34,23 @@ class EvolAlgo():
 
         param_vec_size = num_weights + num_biases
 
+        # Calculate weight init scaling factor
+        if activ == 'relu':
+            # He weight initialization, scaled down relative to hidden size only
+            self.init_sigma = np.sqrt(2/hidden_size)
+        else:
+            raise ValueError(f'Weight scaling not set up for {activ} activation function')
+
+
         # Evolution + Simulation parameters
         self.population_size = population_size
         self.generations = generations
         self.episodes = episodes
         self.start_seed = start_seed
-
-        # Initialize CMA-ES
-        self.es = cma.CMAEvolutionStrategy(
-            param_vec_size * [0], 
-            self.init_sigma, 
-            {'popsize': self.population_size,}
-            )
-        
-        # Generate initial RNN parameters
-        self.NN_param_vectors = self.es.ask()
         
         # Initialize RNN instances for 0th generation
-        self.NNs = [RNN(arch, pv, activ, dt) for pv in self.NN_param_vectors]
+        self.NNs = [RNN(arch=arch, activ=activ, dt=dt) for _ in range(self.population_size)]
+
 
         # Saving parameters
         self.fitness_evol = []
@@ -73,8 +72,86 @@ class EvolAlgo():
         # print time taken to initialize EA
         end_time = time.time() - start_time
         print(f'Init Time: {round( end_time, 2)} sec')
-            
+        
+    # def fit(self):
 
+    #     for i in range(self.generations):
+
+    #         # Simulate performance of each NN + store results as array
+    #         fitness_gen = []
+    #         for n, NN in enumerate(self.networks):
+
+    #             fitness_ep = []
+    #             for x in range(self.episodes):
+
+    #                 # construct save name for current simulation, to be called later if needed (e.g. to plot top performers)
+    #                 save_ext = fr'{self.EA_save_name}/running/NN{n}/ep{x}'
+
+    #                 # run sim + record fitness/time
+    #                 fitness, elapsed_time, crash = sim.start(NN=NN, save_ext=save_ext)
+    #                 fitness_ep.append(fitness)
+    #                 print(f'Episode Fitness: {fitness} \t| Elapsed Time: {elapsed_time}')
+
+    #                 if crash: # save crashed NN in binary mode + continue
+    #                     print('Crashed agent - pickled NN')
+    #                     with open("crashed_NN.bin", "wb") as f:
+    #                         pickle.dump(NN, f)
+                
+    #             avg_fitness = np.mean(fitness_ep)
+    #             fitness_gen.append(avg_fitness)
+    #             print(f'--- NN {n+1} of {self.population_size} \t| Avg Across Episodes: {avg_fitness} ---')
+
+    #         # Track top fitness per generation
+    #         max_fitness_gen = int(np.max(fitness_gen))
+    #         avg_fitness_gen = int(np.mean(fitness_gen))
+    #         print(f'---+--- Generation: {i+1} | Highest Across Gen: {max_fitness_gen} | Avg Across Gen: {avg_fitness_gen} ---+---')
+
+
+    #         # cycle through the top X performers
+    #         top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_saved : -1] # best in generation : first (n_top = 1)
+    #         for n_top, n_gen in enumerate(top_indices):
+
+    #             # pull saved sim runs from 'running' directory + archive in parent directory
+    #             # ('running' directory is rewritten each generation)
+    #             NN_load_name = fr'running\NN{n_gen}'
+    #             NN_save_name = fr'gen{i}\NN{n_top}_fitness{int(fitness_gen[n_gen])}'
+
+    #             NN_load_dir = Path(self.EA_save_dir, NN_load_name)
+    #             NN_save_dir = Path(self.EA_save_dir, NN_save_name)
+
+    #             shutil.move(NN_load_dir, NN_save_dir)
+
+    #             # plot saved runs + output in parent directory
+    #             for x in range(self.episodes):
+
+    #                 ag_zarr = zarr.open(fr'{NN_save_dir}/ep{x}/ag.zarr', mode='r')
+    #                 res_zarr = zarr.open(fr'{NN_save_dir}/ep{x}/res.zarr', mode='r')
+    #                 plot_data = ag_zarr, res_zarr
+
+    #                 plot_funcs.plot_map(plot_data, x_max=400, y_max=400, save_dir=NN_save_dir, save_name=f'ep{x}')
+
+    #             # pickle NN
+    #             NN = self.networks[n_gen]
+    #             with open(rf'{NN_save_dir}/NN_pickle.bin','wb') as f:
+    #                 pickle.dump(NN, f)
+            
+    #         # update/pickle generational fitness data in parent directory
+    #         self.fitness_evol.append(fitness_gen)
+
+    #         with open(fr'{self.EA_save_dir}/fitness_spread_per_generation.bin', 'wb') as f:
+    #             pickle.dump(self.fitness_evol, f)
+
+    #         # Select/Mutate to generate next generation NNs according to method specified
+    #         if self.repop_method == 'ES':
+    #             best_network = self.networks[np.argmax(fitness_gen)]
+    #             self.repop_ES(best_network)
+    #         elif self.repop_method == 'ROULETTE':
+    #             self.repop_roulette(fitness_gen)
+    #         elif self.repop_method == 'HYBRID':
+    #             self.repop_hybrid(fitness_gen, top_indices, self.hybrid_scaling_factor, self.hybrid_new_intro_num)
+    #         else: 
+    #             return f'Invalid repopulation method specified: {self.repop_method}'
+            
     def fit_parallel(self):
 
         for i in range(self.generations):
@@ -97,10 +174,8 @@ class EvolAlgo():
                     # pack inputs for current generation sims as tuple
                     sim_inputs_per_gen.append( (NN, save_ext, seeds_per_gen[e]) )
 
-            # set sim run timer
-            start_time = time.time()
-
             # using process pool executor/manager
+            start_time = time.time()
             with multiprocessing.Pool() as pool:
 
                 # issue all tasks to pool at once (non-blocking + ordered)
@@ -112,7 +187,7 @@ class EvolAlgo():
 
             # print time taken for entire generation
             end_time = time.time() - start_time
-            print(f'Generational Sim Run Time: {round( end_time, 2)} sec')
+            print(f'Run Time: {round( end_time, 2)} sec')
 
             # convert results iterator to list
             results_list = results.get()
@@ -121,12 +196,8 @@ class EvolAlgo():
             # for result in results_list:
             #     print(result)
 
-
             #### ---- Find fitness averages across episodes ---- ####
 
-
-            # set non-sim timer
-            start_time = time.time()
 
             # skip to start of each episode series/chunk
             fitness_gen = []
@@ -142,7 +213,7 @@ class EvolAlgo():
                 fitness_gen.append(avg_fitness)
             
             # # list all averaged fitnesses
-            print(f'Fitnesses: {fitness_gen}')
+            # print(f'Fitnesses: {fitness_gen}')
             
             # Track top fitness per generation
             max_fg = int(np.max(fitness_gen))
@@ -196,7 +267,7 @@ class EvolAlgo():
                                         save_name=f'{NN_save_dir}_ep{e}')
 
                 # pickle NN
-                NN = self.NNs[n_gen]
+                NN = self.networks[n_gen]
                 with open(fr'{NN_save_dir}/NN_pickle.bin','wb') as f:
                     pickle.dump(NN, f)
             
@@ -204,31 +275,3 @@ class EvolAlgo():
             self.fitness_evol.append(fitness_gen)
             with open(fr'{self.EA_save_dir}/fitness_spread_per_generation.bin', 'wb') as f:
                 pickle.dump(self.fitness_evol, f)
-
-
-            #### ---- Update optimizer + RNN instances ---- ####
-
-            # # Flip sign for optimizer, which finds minima
-            # fitness_gen_min = [-i for i in fitness_gen]
-
-            # Pass parameters + resulting fitness list to optimizer class
-            # self.es.tell(self.NN_param_vectors, fitness_gen_min)
-            self.es.tell(self.NN_param_vectors, fitness_gen)
-            
-            # Generate new RNN parameters + instances for next generation
-            self.NN_param_vectors = self.es.ask()
-            self.NNs = [RNN(self.arch, pv, self.activ, self.dt) for pv in self.NN_param_vectors]
-
-            # print time taken for performance evaluation
-            end_time = time.time() - start_time
-            print(f'Performance Evaluation Time: {round( end_time, 2)} sec')
-            
-
-        #### ---- Post-evolution tasks ---- ####
-
-
-        # delete running folder
-        shutil.rmtree(Path(self.EA_save_dir, 'running'))
-
-        # plot violin plot for the EA trend
-        plot_funcs.plot_EA_trend_violin(self.fitness_evol, self.EA_save_dir)

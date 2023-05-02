@@ -56,15 +56,12 @@ def start(NN=None, save_ext=None, seed=None):
                          NN_input_other_size    =int(envconf["NN_INPUT_OTHER_SIZE"]),
                          NN_hidden_size         =int(envconf["NN_HIDDEN_SIZE"]),
                          NN_output_size         =int(envconf["NN_OUTPUT_SIZE"]),
-                         NN_type                =str(envconf["NN_TYPE"]), 
-                         NN_rule                =str(envconf["NN_LEARNING_RULE"]), 
                          NN_activ               =str(envconf["NN_ACTIVATION_FUNCTION"]),
                          NN_dt                  =int(envconf["NN_DT"]), 
-                         NN_init                =str(envconf["NN_INIT"]),
                          )
         fitnesses, elapsed_time, crash = sim.start()
 
-        # print(f'Finished {save_ext} in {elapsed_time} sec, fitness: {fitnesses[0]}')
+        print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}, crashed? {crash}')
 
     return save_ext, fitnesses, elapsed_time, crash
 

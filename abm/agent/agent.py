@@ -18,8 +18,7 @@ class Agent(pygame.sprite.Sprite):
     def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
                  vis_field_res, FOV, vision_range, visual_exclusion, contact_field_res, consumption, 
                  vis_size, contact_size, NN_input_size, NN_hidden_size, NN_output_size, NN, 
-                 NN_type, NN_rule, NN_activ, NN_dt, NN_init,
-                 boundary_info, radius, color):
+                 NN_activ, NN_dt, boundary_info, radius, color):
         """
         Initalization method of main agent class of the simulations
 
@@ -92,10 +91,9 @@ class Agent(pygame.sprite.Sprite):
         NN_arch = (NN_input_size, NN_hidden_size, NN_output_size)
         # use given NN to control agent or initialize a new NN
         if NN: self.NN = NN
-        else:  self.NN = RNN(NN_arch, NN_type, NN_rule, NN_activ, NN_dt, NN_init) 
-        # store hidden/hebbian activity for each simulation timestep
+        else:  self.NN = RNN(arch=NN_arch, activ=NN_activ, dt=NN_dt) 
+        # store hidden activity for each simulation timestep
         self.hidden = None
-        self.hebb = None 
 
         # Environment related parameters
         self.x_min, self.x_max, self.y_min, self.y_max = boundary_info

@@ -1,6 +1,5 @@
 from abm.NN.EA import EvolAlgo
 
-# from contextlib import ExitStack
 from pathlib import Path
 from dotenv import dotenv_values
 
@@ -25,20 +24,14 @@ def start_EA():
     architecture = (input_size, hidden_size, output_size)
 
     EA = EvolAlgo(arch                      =architecture, 
-                  RNN_type                  =str(envconf["NN_TYPE"]), 
-                  rule                      =str(envconf["NN_LEARNING_RULE"]), 
                   activ                     =str(envconf["NN_ACTIVATION_FUNCTION"]),
                   dt                        =int(envconf["NN_DT"]), 
-                  init                      =str(envconf["NN_INIT"]), 
                   population_size           =int(envconf["EA_POPULATION_SIZE"]), 
                   generations               =int(envconf["EA_GENERATIONS"]), 
                   episodes                  =int(envconf["EA_EPISODES"]), 
-                  mutation_variance         =float(envconf["EA_MUTATION_VARIANCE"]),
-                  repop_method              =str(envconf["EA_REPOP_METHOD"]),
-                  hybrid_scaling_factor     =float(envconf["EA_HYBRID_SCALING_FACTOR"]),
-                  hybrid_new_intro_num      =int(envconf["EA_HYBRID_NEW_INTRO_NUM"]),
                   num_top_saved             =int(envconf["EA_NUM_TOP_SAVED"]),
                   EA_save_name              =str(envconf["EA_SAVE_NAME"]),
+                  start_seed                =int(envconf["EA_START_SEED"]),
                   )
     EA.fit_parallel()
 
