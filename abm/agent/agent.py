@@ -129,7 +129,7 @@ class Agent(pygame.sprite.Sprite):
 
     def gather_self_percep_info(self):
         """
-        gather relevant perception info of self (viewing point / direction vector)
+        update position/direction points + vector of self
         """
         # center point of self
         self.pt_center = self.position + self.radius
@@ -148,10 +148,12 @@ class Agent(pygame.sprite.Sprite):
         """
         create dictionary storing visually relevant information for each boundary endpoint
         """
+        # print()
+        # print(f'self \t {np.round(self.vec_self_dir/self.radius,2)} \t {np.round(self.orientation*90/np.pi,0)}')
         self.boundary_endpt_dict = {}
         for endpt_name, endpt_coord in self.boundary_endpts:
 
-            # calc vector between boundary endpoint + self eye (front-facing point)
+            # calc vector between boundary endpoint + direction point (front-facing)
             vec_between = endpt_coord - self.pt_eye
 
             # calc magnitude/norm
@@ -160,6 +162,8 @@ class Agent(pygame.sprite.Sprite):
             # calc orientation angle
             angle_bw = supcalc.angle_between(self.vec_self_dir, vec_between, self.radius, distance)
             ## relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
+            
+            # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}')
 
             # project to FOV
             proj = supcalc.find_nearest(self.phis, angle_bw)
@@ -379,6 +383,9 @@ class Agent(pygame.sprite.Sprite):
                 self.vis_field[i] = obj_name
 
     def visual_sensing(self):
+        """
+        Accumulates visual sensory functions
+        """
         # Zero vis_field from previous step
         self.vis_field = [0] * self.vis_field_res
         # Gather relevant info for self / boundary endpoints / walls

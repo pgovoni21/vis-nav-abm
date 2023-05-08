@@ -22,8 +22,16 @@ def angle_between(v1, v2, v1_norm, v2_norm):
     """
     v1_u = v1 / v1_norm
     v2_u = v2 / v2_norm
-    angle = np.arccos(np.dot(v1_u, v2_u))
-    # sends RuntimeWarning for when v1_u = -v2_u // outputs angle = nan --> fix
+
+    dot = np.dot(v1_u, v2_u)
+
+    if dot < -1 or dot > 1:
+        print(f'v1: {v1} \t v1_norm: {v1_norm}')
+        print(f'v2: {v2} \t v2_norm: {v2_norm}')
+
+    angle = np.arccos(dot)
+    # sends RuntimeWarning when dot product returns scalar outside -1:1 range + outputs angle=nan
+    # not sure when problem arises, keep if/print call to diagnose
 
     # marks left side with negative angles, taking into account flipped y-axis
     if v1_u[0] * v2_u[1] - v1_u[1] * v2_u[0] < 0: 

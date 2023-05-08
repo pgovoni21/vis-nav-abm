@@ -7,6 +7,7 @@
 
 from pathlib import Path
 import zarr
+# import sys
 
 resources_dict = {}
 agents_dict = {}
@@ -91,12 +92,10 @@ def save_zarr_file(sim_time, save_ext, print_enabled=False):
     root_dir = Path(__file__).parent.parent.parent
     if save_ext:
         save_dir = Path(root_dir, 'abm/data/simulation_data', save_ext)
-        # print(f'Saving: {save_dir}')
     else:
         import datetime
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         save_dir = Path(root_dir, 'abm/data/simulation_data', timestamp)
-        print(f'Saving: {save_dir}')
 
     Path(save_dir).mkdir(parents=True, exist_ok=True)
 

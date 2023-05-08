@@ -4,7 +4,7 @@ with contextlib.redirect_stdout(None): # blocks pygame initialization messages
 
 import numpy as np
 import sys
-from datetime import datetime
+import time
 
 from abm.agent import supcalc
 from abm.agent.agent import Agent
@@ -277,12 +277,16 @@ class Simulation:
 ### -------------------------- AGENT FUNCTIONS -------------------------- ###
 
     def create_agents(self):
-        """Creating agents according to how the simulation class was initialized"""
+        """
+        Instantiates agent objects according to simulation parameters
+        Randomly initializes position (center within arena borders)
+        Randomly initializes orientation (0 : right, pi/2 : up)
+        Adds agent class to PyGame sprite group class (faster operations than lists)
+        """
         for i in range(self.N):
-            # allowing agents to overlap arena borders (maximum overlap is radius of patch)
             x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
             y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
-            orient = np.random.uniform(0, 2 * np.pi) # randomly orients according to 0,pi/2 : right,up
+            orient = np.random.uniform(0, 2 * np.pi)
             self.agents.add(
                 Agent(
                     id=i,
@@ -311,10 +315,8 @@ class Simulation:
             )
 
     def save_data_agent(self):
-
+        """Tracks key variables (position, mode, resources collected) via array for current timestep"""
         for agent in self.agents:
-        
-            # Gather tracked variables + enter into save array at current timestep
             x, y = agent.pt_center
             pos_x = x - self.window_pad
             pos_y = self.y_max - y
@@ -329,52 +331,52 @@ class Simulation:
 ### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
 
     def create_resources(self):
-        """Creating resource patches according to how the simulation class was initialized"""
+        """Creates resource patches according to environment type (random, stationary, migratory)"""
         # for i in range(self.N_resrc):
         #     self.add_new_resource_patch_random()
         self.add_new_resource_patch_stationary_single()
 
-    def add_new_resource_patch_random(self):
-        """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
-        prove_resource method so that the distribution and overlap is following some predefined rules"""
-        # takes current id, increments counter for next patch
-        id = self.res_id_counter
-        self.res_id_counter += 1
+    # def add_new_resource_patch_random(self):
+    #     """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
+    #     prove_resource method so that the distribution and overlap is following some predefined rules"""
+    #     # takes current id, increments counter for next patch
+    #     id = self.res_id_counter
+    #     self.res_id_counter += 1
 
-        radius = self.resrc_radius
+    #     radius = self.resrc_radius
 
-        max_retries = 100
-        retries = 0
-        colliding_resources = [0]
-        colliding_agents = [0]
+    #     max_retries = 100
+    #     retries = 0
+    #     colliding_resources = [0]
+    #     colliding_agents = [0]
 
-        while len(colliding_resources) > 0 or len(colliding_agents) > 0:
-            if retries > max_retries:
-                raise RuntimeError("Reached timeout while trying to create resources without overlap!")
+    #     while len(colliding_resources) > 0 or len(colliding_agents) > 0:
+    #         if retries > max_retries:
+    #             raise RuntimeError("Reached timeout while trying to create resources without overlap!")
             
-            x = np.random.randint(self.x_min, self.x_max - 2*radius)
-            y = np.random.randint(self.y_min, self.y_max - 2*radius)
+    #         x = np.random.randint(self.x_min, self.x_max - 2*radius)
+    #         y = np.random.randint(self.y_min, self.y_max - 2*radius)
 
-            units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
-            quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
-            resource = Resource(id, radius, (x, y), units, quality)
+    #         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
+    #         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
+    #         resource = Resource(id, radius, (x, y), units, quality)
 
-            # check for overlap with other resources + agents
-            colliding_resources = pygame.sprite.spritecollide(resource, self.resources, False, pygame.sprite.collide_circle)
-            colliding_agents = pygame.sprite.spritecollide(resource, self.agents, False, pygame.sprite.collide_circle)
-            retries += 1
+    #         # check for overlap with other resources + agents
+    #         colliding_resources = pygame.sprite.spritecollide(resource, self.resources, False, pygame.sprite.collide_circle)
+    #         colliding_agents = pygame.sprite.spritecollide(resource, self.agents, False, pygame.sprite.collide_circle)
+    #         retries += 1
 
-        # adds new resources when overlap is no longer detected
-        self.resources.add(resource)
+    #     # adds new resources when overlap is no longer detected
+    #     self.resources.add(resource)
 
-        if not self.log_zarr_file: # save in sim instance
+    #     if not self.log_zarr_file: # save in sim instance
 
-            # convert positional coordinates
-            x,y = resource.pt_center
-            pos_x = x - self.window_pad
-            pos_y = self.y_max - y
+    #         # convert positional coordinates
+    #         x,y = resource.pt_center
+    #         pos_x = x - self.window_pad
+    #         pos_y = self.y_max - y
 
-            self.data_res.append([pos_x, pos_y, radius])
+    #         self.data_res.append([pos_x, pos_y, radius])
 
     def add_new_resource_patch_stationary_single(self):
         """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
@@ -397,21 +399,16 @@ class Simulation:
             self.check_resrc_gen = False
 
             if not self.log_zarr_file: # save in sim instance
-
-                # convert positional coordinates
                 x,y = resource.pt_center
                 pos_x = x - self.window_pad
                 pos_y = self.y_max - y
-
                 self.data_res.append([pos_x, pos_y, self.resrc_radius])
 
         else:
             self.check_resrc_gen = True
 
     def consume(self, agent):
-        """
-        Carry out agent-resource interactions (depletion, destroying, notifying)
-        """
+        """Carry out agent-resource interactions (depletion, destroying, notifying)"""
         # Call resource agent is on
         resource = agent.res_to_be_consumed
 
@@ -525,9 +522,14 @@ class Simulation:
 
         ### ---- INITIALIZATION ---- ###
 
-        start_time = datetime.now()
+        start_time = time.time()
         self.create_agents()
         self.create_resources()
+
+        # obs_times = np.zeros(self.T)
+        # mod_times = np.zeros(self.T)
+        # sav_times = np.zeros(self.T)
+        # ful_times = np.zeros(self.T)
 
         ### ---- START OF SIMULATION ---- ###
 
@@ -537,11 +539,13 @@ class Simulation:
 
                 ### ---- OBSERVATIONS ---- ###
 
+                # obs_start = time.time()
                 for agent in self.agents:
 
-                    # Update agent color/position/on_resrc parameter
-                    agent.draw_update() 
+                    # Update agent parameters
                     agent.on_resrc = 0
+                    if self.with_visualization:
+                        agent.draw_update() 
 
                     # Update visual projections (vis_field)
                     crash = agent.visual_sensing()
@@ -560,6 +564,7 @@ class Simulation:
                 # # Update collisions amongst agents (contact_field)
                 # if self.collide_agents:
                 #     self.collide_agent_agent()
+                # obs_times[self.t] = time.time() - obs_start
 
                 ### ---- VISUALIZATION ---- ###
 
@@ -568,14 +573,17 @@ class Simulation:
 
                 ### ---- TRACKING ---- ### 
 
+                # sav_start = time.time()
                 if self.log_zarr_file:
                     tracking.save_agent_data_RAM(self)
                     tracking.save_resource_data_RAM(self)
                 else:
                     self.save_data_agent()
+                # sav_times[self.t] = time.time() - sav_start
 
                 ### ---- MODEL + ACTIONS ---- ###
 
+                # mod_start = time.time()
                 for agent in self.agents:
 
                     # Pass observables through NN to calculate actions (dvel + dtheta) & advance agent's hidden state
@@ -592,6 +600,7 @@ class Simulation:
 
                 if self.check_resrc_gen: # check if agent still on resource patch, waiting to be generated
                     self.add_new_resource_patch_stationary_single()
+                # mod_times[self.t] = time.time() - mod_start
 
             ### ---- BACKGROUND PROCESSES ---- ###
         
@@ -599,9 +608,12 @@ class Simulation:
                 self.t += 1
 
                 # Step clock time to calculate fps
-                self.clock.tick(self.framerate)
-                if self.print_enabled and (self.t % 500 == 0):
-                    print(f"t={self.t} \t| FPS: {round(self.clock.get_fps(),1)}")
+                if self.with_visualization:
+                    self.clock.tick(self.framerate)
+                    if self.print_enabled and (self.t % 500 == 0):
+                        print(f"t={self.t} \t| FPS: {round(self.clock.get_fps(),1)}")
+                
+                # ful_times[self.t-1] = time.time() - obs_start
 
             # Carry out user interactions even when not paused
             if self.with_visualization:
@@ -613,7 +625,7 @@ class Simulation:
         pygame.quit()
 
         # compute simulation time in seconds
-        self.elapsed_time = round( (datetime.now() - start_time).total_seconds() , 2)
+        self.elapsed_time = round( (time.time() - start_time) , 2)
         if self.print_enabled:
             print(f"Elapsed_time: {self.elapsed_time}")
 
@@ -647,5 +659,42 @@ class Simulation:
         # display static map of simulation
         if self.plot_trajectory:
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
+
+        # obs_mean = np.mean(obs_times)
+        # sav_mean = np.mean(sav_times)
+        # mod_mean = np.mean(mod_times)
+        # ful_mean = np.mean(ful_times)
+        # print('1step balance: ', (obs_mean + sav_mean + mod_mean) / ful_mean)
+        # print('run balance: ', (np.mean(ful_times) * self.T) / self.elapsed_time)
+
+        # print('Absolute')
+        # print('obs: ', obs_mean)
+        # print('sav: ', sav_mean)
+        # print('mod: ', mod_mean)
+        # print('ful: ', ful_mean)
+
+        # obs_frac = np.round( obs_mean / ful_mean, 2)
+        # mod_frac = np.round( mod_mean / ful_mean, 2)
+
+        # obs_cov = np.round( np.std(obs_times) / obs_mean, 2)
+        # mod_cov = np.round( np.std(mod_times) / mod_mean, 2)
+        
+        # print('Relative')
+        # print('obs: ', obs_frac, obs_cov)
+        # print('mod: ', mod_frac, mod_cov)
+
+        # # Current Runtime Statistics 
+        # # (10 000 timesteps / single agent / 8 visfield / 4 contfield / 16 hidden)
+        
+        # # Entire start():               0.9 sec
+        # #   Single timestep in start():         8.7 e-5
+        # #       Observations:                           3.8 e-5
+        # #           visual_sensing():                           3.5 e-5
+        # #           collide_agent_res():                        0.3 e-5
+        # #       Saving:                                 0.3 e-5
+        # #       Model:                                  4.6 e-5
+        # #           assemble_NN_inputs():                       0.7 e-5
+        # #           NN.forward():                               3.7 e-5
+        # #           consume() & move():                         0.5 e-5
 
         return self.fitnesses, self.elapsed_time, self.crash_bool
