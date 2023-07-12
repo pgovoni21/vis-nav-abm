@@ -18,27 +18,22 @@ class EvolAlgo():
                  population_size=96, generations=500, episodes=5,
                  num_top_saved=5, EA_save_name=None, start_seed=1000):
         
-        # set initialization timer
-        start_time = time.time()
+        # init_time = time.time()
 
         # RNN parameters 
         self.arch = arch
         self.activ = activ
         self.dt = dt
 
-        # Calculate parameter vector size (weights + biases for all layers)
-        input_size, hidden_size, output_size = arch
-
-        num_weights = hidden_size * (input_size + hidden_size + output_size)
-        num_biases = 2*hidden_size + output_size
-
-        param_vec_size = num_weights + num_biases
+        # Calculate parameter vector size using an example NN (easy generalizable)
+        param_vec_size = sum(p.numel() for p in RNN(arch).parameters())
 
         # Evolution + Simulation parameters
         self.population_size = population_size
         self.generations = generations
         self.episodes = episodes
         self.start_seed = start_seed
+        self.init_sigma = 1
 
         # Initialize CMA-ES
         self.es = cma.CMAEvolutionStrategy(
@@ -70,9 +65,8 @@ class EvolAlgo():
             Path(self.EA_save_dir, '.env')
             )
         
-        # print time taken to initialize EA
-        end_time = time.time() - start_time
-        print(f'Init Time: {round( end_time, 2)} sec')
+        # end_time = time.time() - init_time
+        # print(f'Init Time: {round( end_time, 2)} sec')
             
 
     def fit_parallel(self):
@@ -83,22 +77,19 @@ class EvolAlgo():
 
             print(f'---------------- Generation {i} ----------------')
 
-            # determine pseudo random number generator seeds
+            # determine PRNG seeds + reset for next generation
             # (circumventing multiprocessing bug where multiple children can have overlapping seeds)
             seeds_per_gen = range(self.start_seed, self.start_seed + self.episodes)
-            # reset for next generation
             self.start_seed += self.episodes
 
+            # load inputs for each simulation instance
             sim_inputs_per_gen = []
             for n, NN in enumerate(self.NNs):
                 for e in range(self.episodes):
-                    # construct temporary save extension for sim data files
                     save_ext = fr'{self.EA_save_name}/running/NN{n}/ep{e}'
-                    # pack inputs for current generation sims as tuple
                     sim_inputs_per_gen.append( (NN, save_ext, seeds_per_gen[e]) )
 
-            # set sim run timer
-            start_time = time.time()
+            sim_time = time.time()
 
             # using process pool executor/manager
             with multiprocessing.Pool() as pool:
@@ -110,8 +101,7 @@ class EvolAlgo():
                 pool.close()
                 pool.join()
 
-            # print time taken for entire generation
-            end_time = time.time() - start_time
+            end_time = time.time() - sim_time
             print(f'Generational Sim Run Time: {round( end_time, 2)} sec')
 
             # convert results iterator to list

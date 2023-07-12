@@ -61,7 +61,7 @@ def start(NN=None, save_ext=None, seed=None):
                          )
         fitnesses, elapsed_time, crash = sim.start()
 
-        print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}, crashed? {crash}')
+        # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}, crashed? {crash}')
 
     return save_ext, fitnesses, elapsed_time, crash
 

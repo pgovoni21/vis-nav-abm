@@ -81,11 +81,19 @@ class RNN(nn.Module):
             #     param_num += param.numel()
             if l.weight is not None:
                 chunk = param_vector[param_num : param_num + l.weight.numel()]
-                l.weight.data = chunk.reshape(l.weight.shape)
+
+                reshaped_chunk = chunk.reshape(l.weight.shape)
+                torched_chunk = torch.from_numpy(reshaped_chunk).float()
+                l.weight.data = torched_chunk
+
                 param_num += l.weight.numel()
             if l.bias is not None:
                 chunk = param_vector[param_num : param_num + l.bias.numel()]
-                l.bias.data = chunk.reshape(l.bias.shape)
+
+                reshaped_chunk = chunk.reshape(l.bias.shape)
+                torched_chunk = torch.from_numpy(reshaped_chunk).float()
+                l.bias.data = torched_chunk
+
                 param_num += l.bias.numel()
 
 

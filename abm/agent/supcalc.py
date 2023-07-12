@@ -25,13 +25,15 @@ def angle_between(v1, v2, v1_norm, v2_norm):
 
     dot = np.dot(v1_u, v2_u)
 
+    # accumulated calculation errors can give dot product above/below range
+    # leads to RuntimeWarning with np.arccos when given scalar within -1:1 range + outputs angle=nan
+    # practical solution: np.clip
+    angle = np.arccos( np.clip(dot, -1, 1) )
+
+    # prints info when this occurs
     if dot < -1 or dot > 1:
         print(f'v1: {v1} \t v1_norm: {v1_norm}')
         print(f'v2: {v2} \t v2_norm: {v2_norm}')
-
-    angle = np.arccos(dot)
-    # sends RuntimeWarning when dot product returns scalar outside -1:1 range + outputs angle=nan
-    # not sure when problem arises, keep if/print call to diagnose
 
     # marks left side with negative angles, taking into account flipped y-axis
     if v1_u[0] * v2_u[1] - v1_u[1] * v2_u[0] < 0: 
