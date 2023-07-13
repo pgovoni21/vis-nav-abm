@@ -1,39 +1,39 @@
-from abm.NN.RNNs import RNN
-from abm.app import start as start_sim
+from abm.start_sim import start as start_sim
 from abm.monitoring import plot_funcs
 
-import numpy as np
-import pickle
-from pathlib import Path
-import shutil, os, warnings
-import zarr
+# from abm.NN.memory import CTRNN as RNN
+# from abm.NN.memory import GRU as RNN
+from abm.NN.memory import FNN as RNN
 
-import time
+from pathlib import Path
+import shutil, os, warnings, time
+import numpy as np
 import cma
 import multiprocessing
+import pickle
+import zarr
 
 class EvolAlgo():
     
-    def __init__(self, arch=(50,128,2), activ='relu', dt=100, 
-                 population_size=96, generations=500, episodes=5,
-                 num_top_saved=5, EA_save_name=None, start_seed=1000):
+    def __init__(self, arch=(50,128,2), activ='relu',
+                 population_size=96, init_sigma=1, generations=500, episodes=5,
+                 num_top_nn_saved=3, num_top_nn_plots=5, EA_save_name=None, start_seed=1000):
         
         # init_time = time.time()
 
         # RNN parameters 
         self.arch = arch
         self.activ = activ
-        self.dt = dt
 
         # Calculate parameter vector size using an example NN (easy generalizable)
         param_vec_size = sum(p.numel() for p in RNN(arch).parameters())
 
         # Evolution + Simulation parameters
         self.population_size = population_size
+        self.init_sigma = init_sigma
         self.generations = generations
         self.episodes = episodes
         self.start_seed = start_seed
-        self.init_sigma = 1
 
         # Initialize CMA-ES
         self.es = cma.CMAEvolutionStrategy(
@@ -46,11 +46,12 @@ class EvolAlgo():
         self.NN_param_vectors = self.es.ask()
         
         # Initialize RNN instances for 0th generation
-        self.NNs = [RNN(arch, pv, activ, dt) for pv in self.NN_param_vectors]
+        self.NNs = [RNN(arch, activ, pv) for pv in self.NN_param_vectors]
 
         # Saving parameters
         self.fitness_evol = []
-        self.num_top_saved = num_top_saved
+        self.num_top_nn_saved = num_top_nn_saved
+        self.num_top_nn_plots = num_top_nn_plots
         self.EA_save_name = EA_save_name
         self.root_dir = Path(__file__).parent.parent.parent
         self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)
@@ -67,7 +68,7 @@ class EvolAlgo():
         
         # end_time = time.time() - init_time
         # print(f'Init Time: {round( end_time, 2)} sec')
-            
+
 
     def fit_parallel(self):
 
@@ -124,15 +125,17 @@ class EvolAlgo():
 
                 # pull sim data for each episode
                 fitness_ep = []
-                for save_ext, fitnesses, simtime, crash in results_list[NN_index : NN_index + self.episodes]:
-                    
-                    fitness_ep.append(fitnesses[0])
+                for _, fitnesses, _, _ in results_list[NN_index : NN_index + self.episodes]:
+                    fitness_ep.append(round(fitnesses[0],0))
 
                 avg_fitness = np.mean(fitness_ep)
                 fitness_gen.append(avg_fitness)
-            
+
+            # invert fitnesses + find highest
+            fitness_gen = [-i for i in fitness_gen]
+
             # # list all averaged fitnesses
-            print(f'Fitnesses: {fitness_gen}')
+            # print(f'Fitnesses: {fitness_gen}')
             
             # Track top fitness per generation
             max_fg = int(np.max(fitness_gen))
@@ -150,10 +153,10 @@ class EvolAlgo():
 
 
             # cycle through the top X performers
-            top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_saved : -1] # best in gen : first (n_top = 1)
+            top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_nn_saved : -1] # best in gen : first (n_top = 1)
 
             top_fitnesses = [int(fitness_gen[n_gen]) for n_gen in top_indices]
-            print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
+            # print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
 
             for n_top, n_gen in enumerate(top_indices):
 
@@ -176,7 +179,7 @@ class EvolAlgo():
                 #     print(c)
 
                 # plot saved runs + output in parent directory
-                for e in range(self.episodes):
+                for e in range(self.num_top_nn_plots):
 
                     ag_zarr = zarr.open(fr'{NN_save_dir}/ep{e}/ag.zarr', mode='r')
                     res_zarr = zarr.open(fr'{NN_save_dir}/ep{e}/res.zarr', mode='r')
@@ -185,10 +188,10 @@ class EvolAlgo():
                     plot_funcs.plot_map(plot_data, x_max=400, y_max=400, 
                                         save_name=f'{NN_save_dir}_ep{e}')
 
-                # pickle NN
-                NN = self.NNs[n_gen]
-                with open(fr'{NN_save_dir}/NN_pickle.bin','wb') as f:
-                    pickle.dump(NN, f)
+                # # pickle NN
+                # NN = self.NNs[n_gen]
+                # with open(fr'{NN_save_dir}/NN_pickle.bin','wb') as f:
+                #     pickle.dump(NN, f)
             
             # update/pickle generational fitness data in parent directory
             self.fitness_evol.append(fitness_gen)
@@ -198,16 +201,12 @@ class EvolAlgo():
 
             #### ---- Update optimizer + RNN instances ---- ####
 
-            # # Flip sign for optimizer, which finds minima
-            # fitness_gen_min = [-i for i in fitness_gen]
-
             # Pass parameters + resulting fitness list to optimizer class
-            # self.es.tell(self.NN_param_vectors, fitness_gen_min)
             self.es.tell(self.NN_param_vectors, fitness_gen)
             
             # Generate new RNN parameters + instances for next generation
             self.NN_param_vectors = self.es.ask()
-            self.NNs = [RNN(self.arch, pv, self.activ, self.dt) for pv in self.NN_param_vectors]
+            self.NNs = [RNN(self.arch, self.activ, pv) for pv in self.NN_param_vectors]
 
             # print time taken for performance evaluation
             end_time = time.time() - start_time

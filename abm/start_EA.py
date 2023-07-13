@@ -1,9 +1,19 @@
-from abm.NN.EA import EvolAlgo
+from abm.EA.EA import EvolAlgo
 
 from pathlib import Path
 from dotenv import dotenv_values
 
-def start_EA():
+
+# calls env dict from root folder
+env_path = Path(__file__).parent.parent / ".env"
+envconf = dotenv_values(env_path)
+
+
+def start_EA(): # "EA-start" in terminal
+
+    # ensure sims will run without sim/plot windows
+    envconf["WITH_VISUALIZATION"] = 0
+    envconf["PLOT_TRAJECTORY"] = 0
 
     # calculate NN input size (visual/contact perception + other)
     N                   =int(envconf["N"])
@@ -25,11 +35,12 @@ def start_EA():
 
     EA = EvolAlgo(arch                      =architecture, 
                   activ                     =str(envconf["NN_ACTIVATION_FUNCTION"]),
-                  dt                        =int(envconf["NN_DT"]), 
                   population_size           =int(envconf["EA_POPULATION_SIZE"]), 
+                  init_sigma                =int(envconf["EA_INIT_SIGMA"]),
                   generations               =int(envconf["EA_GENERATIONS"]), 
                   episodes                  =int(envconf["EA_EPISODES"]), 
-                  num_top_saved             =int(envconf["EA_NUM_TOP_SAVED"]),
+                  num_top_nn_saved          =int(envconf["EA_NUM_TOP_NN_SAVED"]),
+                  num_top_nn_plots          =int(envconf["EA_NUM_TOP_NN_PLOTS"]),
                   EA_save_name              =str(envconf["EA_SAVE_NAME"]),
                   start_seed                =int(envconf["EA_START_SEED"]),
                   )

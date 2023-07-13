@@ -128,7 +128,6 @@ class Simulation:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
         self.res_id_counter = 0
-        self.check_resrc_gen = False
 
         # Neural Network parameters
         self.NN = NN
@@ -282,34 +281,47 @@ class Simulation:
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
         for i in range(self.N):
-            x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
-            y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
-            orient = np.random.uniform(0, 2 * np.pi)
-            self.agents.add(
-                Agent(
-                    id=i,
-                    position=(x, y),
-                    orientation=orient,
-                    max_vel=self.max_vel,
-                    collision_slowdown=self.collision_slowdown,
-                    vis_field_res=self.vis_field_res,
-                    FOV=self.agent_fov,
-                    vision_range=self.vision_range,
-                    visual_exclusion=self.visual_exclusion,
-                    contact_field_res=self.contact_field_res,
-                    consumption=self.agent_consumption,
-                    vis_size=self.vis_size,
-                    contact_size=self.contact_size,
-                    NN_input_size=self.NN_input_size,
-                    NN_hidden_size=self.NN_hidden_size,
-                    NN_output_size=self.NN_output_size,
-                    NN=self.NN,
-                    NN_activ = self.NN_activ,
-                    boundary_info=self.boundary_info,
-                    radius=self.agent_radii,
-                    color=colors.BLUE,
-                )
-            )
+
+            colliding_resources = [0]
+
+            retries = 0
+            while len(colliding_resources) > 0:
+
+                x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
+                y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
+                orient = np.random.uniform(0, 2 * np.pi)
+
+                agent = Agent(
+                        id=i,
+                        position=(x, y),
+                        orientation=orient,
+                        max_vel=self.max_vel,
+                        collision_slowdown=self.collision_slowdown,
+                        vis_field_res=self.vis_field_res,
+                        FOV=self.agent_fov,
+                        vision_range=self.vision_range,
+                        visual_exclusion=self.visual_exclusion,
+                        contact_field_res=self.contact_field_res,
+                        consumption=self.agent_consumption,
+                        vis_size=self.vis_size,
+                        contact_size=self.contact_size,
+                        NN_input_size=self.NN_input_size,
+                        NN_hidden_size=self.NN_hidden_size,
+                        NN_output_size=self.NN_output_size,
+                        NN=self.NN,
+                        NN_activ = self.NN_activ,
+                        boundary_info=self.boundary_info,
+                        radius=self.agent_radii,
+                        color=colors.BLUE,
+                    )
+                
+                colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+                retries += 1
+
+                if retries > 10:
+                    print(f'Retries > 10')
+
+            self.agents.add(agent)
 
     def save_data_agent(self):
         """Tracks key variables (position, mode, resources collected) via array for current timestep"""
@@ -328,56 +340,6 @@ class Simulation:
 ### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
 
     def create_resources(self):
-        """Creates resource patches according to environment type (random, stationary, migratory)"""
-        # for i in range(self.N_resrc):
-        #     self.add_new_resource_patch_random()
-        self.add_new_resource_patch_stationary_single()
-
-    # def add_new_resource_patch_random(self):
-    #     """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
-    #     prove_resource method so that the distribution and overlap is following some predefined rules"""
-    #     # takes current id, increments counter for next patch
-    #     id = self.res_id_counter
-    #     self.res_id_counter += 1
-
-    #     radius = self.resrc_radius
-
-    #     max_retries = 100
-    #     retries = 0
-    #     colliding_resources = [0]
-    #     colliding_agents = [0]
-
-    #     while len(colliding_resources) > 0 or len(colliding_agents) > 0:
-    #         if retries > max_retries:
-    #             raise RuntimeError("Reached timeout while trying to create resources without overlap!")
-            
-    #         x = np.random.randint(self.x_min, self.x_max - 2*radius)
-    #         y = np.random.randint(self.y_min, self.y_max - 2*radius)
-
-    #         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
-    #         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
-    #         resource = Resource(id, radius, (x, y), units, quality)
-
-    #         # check for overlap with other resources + agents
-    #         colliding_resources = pygame.sprite.spritecollide(resource, self.resources, False, pygame.sprite.collide_circle)
-    #         colliding_agents = pygame.sprite.spritecollide(resource, self.agents, False, pygame.sprite.collide_circle)
-    #         retries += 1
-
-    #     # adds new resources when overlap is no longer detected
-    #     self.resources.add(resource)
-
-    #     if not self.log_zarr_file: # save in sim instance
-
-    #         # convert positional coordinates
-    #         x,y = resource.pt_center
-    #         pos_x = x - self.window_pad
-    #         pos_y = self.y_max - y
-
-    #         self.data_res.append([pos_x, pos_y, radius])
-
-    def add_new_resource_patch_stationary_single(self):
-        """Adding a new resource patch to the resources sprite group. The position of the new resource is proved with
-        prove_resource method so that the distribution and overlap is following some predefined rules"""
         
         # creates single resource patch in middle of top-left quadrant
         id = 0
@@ -386,45 +348,39 @@ class Simulation:
 
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
+
+        self.resrc_radius = 100
         
         resource = Resource(id, self.resrc_radius, (x, y), units, quality)
+        self.resources.add(resource)
 
-        # check for overlap with agent + add patch if agent is not on patch (or t = 0)
-        colliding_agents = pygame.sprite.spritecollide(resource, self.agents, False, pygame.sprite.collide_circle)
-        if len(colliding_agents) == 0 or self.t == 0:
-            self.resources.add(resource)
-            self.check_resrc_gen = False
+        if not self.log_zarr_file: # save in sim instance
+            x,y = resource.pt_center
+            pos_x = x - self.window_pad
+            pos_y = self.y_max - y
+            self.data_res.append([pos_x, pos_y, self.resrc_radius])
 
-            if not self.log_zarr_file: # save in sim instance
-                x,y = resource.pt_center
-                pos_x = x - self.window_pad
-                pos_y = self.y_max - y
-                self.data_res.append([pos_x, pos_y, self.resrc_radius])
+    # def consume(self, agent):
+    #     """Carry out agent-resource interactions (depletion, destroying, notifying)"""
+    #     # Call resource agent is on
+    #     resource = agent.res_to_be_consumed
 
-        else:
-            self.check_resrc_gen = True
+    #     # Increment remaining resource quantity
+    #     depl_units, destroy_resrc = resource.deplete(agent.consumption)
 
-    def consume(self, agent):
-        """Carry out agent-resource interactions (depletion, destroying, notifying)"""
-        # Call resource agent is on
-        resource = agent.res_to_be_consumed
+    #     # Update agent info
+    #     if depl_units > 0:
+    #         agent.collected_r += depl_units
+    #         agent.mode = 'exploit'
+    #     else:
+    #         agent.mode = 'explore'
 
-        # Increment remaining resource quantity
-        depl_units, destroy_resrc = resource.deplete(agent.consumption)
-
-        # Update agent info
-        if depl_units > 0:
-            agent.collected_r += depl_units
-            agent.mode = 'exploit'
-        else:
-            agent.mode = 'explore'
-
-        # Kill + regenerate patch when fully depleted
-        if destroy_resrc:
-            resource.kill()
-            if self.regenerate_resources:
-                # self.add_new_resource_patch_random()
-                self.add_new_resource_patch_stationary_single()
+    #     # Kill + regenerate patch when fully depleted
+    #     if destroy_resrc:
+    #         resource.kill()
+    #         if self.regenerate_resources:
+    #             # self.add_new_resource_patch_random()
+    #             self.add_new_resource_patch_stationary_single()
 
 ### -------------------------- MULTIAGENT INTERACTION FUNCTIONS -------------------------- ###
 
@@ -520,8 +476,8 @@ class Simulation:
         ### ---- INITIALIZATION ---- ###
 
         start_time = time.time()
-        self.create_agents()
         self.create_resources()
+        self.create_agents()
 
         # obs_times = np.zeros(self.T)
         # mod_times = np.zeros(self.T)
@@ -542,6 +498,7 @@ class Simulation:
                     # Update agent parameters
                     agent.on_resrc = 0
                     agent.rect.x, agent.rect.y = agent.position
+
                     if self.with_visualization:
                         agent.draw_update() 
 
@@ -572,11 +529,11 @@ class Simulation:
                 ### ---- TRACKING ---- ### 
 
                 # sav_start = time.time()
-                if self.log_zarr_file:
-                    tracking.save_agent_data_RAM(self)
-                    tracking.save_resource_data_RAM(self)
-                else:
-                    self.save_data_agent()
+                # if self.log_zarr_file:
+                tracking.save_agent_data_RAM(self)
+                tracking.save_resource_data_RAM(self)
+                # else:
+                #     self.save_data_agent()
                 # sav_times[self.t] = time.time() - sav_start
 
                 ### ---- MODEL + ACTIONS ---- ###
@@ -591,13 +548,34 @@ class Simulation:
                     # Food present --> consume + set mode to exploit (if food is still available)
                     if agent.on_resrc == 1:
                     # if agent.on_resrc == 1 and agent.velocity == 0: 
-                        self.consume(agent) 
+                        # self.consume(agent) 
+
+                        ### ---- END OF SIMULATION (found food - premature termination) ---- ###
+
+                        pygame.quit()
+                        # compute simulation time in seconds
+                        self.elapsed_time = round( (time.time() - start_time) , 2)
+                        if self.print_enabled:
+                            print(f"Elapsed_time: {self.elapsed_time}")
+
+                        # conclude agent/resource tracking
+                        # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
+                        ag_zarr, res_zarr = tracking.save_zarr_file(self.t+1, self.save_ext, self.print_enabled)
+
+                        # display static map of simulation
+                        if self.plot_trajectory:
+                            plot_data = ag_zarr, res_zarr
+                            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
+
+                        # extract total fitnesses of each agent + save into sim instance (pulled for EA)
+                        # self.fitnesses = ag_zarr[:,-1,-1]
+                        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+
+                        return self.fitnesses, self.elapsed_time, self.crash_bool
 
                     # No food --> move via decided actions + set mode to collide if collided
                     else: agent.move(NN_output) 
 
-                if self.check_resrc_gen: # check if agent still on resource patch, waiting to be generated
-                    self.add_new_resource_patch_stationary_single()
                 # mod_times[self.t] = time.time() - mod_start
 
             ### ---- BACKGROUND PROCESSES ---- ###
@@ -621,81 +599,22 @@ class Simulation:
         ### ---- END OF SIMULATION ---- ###
 
         pygame.quit()
-
         # compute simulation time in seconds
         self.elapsed_time = round( (time.time() - start_time) , 2)
         if self.print_enabled:
             print(f"Elapsed_time: {self.elapsed_time}")
-
+        
         # conclude agent/resource tracking
-        if self.log_zarr_file:
-            # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
-            ag_zarr, res_zarr = tracking.save_zarr_file(self.T, self.save_ext, self.print_enabled)
-
-            # assign plot data as zarr arrays
-            plot_data = ag_zarr, res_zarr
-            # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-            # self.fitnesses = ag_zarr[:,-1,-1]
-            self.fitnesses = np.ones(1)*self.t
-
-        else: # use ag/res tracking from self instance
-            # convert list to 3D array similar to zarr file
-            data_res_array = np.zeros( (len(self.data_res), 1, 3 ))
-            for id, (pos_x, pos_y, radius) in enumerate(self.data_res):
-                data_res_array[id, 0, 0] = pos_x
-                data_res_array[id, 0, 1] = pos_y
-                data_res_array[id, 0, 2] = radius
-
-            # assign plot data as numpy arrays
-            plot_data = self.data_agent, data_res_array
-            # extract agent fitnesses from self
-            self.fitnesses = self.data_agent[:,-1,-1]
-
-        # print list of agent fitnesses
-        if self.print_enabled:
-            print(f"Fitnesses: {self.fitnesses}")
-        # print(f"Sim Fitness: {self.fitnesses}, {isinstance(self.fitnesses, np.ndarray)}")
-        # print(f"Sim Fitness: {np.ones(1)*self.t}, {isinstance(np.ones(1)*self.t, np.ndarray)}")
+        # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
+        ag_zarr, res_zarr = tracking.save_zarr_file(self.T, self.save_ext, self.print_enabled)
 
         # display static map of simulation
         if self.plot_trajectory:
+            plot_data = ag_zarr, res_zarr
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
 
-        # obs_mean = np.mean(obs_times)
-        # sav_mean = np.mean(sav_times)
-        # mod_mean = np.mean(mod_times)
-        # ful_mean = np.mean(ful_times)
-        # print('1step balance: ', (obs_mean + sav_mean + mod_mean) / ful_mean)
-        # print('run balance: ', (np.mean(ful_times) * self.T) / self.elapsed_time)
-
-        # print('Absolute')
-        # print('obs: ', obs_mean)
-        # print('sav: ', sav_mean)
-        # print('mod: ', mod_mean)
-        # print('ful: ', ful_mean)
-
-        # obs_frac = np.round( obs_mean / ful_mean, 2)
-        # mod_frac = np.round( mod_mean / ful_mean, 2)
-
-        # obs_cov = np.round( np.std(obs_times) / obs_mean, 2)
-        # mod_cov = np.round( np.std(mod_times) / mod_mean, 2)
-        
-        # print('Relative')
-        # print('obs: ', obs_frac, obs_cov)
-        # print('mod: ', mod_frac, mod_cov)
-
-        # # Current Runtime Statistics 
-        # # (10 000 timesteps / single agent / 8 visfield / 4 contfield / 16 hidden)
-        
-        # # Entire start():               0.9 sec
-        # #   Single timestep in start():         8.7 e-5
-        # #       Observations:                           3.8 e-5
-        # #           visual_sensing():                           3.5 e-5
-        # #           collide_agent_res():                        0.3 e-5
-        # #       Saving:                                 0.3 e-5
-        # #       Model:                                  4.6 e-5
-        # #           assemble_NN_inputs():                       0.7 e-5
-        # #           NN.forward():                               3.7 e-5
-        # #           consume() & move():                         0.5 e-5
+        # extract total fitnesses of each agent + save into sim instance (pulled for EA)
+        # self.fitnesses = ag_zarr[:,-1,-1]
+        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
 
         return self.fitnesses, self.elapsed_time, self.crash_bool

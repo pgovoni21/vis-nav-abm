@@ -36,14 +36,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'abm-start=abm.app:start',
-            'abm-start-coopsig=abm.app_collective_signaling:start',
-            'headless-abm-start=abm.app:start_headless',
-            'playground-start=abm.app:start_playground',
-            'playground-start-coopsig=abm.app_collective_signaling:start_playground',
-            'abm-start-current=abm.app:start_current',
-            'headless-abm-start-current=abm.app:start_current_headless',
-            'EA-start=abm.app:start_EA',
+            'abm-start=abm.start_sim:start',
+            'EA-start=abm.start_EA:start_EA',
         ]
     },
     classifiers=[

@@ -3,11 +3,15 @@ agent.py : including the main classes to create an agent. Supplementary calculat
             are removed from this file.
 """
 
-import pygame
-import numpy as np
 from abm.contrib import colors
 from abm.agent import supcalc
-from abm.NN.RNNs import RNN
+
+# from abm.NN.memory import CTRNN as RNN
+# from abm.NN.memory import GRU as RNN
+from abm.NN.memory import FNN as RNN
+
+import pygame
+import numpy as np
 
 class Agent(pygame.sprite.Sprite):
     """
@@ -18,7 +22,7 @@ class Agent(pygame.sprite.Sprite):
     def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
                  vis_field_res, FOV, vision_range, visual_exclusion, contact_field_res, consumption, 
                  vis_size, contact_size, NN_input_size, NN_hidden_size, NN_output_size, NN, 
-                 NN_activ, NN_dt, boundary_info, radius, color):
+                 NN_activ, boundary_info, radius, color):
         """
         Initalization method of main agent class of the simulations
 
@@ -91,7 +95,7 @@ class Agent(pygame.sprite.Sprite):
         NN_arch = (NN_input_size, NN_hidden_size, NN_output_size)
         # use given NN to control agent or initialize a new NN
         if NN: self.NN = NN
-        else:  self.NN = RNN(arch=NN_arch, activ=NN_activ, dt=NN_dt) 
+        else: self.NN = RNN(arch=NN_arch, activ=NN_activ) 
         # store hidden activity for each simulation timestep
         self.hidden = None
 
@@ -672,9 +676,6 @@ class Agent(pygame.sprite.Sprite):
         """
         updating the outlook of the agent according to position and orientation
         """
-        # update position
-        self.rect.x, self.rect.y = self.position
-
         # change agent color according to mode
         self.change_color()
 

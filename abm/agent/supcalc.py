@@ -32,6 +32,7 @@ def angle_between(v1, v2, v1_norm, v2_norm):
 
     # prints info when this occurs
     if dot < -1 or dot > 1:
+        print(f'dot product clipped, dot: {dot}')
         print(f'v1: {v1} \t v1_norm: {v1_norm}')
         print(f'v2: {v2} \t v2_norm: {v2_norm}')
 
