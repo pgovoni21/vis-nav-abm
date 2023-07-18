@@ -25,18 +25,29 @@ def start_EA(): # "EA-start" in terminal
 
     vis_input_num = vis_field_res * num_class_elements
     contact_input_num = contact_field_res * num_class_elements
-    other_input_num = int(envconf["NN_INPUT_OTHER_SIZE"]) # velocity + orientation + on_resrc
+    other_input_num = int(envconf["RNN_INPUT_OTHER_SIZE"]) # velocity + orientation + on_resrc
     
     # assemble NN architecture
-    input_size = vis_input_num + contact_input_num + other_input_num
-    hidden_size = int(envconf["NN_HIDDEN_SIZE"])
-    output_size = int(envconf["NN_OUTPUT_SIZE"]) # dvel + dtheta
-    architecture = (input_size, hidden_size, output_size)
+    CNN_input_size = (num_class_elements, vis_input_num)
+    CNN_depths = [1,]
+    CNN_dims = [4,]
+    RNN_other_input_size = (contact_input_num, other_input_num)
+    RNN_hidden_size = int(envconf["RNN_HIDDEN_SIZE"])
+    LCL_output_size = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
+
+    architecture = (
+        CNN_input_size, 
+        CNN_depths, 
+        CNN_dims, 
+        RNN_other_input_size, 
+        RNN_hidden_size, 
+        LCL_output_size
+        )
 
     EA = EvolAlgo(arch                      =architecture, 
                   activ                     =str(envconf["NN_ACTIVATION_FUNCTION"]),
                   population_size           =int(envconf["EA_POPULATION_SIZE"]), 
-                  init_sigma                =int(envconf["EA_INIT_SIGMA"]),
+                  init_sigma                =float(envconf["EA_INIT_SIGMA"]),
                   generations               =int(envconf["EA_GENERATIONS"]), 
                   episodes                  =int(envconf["EA_EPISODES"]), 
                   num_top_nn_saved          =int(envconf["EA_NUM_TOP_NN_SAVED"]),

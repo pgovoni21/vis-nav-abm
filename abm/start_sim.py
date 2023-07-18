@@ -7,13 +7,14 @@ from dotenv import dotenv_values
 import os
 import numpy as np
 
+from abm.NN.model import WorldModel as Model
 
 # calls env dict from root folder
 env_path = Path(__file__).parent.parent / ".env"
 envconf = dotenv_values(env_path)
 
 
-def start(NN=None, save_ext=None, seed=None): # "abm-start" in terminal
+def start(arch=None, pv=None, save_ext=None, seed=None): # "abm-start" in terminal
 
     # calls env dict from root folder
     env_path = Path(__file__).parent.parent / ".env"
@@ -24,6 +25,11 @@ def start(NN=None, save_ext=None, seed=None): # "abm-start" in terminal
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
+    
+    # instantiate model object if called from EA
+    NN = None
+    if pv is not None:
+        NN = Model(arch=arch, param_vector=pv)
 
     # Set seed according to EA parent function to circumvent multiprocessing bug
     np.random.seed(seed)
@@ -59,9 +65,11 @@ def start(NN=None, save_ext=None, seed=None): # "abm-start" in terminal
                          max_resrc_quality      =float(envconf["MAX_RESOURCE_QUALITY"]),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                          NN                     =NN,
-                         NN_input_other_size    =int(envconf["NN_INPUT_OTHER_SIZE"]),
-                         NN_hidden_size         =int(envconf["NN_HIDDEN_SIZE"]),
-                         NN_output_size         =int(envconf["NN_OUTPUT_SIZE"]),
+                         CNN_depths             =[1,],
+                         CNN_dims               =[4,], 
+                         RNN_input_other_size   =int(envconf["RNN_INPUT_OTHER_SIZE"]),
+                         RNN_hidden_size        =int(envconf["RNN_HIDDEN_SIZE"]),
+                         LCL_output_size        =int(envconf["LCL_OUTPUT_SIZE"]),
                          NN_activ               =str(envconf["NN_ACTIVATION_FUNCTION"]),
                          )
         fitnesses, elapsed_time, crash = sim.start()

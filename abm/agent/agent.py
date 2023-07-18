@@ -6,9 +6,7 @@ agent.py : including the main classes to create an agent. Supplementary calculat
 from abm.contrib import colors
 from abm.agent import supcalc
 
-# from abm.NN.memory import CTRNN as RNN
-# from abm.NN.memory import GRU as RNN
-from abm.NN.memory import FNN as RNN
+from abm.NN.model import WorldModel
 
 import pygame
 import numpy as np
@@ -21,8 +19,7 @@ class Agent(pygame.sprite.Sprite):
 
     def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
                  vis_field_res, FOV, vision_range, visual_exclusion, contact_field_res, consumption, 
-                 vis_size, contact_size, NN_input_size, NN_hidden_size, NN_output_size, NN, 
-                 NN_activ, boundary_info, radius, color):
+                 arch, model, NN_activ, boundary_info, radius, color):
         """
         Initalization method of main agent class of the simulations
 
@@ -37,11 +34,6 @@ class Agent(pygame.sprite.Sprite):
         :param visual_exclusion: if True social cues can be visually excluded by non social cues
         :param contact_field_res: resolution of the contact projection field of the agent in pixels
         :param consumption: (resource unit/time unit) consumption efficiency of agent
-        :param vis_size: 
-        :param contact_size: 
-        :param NN_input_size: 
-        :param NN_hidden_size: 
-        :param NN_output_size: 
         :param NN: 
         :param boundary_info: 
         :param radius: radius of the agent in pixels
@@ -88,16 +80,26 @@ class Agent(pygame.sprite.Sprite):
         self.consumption = consumption
 
         # Neural network initialization / parameters
-        self.vis_size = vis_size
-        self.contact_size = contact_size
-        self.other_size = NN_input_size - vis_size - contact_size
-        self.input_size = NN_input_size
-        NN_arch = (NN_input_size, NN_hidden_size, NN_output_size)
-        # use given NN to control agent or initialize a new NN
-        if NN: self.NN = NN
-        else: self.NN = RNN(arch=NN_arch, activ=NN_activ) 
-        # store hidden activity for each simulation timestep
+        (   CNN_input_size, 
+            CNN_depths, 
+            CNN_dims,               # last is num vis features fed to RNN
+            RNN_other_input_size, 
+            RNN_hidden_size, 
+            LCL_output_size,        # dvel + dthetay
+        ) = arch
+
+        self.num_class_elements, vis_field_res = CNN_input_size
+        self.contact_size, self.other_size = RNN_other_input_size
+
+        # use given NNs to control agent or initialize new NNs
+        if model: 
+            self.model = model
+        else: 
+            self.model = WorldModel(arch=arch, activ=NN_activ,)
+
+        # init placeholders for hidden activity + action for each sim timestep
         self.hidden = None
+        self.action = 0
 
         # Environment related parameters
         self.x_min, self.x_max, self.y_min, self.y_max = boundary_info
@@ -619,47 +621,47 @@ class Agent(pygame.sprite.Sprite):
             single-agent: (wall_north, wall_south, wall_east, wall_west)
             multi-agent: (wall_north, wall_south, wall_east, wall_west, agent_expl, agent_nonexpl)
         """
-        field_onehot = np.zeros((len(field), 4))
-        # field_onehot = np.zeros((len(field), 6))
+        field_onehot = np.zeros((self.num_class_elements, len(field)))
 
         for i,x in enumerate(field):
-
-            if x == 'wall_north': field_onehot[i,0] = 1
-            elif x == 'wall_south': field_onehot[i,1] = 1
-            elif x == 'wall_east': field_onehot[i,2] = 1
+            if x == 'wall_north': field_onehot[0,i] = 1
+            elif x == 'wall_south': field_onehot[1,i] = 1
+            elif x == 'wall_east': field_onehot[2,i] = 1
             else: # x == 'wall_west'
-                field_onehot[i,3] = 1
+                field_onehot[3,i] = 1
             # elif x == 'agent_expl': field_onehot[i,4] = 1
             # else: # x == 'agent_nonexpl
             #     field_onehot[i,5] = 1
-
         return field_onehot
 
     def assemble_NN_inputs(self):
 
-        # transform visual/contact data to onehot encoding
-        vis_field_onehot = self.encode_one_hot(self.vis_field)
+        # transform visual data to onehot encoding --> matrix passed directly to CNN
+        vis_input = self.encode_one_hot(self.vis_field)
+
+        # transform contact data to onehot 
         contact_field_onehot = self.encode_one_hot(self.contact_field)
 
-        # store data as 1D array
-        NN_input = np.zeros(self.input_size)
-        NN_input[0:self.vis_size] = vis_field_onehot.transpose().flatten()
-        NN_input[self.vis_size : self.vis_size + self.contact_size] = contact_field_onehot.transpose().flatten()
+        # store contact with proprio data as 1D array
+        other_input = np.zeros(self.contact_size + self.other_size)
+        other_input[:self.contact_size] = contact_field_onehot.flatten()
 
         # scale velocity + orientation to [0 : 1] boolean interval similar to visual/contact fields
-        vel_scaled = self.velocity / self.max_vel
+        vel_scaled = self.velocity / self.max_vel # last movement
         # orient_scaled = self.orientation / (2*np.pi)
+        last_action = self.action
 
         # store higher level data in the remaining input locations
-        NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled ])
+        # other_input[self.contact_size:] = np.array([ self.on_resrc, vel_scaled ])
         # NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
+        other_input[self.contact_size:] = np.array([ self.on_resrc, vel_scaled, last_action ])
         # if self.other_size == 3:
         #     NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
         # elif self.other_size == 2:
         #     NN_input[-self.other_size :] = np.array([ vel_scaled, orient_scaled ])
         # else: raise Exception('NN_input_other_size not valid')
 
-        return NN_input
+        return vis_input, other_input
 
 ### -------------------------- VISUALIZATION / HUMAN INTERACTION FUNCTIONS -------------------------- ###
 

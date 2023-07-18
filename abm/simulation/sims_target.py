@@ -12,15 +12,32 @@ from abm.environment.resource import Resource
 from abm.contrib import colors
 from abm.monitoring import tracking, plot_funcs
 
+import os, errno
+def list_fds():
+    # ret = {}
+    base = '/proc/self/fd'
+    for num in os.listdir(base):
+        path = None
+        try:
+            path = os.readlink(os.path.join(base, num))
+        except OSError as err:
+            if err.errno != errno.ENOENT:
+                raise
+        # ret[int(num)] = path
+    return num
+
 class Simulation:
     def __init__(self, width=600, height=480, window_pad=30, 
-                 N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, plot_trajectory=False, 
-                 log_zarr_file=False, save_ext="",
-                 agent_radius=10, max_vel=5, collision_slowdown=0.5, vis_field_res=8, contact_field_res=4, collide_agents=True, 
-                 vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
+                 N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, 
+                 plot_trajectory=False, log_zarr_file=False, save_ext="",
+                 agent_radius=10, max_vel=5, collision_slowdown=0.5, 
+                 vis_field_res=8, contact_field_res=4, collide_agents=True, 
+                 vision_range=150, agent_fov=1.0, visual_exclusion=False, 
+                 show_vision_range=False, agent_consumption=1, 
                  N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
                  min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
-                 NN=None, NN_input_other_size=3, NN_hidden_size=128, NN_output_size=1, NN_activ='relu',
+                 NN=None, RNN_input_other_size=3, CNN_depths=[1,], CNN_dims=[4,], 
+                 RNN_hidden_size=128, LCL_output_size=1, NN_activ='relu',
                  ):
         """
         Initializing the main simulation instance
@@ -130,26 +147,37 @@ class Simulation:
         self.res_id_counter = 0
 
         # Neural Network parameters
-        self.NN = NN
+        self.model = NN
 
-        if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
-        else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+        if N == 1:  self.num_class_elements = 4 # single-agent --> perception of 4 walls
+        else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
 
-        self.vis_size = vis_field_res * num_class_elements
-        self.contact_size = contact_field_res * num_class_elements
-        self.other_size = NN_input_other_size # on_resrc + velocity + orientation
+        self.vis_size = vis_field_res * self.num_class_elements
+        self.contact_size = contact_field_res * self.num_class_elements
+        self.other_size = RNN_input_other_size # on_resrc + (velocity + orientation)
         
-        self.NN_input_size = self.vis_size + self.contact_size + self.other_size
-        self.NN_hidden_size = NN_hidden_size
-        self.NN_output_size = NN_output_size # dvel + dtheta
+        CNN_input_size = (self.num_class_elements, vis_field_res)
+        CNN_depths = CNN_depths
+        CNN_dims = CNN_dims # last is num vis features fed to RNN
+        RNN_other_input_size = (self.contact_size, self.other_size)
+        RNN_hidden_size = RNN_hidden_size
+        LCL_output_size = LCL_output_size # dvel + dtheta
 
+        self.architecture = (
+            CNN_input_size, 
+            CNN_depths, 
+            CNN_dims, 
+            RNN_other_input_size, 
+            RNN_hidden_size, 
+            LCL_output_size
+            )
         self.NN_activ = NN_activ
         
-        if print_enabled: 
-            print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
-            print(f" + {self.other_size} (velocity + orientation) = {self.NN_input_size}")
-            print(f"Agent NN architecture = {(self.NN_input_size, NN_hidden_size, self.NN_output_size)}")
-            print(f"NN_activ: {NN_activ}")
+        # if print_enabled: 
+        #     print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
+        #     print(f" + {self.other_size} (velocity + orientation) = {self.NN_input_size}")
+        #     print(f"Agent NN architecture = {(self.NN_input_size, NN_hidden_size, self.NN_output_size)}")
+        #     print(f"NN_activ: {NN_activ}")
 
         # Initializing pygame
         if self.with_visualization:
@@ -163,6 +191,9 @@ class Simulation:
         self.agents = pygame.sprite.Group()
         self.resources = pygame.sprite.Group()
         self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
+
+        # print(f'Running {save_ext}, files opened: {list_fds()}')
+
 
 ### -------------------------- DRAWING FUNCTIONS -------------------------- ###
 
@@ -303,12 +334,8 @@ class Simulation:
                         visual_exclusion=self.visual_exclusion,
                         contact_field_res=self.contact_field_res,
                         consumption=self.agent_consumption,
-                        vis_size=self.vis_size,
-                        contact_size=self.contact_size,
-                        NN_input_size=self.NN_input_size,
-                        NN_hidden_size=self.NN_hidden_size,
-                        NN_output_size=self.NN_output_size,
-                        NN=self.NN,
+                        arch=self.architecture,
+                        model=self.model,
                         NN_activ = self.NN_activ,
                         boundary_info=self.boundary_info,
                         radius=self.agent_radii,
@@ -343,8 +370,8 @@ class Simulation:
         
         # creates single resource patch in middle of top-left quadrant
         id = 0
-        x = self.x_min + int(self.WIDTH/4) - self.resrc_radius
-        y = self.y_min + int(self.HEIGHT/4) - self.resrc_radius
+        x = self.x_min - self.resrc_radius
+        y = self.y_min - self.resrc_radius
 
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
@@ -542,8 +569,8 @@ class Simulation:
                 for agent in self.agents:
 
                     # Pass observables through NN to calculate actions (dvel + dtheta) & advance agent's hidden state
-                    NN_input = agent.assemble_NN_inputs()
-                    NN_output, agent.hidden = agent.NN.forward(NN_input, agent.hidden)
+                    vis_input, other_input = agent.assemble_NN_inputs()
+                    agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
 
                     # Food present --> consume + set mode to exploit (if food is still available)
                     if agent.on_resrc == 1:
@@ -573,8 +600,8 @@ class Simulation:
 
                         return self.fitnesses, self.elapsed_time, self.crash_bool
 
-                    # No food --> move via decided actions + set mode to collide if collided
-                    else: agent.move(NN_output) 
+                    # No food --> move via decided action(s) + set mode to collide if collided
+                    else: agent.move(agent.action) 
 
                 # mod_times[self.t] = time.time() - mod_start
 

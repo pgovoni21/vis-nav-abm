@@ -1,9 +1,7 @@
 from abm.start_sim import start as start_sim
 from abm.monitoring import plot_funcs
 
-# from abm.NN.memory import CTRNN as RNN
-# from abm.NN.memory import GRU as RNN
-from abm.NN.memory import FNN as RNN
+from abm.NN.model import WorldModel as Model
 
 from pathlib import Path
 import shutil, os, warnings, time
@@ -26,7 +24,7 @@ class EvolAlgo():
         self.activ = activ
 
         # Calculate parameter vector size using an example NN (easy generalizable)
-        param_vec_size = sum(p.numel() for p in RNN(arch).parameters())
+        param_vec_size = sum(p.numel() for p in Model(arch).parameters())
 
         # Evolution + Simulation parameters
         self.population_size = population_size
@@ -45,8 +43,8 @@ class EvolAlgo():
         # Generate initial RNN parameters
         self.NN_param_vectors = self.es.ask()
         
-        # Initialize RNN instances for 0th generation
-        self.NNs = [RNN(arch, activ, pv) for pv in self.NN_param_vectors]
+        # # Initialize RNN instances for 0th generation
+        # self.NNs = [Model(arch, activ, pv) for pv in self.NN_param_vectors]
 
         # Saving parameters
         self.fitness_evol = []
@@ -85,15 +83,15 @@ class EvolAlgo():
 
             # load inputs for each simulation instance
             sim_inputs_per_gen = []
-            for n, NN in enumerate(self.NNs):
+            for n, pv in enumerate(self.NN_param_vectors):
                 for e in range(self.episodes):
                     save_ext = fr'{self.EA_save_name}/running/NN{n}/ep{e}'
-                    sim_inputs_per_gen.append( (NN, save_ext, seeds_per_gen[e]) )
+                    sim_inputs_per_gen.append( (self.arch, pv, save_ext, seeds_per_gen[e]) )
 
             sim_time = time.time()
 
             # using process pool executor/manager
-            with multiprocessing.Pool() as pool:
+            with multiprocessing.Pool(processes=8) as pool:
 
                 # issue all tasks to pool at once (non-blocking + ordered)
                 results = pool.starmap_async( start_sim, sim_inputs_per_gen)
@@ -206,7 +204,7 @@ class EvolAlgo():
             
             # Generate new RNN parameters + instances for next generation
             self.NN_param_vectors = self.es.ask()
-            self.NNs = [RNN(self.arch, self.activ, pv) for pv in self.NN_param_vectors]
+            # self.NNs = [Model(self.arch, self.activ, pv) for pv in self.NN_param_vectors]
 
             # print time taken for performance evaluation
             end_time = time.time() - start_time
