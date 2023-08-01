@@ -16,7 +16,7 @@ class Agent(pygame.sprite.Sprite):
     """
 
     def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
-                 vis_field_res, FOV, vision_range, visual_exclusion, contact_field_res, consumption, 
+                 FOV, vision_range, visual_exclusion, consumption, 
                  arch, model, RNN_type, NN_activ, boundary_info, radius, color):
         """
         Initalization method of main agent class of the simulations
@@ -56,6 +56,29 @@ class Agent(pygame.sprite.Sprite):
         self.mode = "explore"  # explore / exploit / collide
         self.max_vel = max_vel
         self.collision_slowdown = collision_slowdown
+
+        # Neural network initialization / parameters
+        (   CNN_input_size, 
+            CNN_depths, 
+            CNN_dims,               # last is num vis features fed to RNN
+            RNN_nonvis_input_size, 
+            RNN_hidden_size, 
+            LCL_output_size,        # dvel + dthetay
+        ) = arch
+
+        self.num_class_elements, vis_field_res = CNN_input_size
+        contact_field_res, self.other_size = RNN_nonvis_input_size
+
+        # use given NNs to control agent or initialize new NNs
+        if model: 
+            self.model = model
+        else: 
+            from abm.NN.model import WorldModel
+            self.model = WorldModel(arch=arch, activ=NN_activ, RNN_type='fnn')
+
+            print(f'Model Architecture: {arch}')
+            param_vec_size = sum(p.numel() for p in self.model.parameters())
+            print(f'Total #Params: {param_vec_size}')
         
         # Visual field parameters
         self.vis_field_res = vis_field_res
@@ -76,25 +99,6 @@ class Agent(pygame.sprite.Sprite):
         self.collected_r = 0  # resource units collected by agent 
         self.on_resrc = 0 # binary : whether agent is currently on top of a resource patch or not
         self.consumption = consumption
-
-        # Neural network initialization / parameters
-        (   CNN_input_size, 
-            CNN_depths, 
-            CNN_dims,               # last is num vis features fed to RNN
-            RNN_other_input_size, 
-            RNN_hidden_size, 
-            LCL_output_size,        # dvel + dthetay
-        ) = arch
-
-        self.num_class_elements, vis_field_res = CNN_input_size
-        self.contact_size, self.other_size = RNN_other_input_size
-
-        # use given NNs to control agent or initialize new NNs
-        if model: 
-            self.model = model
-        else: 
-            from abm.NN.model import WorldModel
-            self.model = WorldModel(arch=arch, activ=NN_activ, RNN_type='fnn')
 
         # init placeholders for hidden activity + action for each sim timestep
         self.hidden = None
@@ -617,8 +621,8 @@ class Agent(pygame.sprite.Sprite):
     def encode_one_hot(self, field):
         """
         one hot encode the visual field according to class indices:
-            single-agent: (wall_north, wall_south, wall_east, wall_west)
-            multi-agent: (wall_north, wall_south, wall_east, wall_west, agent_expl, agent_nonexpl)
+            single-agent: (wall_east, wall_north, wall_west, wall_south)
+            multi-agent: (wall_east, wall_north, wall_west, wall_south, agent_expl, agent_nonexpl)
         """
         field_onehot = np.zeros((self.num_class_elements, len(field)))
 
@@ -638,21 +642,18 @@ class Agent(pygame.sprite.Sprite):
         # transform visual data to onehot encoding --> matrix passed directly to CNN
         vis_input = self.encode_one_hot(self.vis_field)
 
-        # transform contact data to onehot 
-        contact_field_onehot = self.encode_one_hot(self.contact_field)
-
         # store contact with food/proprio data as 1D array
-        other_input = np.zeros(self.contact_size + self.other_size)
-        other_input[:self.contact_size] = contact_field_onehot.flatten()
+        other_input = np.zeros(self.contact_field_res + self.other_size)
+        other_input[:self.contact_field_res] = self.contact_field
 
         if self.other_size == 0:
             pass
-        elif self.other_size == 1: # food presence
-            other_input[self.contact_size:] = np.array([ self.on_resrc ])
-        elif self.other_size == 2: # food presence + last action
-            other_input[self.contact_size:] = np.array([ self.on_resrc, self.action ]) 
-        elif self.other_size == 3: # food presence + last action + last movement
-            other_input[self.contact_size:] = np.array([ self.on_resrc, self.action, self.velocity / self.max_vel ]) 
+        elif self.other_size == 1: 
+            other_input[self.contact_field_res:] = np.array([ self.action ]) # last action
+        elif self.other_size == 2: 
+            other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel ]) # last action + last movement
+        elif self.other_size == 3: 
+            other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel, self.on_resrc ]) # last action + last movement + food presence
         else: raise Exception('NN_input_other_size not valid')
 
         return vis_input, other_input

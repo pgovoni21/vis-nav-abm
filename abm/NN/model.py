@@ -114,8 +114,8 @@ if __name__ == '__main__':
 
     CNN_input_size = (4,8) # number elements, visual resolution
     CNN_depths = [1]
-    CNN_dims = [8]
-    RNN_other_input_size = (16,3) # contact size, other size
+    CNN_dims = [4]
+    RNN_other_input_size = (4,3) # contact size, other size
     RNN_hidden_size = 8
     LCL_output_size = 1
     RNN_type = 'fnn'

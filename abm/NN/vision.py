@@ -140,9 +140,9 @@ if __name__ == '__main__':
     # print('')
 
     model = ConvNeXt(
-        in_dims=6,
-        depths=[2,], 
-        dims=[4,],
+        in_dims=4,
+        depths=[1,], 
+        dims=[8,],
         activ='relu'
         )
     
@@ -157,3 +157,5 @@ if __name__ == '__main__':
             params = sum(p.numel() for p in m.parameters())
             print(params)
     
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f'Total #Params: {total_params}')

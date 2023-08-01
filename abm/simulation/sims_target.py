@@ -138,15 +138,11 @@ class Simulation:
 
         if N == 1:  self.num_class_elements = 4 # single-agent --> perception of 4 walls
         else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
-
-        self.vis_size = vis_field_res * self.num_class_elements
-        self.contact_size = contact_field_res * self.num_class_elements
-        self.other_size = RNN_input_other_size # on_resrc + (velocity + orientation)
         
         CNN_input_size = (self.num_class_elements, vis_field_res)
         CNN_depths = CNN_depths
         CNN_dims = CNN_dims # last is num vis features fed to RNN
-        RNN_other_input_size = (self.contact_size, self.other_size)
+        RNN_nonvis_input_size = (contact_field_res, RNN_input_other_size) # other: on_resrc + (velocity + orientation)
         RNN_hidden_size = RNN_hidden_size
         LCL_output_size = LCL_output_size # dvel + dtheta
 
@@ -154,7 +150,7 @@ class Simulation:
             CNN_input_size, 
             CNN_depths, 
             CNN_dims, 
-            RNN_other_input_size, 
+            RNN_nonvis_input_size, 
             RNN_hidden_size, 
             LCL_output_size
             )
@@ -316,11 +312,9 @@ class Simulation:
                         orientation=orient,
                         max_vel=self.max_vel,
                         collision_slowdown=self.collision_slowdown,
-                        vis_field_res=self.vis_field_res,
                         FOV=self.agent_fov,
                         vision_range=self.vision_range,
                         visual_exclusion=self.visual_exclusion,
-                        contact_field_res=self.contact_field_res,
                         consumption=self.agent_consumption,
                         arch=self.architecture,
                         model=self.model,

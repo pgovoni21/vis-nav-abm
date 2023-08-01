@@ -10,25 +10,23 @@ def start_EA(): # "EA-start" in terminal
     env_path = Path(__file__).parent.parent / ".env"
     envconf = dotenv_values(env_path)
 
-    # calculate NN input size (visual/contact perception + other)
-    N                   =int(envconf["N"])
-    vis_field_res       =int(envconf["VISUAL_FIELD_RESOLUTION"])
-    contact_field_res   =int(envconf["CONTACT_FIELD_RESOLUTION"])
-    
+    # gather NN variables
+    N                    = int(envconf["N"])
+
     if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
     else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
-
-    vis_input_num = vis_field_res * num_class_elements
-    contact_input_num = contact_field_res * num_class_elements
-    other_input_num = int(envconf["RNN_INPUT_OTHER_SIZE"]) # velocity + orientation + on_resrc
+    
+    vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
+    contact_field_res    = int(envconf["CONTACT_FIELD_RESOLUTION"])
+    other_input_size     = int(envconf["RNN_INPUT_OTHER_SIZE"]) # last action + last velocity + on_resrc
     
     # assemble NN architecture
-    CNN_input_size = (num_class_elements, vis_input_num)
-    CNN_depths = [1,]
-    CNN_dims = [4,]
-    RNN_other_input_size = (contact_input_num, other_input_num)
-    RNN_hidden_size = int(envconf["RNN_HIDDEN_SIZE"])
-    LCL_output_size = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
+    CNN_input_size       = (num_class_elements, vis_field_res)
+    CNN_depths           = list(map(int,envconf["CNN_DEPTHS"].split(',')))
+    CNN_dims             = list(map(int,envconf["CNN_DIMS"].split(',')))
+    RNN_other_input_size = (contact_field_res, other_input_size)
+    RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
+    LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
 
     architecture = (
         CNN_input_size, 

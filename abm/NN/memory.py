@@ -92,7 +92,7 @@ class LSTM(nn.Module):
 if __name__ == '__main__':
 
     model = FNN(
-        arch=(8,8),
+        arch=(15,8),
     )
 
     for m in model.modules():
@@ -102,3 +102,5 @@ if __name__ == '__main__':
             params = sum(p.numel() for p in m.parameters())
             print(params)
     
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f'Total #Params: {total_params}')
