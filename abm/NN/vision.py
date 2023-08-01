@@ -89,8 +89,12 @@ class ConvNeXt(nn.Module):
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
-            # print(layer, layer.parameters)
-            # print(f'-----> {x}')
+
+            # print(layer)
+            # print(f'Shape: {x.shape}')
+            # print(f'#Params: {sum(p.numel() for p in layer.parameters())}')
+            # print('')
+
         x = self.norm(x.mean([-1]))   # global average pooling, (N, C, H, W) -> (N, C)
         return x
 
@@ -131,31 +135,25 @@ class GRN(nn.Module):
 
 if __name__ == '__main__':
 
-    # image = torch.rand(1, 2, 3)
+    # image = torch.rand(1, 6, 8)
     # print(f'Image: {image.shape}')
+    # print('')
 
     model = ConvNeXt(
-        in_dims=2,
-        depths=[1,], 
+        in_dims=6,
+        depths=[2,], 
         dims=[4,],
-        activ='silu',
+        activ='relu'
         )
+    
     # print(f'Model: {model(image).shape}') # torch.Size([1, {outputs}])
+    # print(f'Total #Params: {sum(p.numel() for p in model.parameters())}')
+    # print('')
 
-    # model(image)
-    print(sum(p.numel() for p in model.parameters()))
-
-    # for m in model.modules():
-    #     if isinstance(m, (nn.Linear, nn.Conv1d, nn.LayerNorm, LayerNorm, GRN)):
+    for m in model.modules():
+        if isinstance(m, (nn.Linear, nn.Conv1d, nn.LayerNorm, LayerNorm, GRN)):
             
-    #         print(m)
-    #         params = sum(p.numel() for p in m.parameters())
-    #         print(params)
-
-    #         for p in m.parameters():
-    #             print(p,p.shape)
-            
-    #             p.data = torch.zeros_like(p)
-
-    #         print()
+            print(m)
+            params = sum(p.numel() for p in m.parameters())
+            print(params)
     

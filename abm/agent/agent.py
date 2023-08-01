@@ -6,8 +6,6 @@ agent.py : including the main classes to create an agent. Supplementary calculat
 from abm.contrib import colors
 from abm.agent import supcalc
 
-from abm.NN.model import WorldModel
-
 import pygame
 import numpy as np
 
@@ -19,7 +17,7 @@ class Agent(pygame.sprite.Sprite):
 
     def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
                  vis_field_res, FOV, vision_range, visual_exclusion, contact_field_res, consumption, 
-                 arch, model, NN_activ, boundary_info, radius, color):
+                 arch, model, RNN_type, NN_activ, boundary_info, radius, color):
         """
         Initalization method of main agent class of the simulations
 
@@ -95,7 +93,8 @@ class Agent(pygame.sprite.Sprite):
         if model: 
             self.model = model
         else: 
-            self.model = WorldModel(arch=arch, activ=NN_activ,)
+            from abm.NN.model import WorldModel
+            self.model = WorldModel(arch=arch, activ=NN_activ, RNN_type='fnn')
 
         # init placeholders for hidden activity + action for each sim timestep
         self.hidden = None
@@ -453,98 +452,98 @@ class Agent(pygame.sprite.Sprite):
         while self.orientation > np.pi * 2:
             self.orientation = self.orientation - 2 * np.pi
 
-    def wall_collision_reflection(self):
-        """
-        Implements simple reflection conditions on environmental boundaries according to orientation
-        """
-        # Agents set as non-colliding until proven otherwise
-        self.mode = "explore"
-        collision = False
+    # def wall_collision_reflection(self):
+    #     """
+    #     Implements simple reflection conditions on environmental boundaries according to orientation
+    #     """
+    #     # Agents set as non-colliding until proven otherwise
+    #     self.mode = "explore"
+    #     collision = False
 
-        for angle in self.blocked_angles:
+    #     for angle in self.blocked_angles:
 
-            if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
-                self.orientation = -self.orientation
-                self.bind_orientation()
-                collision = True
+    #         if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
+    #             self.orientation = -self.orientation
+    #             self.bind_orientation()
+    #             collision = True
 
-            if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
-                self.orientation = -self.orientation
-                self.bind_orientation()
-                collision = True
+    #         if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
+    #             self.orientation = -self.orientation
+    #             self.bind_orientation()
+    #             collision = True
 
-            if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
-                self.orientation = np.pi - self.orientation
-                self.bind_orientation()
-                collision = True
+    #         if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
+    #             self.orientation = np.pi - self.orientation
+    #             self.bind_orientation()
+    #             collision = True
 
-            if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
-                self.orientation = np.pi - self.orientation
-                self.bind_orientation()
-                collision = True
+    #         if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
+    #             self.orientation = np.pi - self.orientation
+    #             self.bind_orientation()
+    #             collision = True
 
-        if collision is True:
-            # Collision absorbs the speed by specified ratio + changes agent mode
-            self.velocity = self.velocity * self.collision_slowdown
-            self.mode = "collide"
+    #     if collision is True:
+    #         # Collision absorbs the speed by specified ratio + changes agent mode
+    #         self.velocity = self.velocity * self.collision_slowdown
+    #         self.mode = "collide"
 
-    def wall_collision_absorption(self):
-        """
-        Implements simple absorption conditions on environmental boundaries according to orientation
-        - x/y component of velocity is reduced to zero upon impact with a vertical/horizontal wall, respectively
-        - orientation is unchanged
-        - moving_dir used to calculate position at next time step without changing agent orientation
-        - mode is set to 'collide'
-        """
-        # Set agent as non-colliding (exploring at max velocity) until proven otherwise
-        self.velocity = self.max_vel
-        moving_dir = None
-        self.mode = "explore"
+    # def wall_collision_absorption(self):
+    #     """
+    #     Implements simple absorption conditions on environmental boundaries according to orientation
+    #     - x/y component of velocity is reduced to zero upon impact with a vertical/horizontal wall, respectively
+    #     - orientation is unchanged
+    #     - moving_dir used to calculate position at next time step without changing agent orientation
+    #     - mode is set to 'collide'
+    #     """
+    #     # Set agent as non-colliding (exploring at max velocity) until proven otherwise
+    #     self.velocity = self.max_vel
+    #     moving_dir = None
+    #     self.mode = "explore"
 
-        for angle in self.blocked_angles:
+    #     for angle in self.blocked_angles:
 
-            if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
-                self.velocity -= np.abs( np.sin(self.orientation) ) * self.velocity # v_y = 0
-                if self.orientation < np.pi/2:
-                    moving_dir = 0
-                else:
-                    moving_dir = np.pi
-                self.mode = "collide"
+    #         if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
+    #             self.velocity -= np.abs( np.sin(self.orientation) ) * self.velocity # v_y = 0
+    #             if self.orientation < np.pi/2:
+    #                 moving_dir = 0
+    #             else:
+    #                 moving_dir = np.pi
+    #             self.mode = "collide"
 
-            if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
-                self.velocity -= np.abs( np.sin(self.orientation) ) * self.velocity # v_y = 0
-                if self.orientation > 3*np.pi/2:
-                    moving_dir = 0
-                else:
-                    moving_dir = np.pi
-                self.mode = "collide"
+    #         if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
+    #             self.velocity -= np.abs( np.sin(self.orientation) ) * self.velocity # v_y = 0
+    #             if self.orientation > 3*np.pi/2:
+    #                 moving_dir = 0
+    #             else:
+    #                 moving_dir = np.pi
+    #             self.mode = "collide"
 
-            if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
+    #         if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
 
-                if moving_dir: # agent is next to top or bottom wall
-                    self.velocity = 0
-                else:
-                    self.velocity -= np.abs( np.cos(self.orientation) ) * self.velocity # v_x = 0
-                    if self.orientation < np.pi:
-                        moving_dir = np.pi/2
-                    else:
-                        moving_dir = 3*np.pi/2
-                    self.mode = "collide"
+    #             if moving_dir: # agent is next to top or bottom wall
+    #                 self.velocity = 0
+    #             else:
+    #                 self.velocity -= np.abs( np.cos(self.orientation) ) * self.velocity # v_x = 0
+    #                 if self.orientation < np.pi:
+    #                     moving_dir = np.pi/2
+    #                 else:
+    #                     moving_dir = 3*np.pi/2
+    #                 self.mode = "collide"
 
-            if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
+    #         if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
                 
-                if moving_dir: # agent is next to top or bottom wall
-                    self.velocity = 0
-                else:
-                    self.velocity -= np.abs( np.cos(self.orientation) ) * self.velocity # v_x = 0
-                    if self.orientation < np.pi/2:
-                        moving_dir = np.pi/2
-                    else:
-                        moving_dir = np.pi
-                    self.mode = "collide"
+    #             if moving_dir: # agent is next to top or bottom wall
+    #                 self.velocity = 0
+    #             else:
+    #                 self.velocity -= np.abs( np.cos(self.orientation) ) * self.velocity # v_x = 0
+    #                 if self.orientation < np.pi/2:
+    #                     moving_dir = np.pi/2
+    #                 else:
+    #                     moving_dir = np.pi
+    #                 self.mode = "collide"
         
-        print(self.velocity, moving_dir)
-        return moving_dir
+    #     print(self.velocity, moving_dir)
+    #     return moving_dir
 
     def wall_collision_sticky(self):
         """
@@ -642,24 +641,19 @@ class Agent(pygame.sprite.Sprite):
         # transform contact data to onehot 
         contact_field_onehot = self.encode_one_hot(self.contact_field)
 
-        # store contact with proprio data as 1D array
+        # store contact with food/proprio data as 1D array
         other_input = np.zeros(self.contact_size + self.other_size)
         other_input[:self.contact_size] = contact_field_onehot.flatten()
 
-        # scale velocity + orientation to [0 : 1] boolean interval similar to visual/contact fields
-        vel_scaled = self.velocity / self.max_vel # last movement
-        # orient_scaled = self.orientation / (2*np.pi)
-        last_action = self.action
-
-        # store higher level data in the remaining input locations
-        # other_input[self.contact_size:] = np.array([ self.on_resrc, vel_scaled ])
-        # NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
-        other_input[self.contact_size:] = np.array([ self.on_resrc, vel_scaled, last_action ])
-        # if self.other_size == 3:
-        #     NN_input[-self.other_size :] = np.array([ self.on_resrc, vel_scaled, orient_scaled ])
-        # elif self.other_size == 2:
-        #     NN_input[-self.other_size :] = np.array([ vel_scaled, orient_scaled ])
-        # else: raise Exception('NN_input_other_size not valid')
+        if self.other_size == 0:
+            pass
+        elif self.other_size == 1: # food presence
+            other_input[self.contact_size:] = np.array([ self.on_resrc ])
+        elif self.other_size == 2: # food presence + last action
+            other_input[self.contact_size:] = np.array([ self.on_resrc, self.action ]) 
+        elif self.other_size == 3: # food presence + last action + last movement
+            other_input[self.contact_size:] = np.array([ self.on_resrc, self.action, self.velocity / self.max_vel ]) 
+        else: raise Exception('NN_input_other_size not valid')
 
         return vis_input, other_input
 

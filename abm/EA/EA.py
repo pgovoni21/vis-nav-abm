@@ -13,18 +13,21 @@ import zarr
 
 class EvolAlgo():
     
-    def __init__(self, arch=(50,128,2), activ='relu',
+    def __init__(self, arch=(50,128,2), activ='relu', RNN_type='fnn',
                  population_size=96, init_sigma=1, generations=500, episodes=5,
                  num_top_nn_saved=3, num_top_nn_plots=5, EA_save_name=None, start_seed=1000):
         
         # init_time = time.time()
+        self.overall_time = time.time()
 
-        # RNN parameters 
-        self.arch = arch
-        self.activ = activ
+        # Pack model parameters 
+        self.model_tuple = (arch, activ, RNN_type)
 
         # Calculate parameter vector size using an example NN (easy generalizable)
-        param_vec_size = sum(p.numel() for p in Model(arch).parameters())
+        param_vec_size = sum(p.numel() for p in Model(arch,activ,RNN_type).parameters())
+
+        print(f'Model Architecture: {arch}')
+        print(f'Total #Params: {param_vec_size}')
 
         # Evolution + Simulation parameters
         self.population_size = population_size
@@ -51,9 +54,14 @@ class EvolAlgo():
         self.num_top_nn_saved = num_top_nn_saved
         self.num_top_nn_plots = num_top_nn_plots
         self.EA_save_name = EA_save_name
-        self.root_dir = Path(__file__).parent.parent.parent
-        self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)
+        self.root_dir = Path(__file__).parent.parent.parent                                  # /home/govoni/gh-repos/DavidMezey-PyGame-ABM
+        self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)     # /home/govoni/gh-repos/DavidMezey-PyGame-ABM/abm/data/simulation_data/stationarypatch_CMAES
         
+        self.mean_param_vec = np.zeros([generations, param_vec_size])
+        self.std_param_vec = np.zeros([generations, param_vec_size])
+        self.mean_param_vec[0,:] = self.es.mean
+        self.std_param_vec[0,:] = self.es.stds
+
         # Create save directory + copy .env file over
         if os.path.isdir(self.EA_save_dir):
             warnings.warn("Temporary directory for env files is not empty and will be overwritten")
@@ -64,8 +72,8 @@ class EvolAlgo():
             Path(self.EA_save_dir, '.env')
             )
         
-        # end_time = time.time() - init_time
-        # print(f'Init Time: {round( end_time, 2)} sec')
+        # end_init_time = time.time() - init_time
+        # print(f'Init Time: {round( end_init_time, 2)} sec')
 
 
     def fit_parallel(self):
@@ -86,7 +94,7 @@ class EvolAlgo():
             for n, pv in enumerate(self.NN_param_vectors):
                 for e in range(self.episodes):
                     save_ext = fr'{self.EA_save_name}/running/NN{n}/ep{e}'
-                    sim_inputs_per_gen.append( (self.arch, pv, save_ext, seeds_per_gen[e]) )
+                    sim_inputs_per_gen.append( (self.model_tuple, pv, save_ext, seeds_per_gen[e]) )
 
             sim_time = time.time()
 
@@ -100,8 +108,8 @@ class EvolAlgo():
                 pool.close()
                 pool.join()
 
-            end_time = time.time() - sim_time
-            print(f'Generational Sim Run Time: {round( end_time, 2)} sec')
+            end_sim_time = time.time() - sim_time
+            print(f'Generational Sim Run Time: {round( end_sim_time, 2)} sec')
 
             # convert results iterator to list
             results_list = results.get()
@@ -115,7 +123,7 @@ class EvolAlgo():
 
 
             # set non-sim timer
-            start_time = time.time()
+            eval_time = time.time()
 
             # skip to start of each episode series/chunk
             fitness_gen = []
@@ -129,16 +137,14 @@ class EvolAlgo():
                 avg_fitness = np.mean(fitness_ep)
                 fitness_gen.append(avg_fitness)
 
-            # invert fitnesses + find highest
-            fitness_gen = [-i for i in fitness_gen]
-
             # # list all averaged fitnesses
             # print(f'Fitnesses: {fitness_gen}')
             
             # Track top fitness per generation
-            max_fg = int(np.max(fitness_gen))
-            avg_fg = round(np.mean(fitness_gen),2)
-            print(f'Highest Across Gen: {max_fg} | Avg Across Gen: {avg_fg} ---')
+            # top_fg = int(np.max(fitness_gen)) # max : first
+            top_fg = int(np.min(fitness_gen)) # min : first
+            avg_fg = int(np.mean(fitness_gen))
+            print(f'Highest Across Gen: {top_fg} | Avg Across Gen: {avg_fg} ---')
             
             # print('Running Dir Contents:')
             # run_dir = Path(self.EA_save_dir, 'running')
@@ -151,9 +157,10 @@ class EvolAlgo():
 
 
             # cycle through the top X performers
-            top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_nn_saved : -1] # best in gen : first (n_top = 1)
+            # top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_nn_saved : -1] # max : first
+            top_indices = np.argsort(fitness_gen)[ : self.num_top_nn_saved] # min : first
 
-            top_fitnesses = [int(fitness_gen[n_gen]) for n_gen in top_indices]
+            # top_fitnesses = [int(fitness_gen[n_gen]) for n_gen in top_indices]
             # print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
 
             for n_top, n_gen in enumerate(top_indices):
@@ -199,20 +206,34 @@ class EvolAlgo():
 
             #### ---- Update optimizer + RNN instances ---- ####
 
-            # Pass parameters + resulting fitness list to optimizer class
+            # Pass parameters + resulting fitness list to *minimizing* optimizer class
             self.es.tell(self.NN_param_vectors, fitness_gen)
+
+            # Save param_vec distribution
+            self.mean_param_vec[i,:] = self.es.mean
+            self.std_param_vec[i,:] = self.es.stds
             
             # Generate new RNN parameters + instances for next generation
             self.NN_param_vectors = self.es.ask()
             # self.NNs = [Model(self.arch, self.activ, pv) for pv in self.NN_param_vectors]
 
-            # print time taken for performance evaluation
-            end_time = time.time() - start_time
-            print(f'Performance Evaluation Time: {round( end_time, 2)} sec')
+            end_eval_time = time.time() - eval_time
+            print(f'Performance Evaluation Time: {round( end_eval_time, 2)} sec')
             
 
         #### ---- Post-evolution tasks ---- ####
 
+        end_overall_time = round(time.time() - self.overall_time, 2)
+        print(f'Overall EA run time: {end_overall_time} sec')
+
+        # save run data
+        run_data = (
+            self.mean_param_vec,
+            self.std_param_vec,
+            end_overall_time
+        )
+        with open(fr'{self.EA_save_dir}/run_data.bin', 'wb') as f:
+            pickle.dump(run_data, f)
 
         # delete running folder
         shutil.rmtree(Path(self.EA_save_dir, 'running'))

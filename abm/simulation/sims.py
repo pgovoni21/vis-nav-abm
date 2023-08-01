@@ -14,13 +14,16 @@ from abm.monitoring import tracking, plot_funcs
 
 class Simulation:
     def __init__(self, width=600, height=480, window_pad=30, 
-                 N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, plot_trajectory=False, 
-                 log_zarr_file=False, save_ext="",
-                 agent_radius=10, max_vel=5, collision_slowdown=0.5, vis_field_res=8, contact_field_res=4, collide_agents=True, 
-                 vision_range=150, agent_fov=1.0, visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
+                 N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, 
+                 plot_trajectory=False, log_zarr_file=False, save_ext="",
+                 agent_radius=10, max_vel=5, collision_slowdown=0.5, 
+                 vis_field_res=8, contact_field_res=4, collide_agents=True, 
+                 vision_range=150, agent_fov=1.0, visual_exclusion=False, 
+                 show_vision_range=False, agent_consumption=1, 
                  N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
                  min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
-                 NN=None, NN_input_other_size=3, NN_hidden_size=128, NN_output_size=1, NN_activ='relu',
+                 NN=None, RNN_input_other_size=3, CNN_depths=[1,], CNN_dims=[4,], 
+                 RNN_hidden_size=128, LCL_output_size=1, NN_activ='relu',
                  ):
         """
         Initializing the main simulation instance
@@ -131,26 +134,37 @@ class Simulation:
         self.check_resrc_gen = False
 
         # Neural Network parameters
-        self.NN = NN
+        self.model = NN
 
-        if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
-        else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+        if N == 1:  self.num_class_elements = 4 # single-agent --> perception of 4 walls
+        else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
 
-        self.vis_size = vis_field_res * num_class_elements
-        self.contact_size = contact_field_res * num_class_elements
-        self.other_size = NN_input_other_size # on_resrc + velocity + orientation
+        self.vis_size = vis_field_res * self.num_class_elements
+        self.contact_size = contact_field_res * self.num_class_elements
+        self.other_size = RNN_input_other_size # on_resrc + (velocity + orientation)
         
-        self.NN_input_size = self.vis_size + self.contact_size + self.other_size
-        self.NN_hidden_size = NN_hidden_size
-        self.NN_output_size = NN_output_size # dvel + dtheta
+        CNN_input_size = (self.num_class_elements, vis_field_res)
+        CNN_depths = CNN_depths
+        CNN_dims = CNN_dims # last is num vis features fed to RNN
+        RNN_other_input_size = (self.contact_size, self.other_size)
+        RNN_hidden_size = RNN_hidden_size
+        LCL_output_size = LCL_output_size # dvel + dtheta
 
+        self.architecture = (
+            CNN_input_size, 
+            CNN_depths, 
+            CNN_dims, 
+            RNN_other_input_size, 
+            RNN_hidden_size, 
+            LCL_output_size
+            )
         self.NN_activ = NN_activ
         
-        if print_enabled: 
-            print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
-            print(f" + {self.other_size} (velocity + orientation) = {self.NN_input_size}")
-            print(f"Agent NN architecture = {(self.NN_input_size, NN_hidden_size, self.NN_output_size)}")
-            print(f"NN_activ: {NN_activ}")
+        # if print_enabled: 
+        #     print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
+        #     print(f" + {self.other_size} (velocity + orientation) = {self.NN_input_size}")
+        #     print(f"Agent NN architecture = {(self.NN_input_size, NN_hidden_size, self.NN_output_size)}")
+        #     print(f"NN_activ: {NN_activ}")
 
         # Initializing pygame
         if self.with_visualization:
@@ -282,34 +296,43 @@ class Simulation:
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
         for i in range(self.N):
-            x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
-            y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
-            orient = np.random.uniform(0, 2 * np.pi)
-            self.agents.add(
-                Agent(
-                    id=i,
-                    position=(x, y),
-                    orientation=orient,
-                    max_vel=self.max_vel,
-                    collision_slowdown=self.collision_slowdown,
-                    vis_field_res=self.vis_field_res,
-                    FOV=self.agent_fov,
-                    vision_range=self.vision_range,
-                    visual_exclusion=self.visual_exclusion,
-                    contact_field_res=self.contact_field_res,
-                    consumption=self.agent_consumption,
-                    vis_size=self.vis_size,
-                    contact_size=self.contact_size,
-                    NN_input_size=self.NN_input_size,
-                    NN_hidden_size=self.NN_hidden_size,
-                    NN_output_size=self.NN_output_size,
-                    NN=self.NN,
-                    NN_activ = self.NN_activ,
-                    boundary_info=self.boundary_info,
-                    radius=self.agent_radii,
-                    color=colors.BLUE,
-                )
-            )
+
+            colliding_resources = [0]
+
+            retries = 0
+            while len(colliding_resources) > 0:
+
+                x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
+                y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
+                orient = np.random.uniform(0, 2 * np.pi)
+
+                agent = Agent(
+                        id=i,
+                        position=(x, y),
+                        orientation=orient,
+                        max_vel=self.max_vel,
+                        collision_slowdown=self.collision_slowdown,
+                        vis_field_res=self.vis_field_res,
+                        FOV=self.agent_fov,
+                        vision_range=self.vision_range,
+                        visual_exclusion=self.visual_exclusion,
+                        contact_field_res=self.contact_field_res,
+                        consumption=self.agent_consumption,
+                        arch=self.architecture,
+                        model=self.model,
+                        NN_activ = self.NN_activ,
+                        boundary_info=self.boundary_info,
+                        radius=self.agent_radii,
+                        color=colors.BLUE,
+                    )
+                
+                colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+                retries += 1
+
+                if retries > 10:
+                    print(f'Retries > 10')
+
+            self.agents.add(agent)
 
     def save_data_agent(self):
         """Tracks key variables (position, mode, resources collected) via array for current timestep"""
@@ -520,8 +543,8 @@ class Simulation:
         ### ---- INITIALIZATION ---- ###
 
         start_time = time.time()
-        self.create_agents()
         self.create_resources()
+        self.create_agents()
 
         # obs_times = np.zeros(self.T)
         # mod_times = np.zeros(self.T)
@@ -542,6 +565,7 @@ class Simulation:
                     # Update agent parameters
                     agent.on_resrc = 0
                     agent.rect.x, agent.rect.y = agent.position
+
                     if self.with_visualization:
                         agent.draw_update() 
 

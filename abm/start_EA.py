@@ -4,16 +4,11 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 
-# calls env dict from root folder
-env_path = Path(__file__).parent.parent / ".env"
-envconf = dotenv_values(env_path)
-
-
 def start_EA(): # "EA-start" in terminal
 
-    # ensure sims will run without sim/plot windows
-    envconf["WITH_VISUALIZATION"] = 0
-    envconf["PLOT_TRAJECTORY"] = 0
+    # calls env dict from root folder
+    env_path = Path(__file__).parent.parent / ".env"
+    envconf = dotenv_values(env_path)
 
     # calculate NN input size (visual/contact perception + other)
     N                   =int(envconf["N"])
@@ -46,6 +41,7 @@ def start_EA(): # "EA-start" in terminal
 
     EA = EvolAlgo(arch                      =architecture, 
                   activ                     =str(envconf["NN_ACTIVATION_FUNCTION"]),
+                  RNN_type                  =str(envconf["RNN_TYPE"]),
                   population_size           =int(envconf["EA_POPULATION_SIZE"]), 
                   init_sigma                =float(envconf["EA_INIT_SIGMA"]),
                   generations               =int(envconf["EA_GENERATIONS"]), 
@@ -59,9 +55,4 @@ def start_EA(): # "EA-start" in terminal
 
 
 if __name__ == '__main__':
-
-    # calls env dict from root folder
-    env_path = Path(__file__).parent / ".env"
-    envconf = dotenv_values(env_path)
-
     start_EA()

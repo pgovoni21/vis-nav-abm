@@ -3,33 +3,29 @@ from abm.simulation.sims_target import Simulation
 
 from contextlib import ExitStack
 from pathlib import Path
-from dotenv import dotenv_values
+import dotenv as de
 import os
 import numpy as np
 
 from abm.NN.model import WorldModel as Model
 
-# calls env dict from root folder
-env_path = Path(__file__).parent.parent / ".env"
-envconf = dotenv_values(env_path)
 
-
-def start(arch=None, pv=None, save_ext=None, seed=None): # "abm-start" in terminal
+def start(model_tuple=None, pv=None, save_ext=None, seed=None): # "abm-start" in terminal
 
     # calls env dict from root folder
     env_path = Path(__file__).parent.parent / ".env"
-    envconf = dotenv_values(env_path)
+    envconf = de.dotenv_values(env_path)
 
     # print(f'Running {save_ext}')
+
+    NN = None
+    if pv is not None:
+        arch, activ, RNN_type = model_tuple
+        NN = Model(arch, activ, RNN_type, pv)
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
-    
-    # instantiate model object if called from EA
-    NN = None
-    if pv is not None:
-        NN = Model(arch=arch, param_vector=pv)
 
     # Set seed according to EA parent function to circumvent multiprocessing bug
     np.random.seed(seed)
@@ -65,15 +61,44 @@ def start(arch=None, pv=None, save_ext=None, seed=None): # "abm-start" in termin
                          max_resrc_quality      =float(envconf["MAX_RESOURCE_QUALITY"]),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                          NN                     =NN,
-                         CNN_depths             =[1,],
-                         CNN_dims               =[4,], 
+                         CNN_depths             =list(map(int,envconf["CNN_DEPTHS"].split(','))),
+                         CNN_dims               =list(map(int,envconf["CNN_DIMS"].split(','))),
                          RNN_input_other_size   =int(envconf["RNN_INPUT_OTHER_SIZE"]),
                          RNN_hidden_size        =int(envconf["RNN_HIDDEN_SIZE"]),
                          LCL_output_size        =int(envconf["LCL_OUTPUT_SIZE"]),
                          NN_activ               =str(envconf["NN_ACTIVATION_FUNCTION"]),
+                         RNN_type               =str(envconf["RNN_TYPE"]),
                          )
         fitnesses, elapsed_time, crash = sim.start()
 
         # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}, crashed? {crash}')
 
     return save_ext, fitnesses, elapsed_time, crash
+
+
+if __name__ == '__main__':
+
+    # import pickle
+
+    # data_dir = Path(__file__).parent / r'data/simulation_data'
+    # name = r'stationarycorner_CNN12_FNN6_p25e5_sig0p1'
+    # file_dir = Path(data_dir, name)
+
+    # # compute individual PV from final distribution
+    # with open(fr'{file_dir}/run_data.bin','rb') as f:
+    #     mean_pv, std_pv, time = pickle.load(f)
+
+    # final_mean_pv = mean_pv[-1,:]
+    # final_std_pv = std_pv[-1,:]
+
+    # indiv_vec = np.zeros(final_mean_pv.shape)
+    # for n, (m,s) in enumerate(zip(final_mean_pv, final_std_pv)):
+    #     indiv_vec[n] = np.random.normal(m,s)
+
+    # # copy .env values + modify existing
+    # envconf = de.dotenv_values(fr'{file_dir}/.env')
+    # with open(Path(file_dir,'temp'), 'a') as file:
+    #     for k, v in envconf.items():
+    #         file.write(f"{k}={v}\n")
+    
+    start()

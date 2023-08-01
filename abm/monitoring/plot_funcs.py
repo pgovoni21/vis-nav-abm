@@ -1,6 +1,8 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
+import pickle
 
 def plot_map(plot_data, x_max, y_max, w=4, h=4, save_name=None):
 
@@ -152,3 +154,197 @@ def plot_EA_trend_violin(trend_data, save_dir=False):
         plt.savefig(fr'{save_dir}/fitness_spread_violin.png')
     else: 
         plt.show()
+
+    plt.close()
+
+
+
+
+def plot_mult_EA_trends(names):
+
+    # establish load directory
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+
+    # init plot details
+    fig, ax1 = plt.subplots(figsize=(15,10)) 
+    # ax2 = ax1.twinx()
+    cmap = plt.get_cmap('hsv')
+    cmap_range = len(names)
+    lns = []
+    
+    # iterate over each file
+    for i, name in enumerate(names):
+
+        with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+            trend_data = pickle.load(f)
+
+
+        # data_per_gen_tp = np.array(trend_data).transpose()
+        # plt.violinplot(data_per_gen_tp, widths=1, showmeans=True, showextrema=False)
+        # plt.savefig(fr'{data_dir}/{name}/fitness_spread_violin.png')
+        # plt.close()
+
+        run_data_exists = False
+        if Path(fr'{data_dir}/{name}/run_data.bin').is_file():
+            run_data_exists = True
+            with open(fr'{data_dir}/{name}/run_data.bin','rb') as f:
+                mean_pv, std_pv, time = pickle.load(f)
+            print(f'{name}, time taken: {time}')
+
+            # x=plt.imshow(mean_pv.transpose())
+            # x=plt.imshow(std_pv.transpose())
+            # plt.colorbar(x)
+            # plt.violinplot(std_pv.transpose(), widths=1, showmeans=True, showextrema=False)
+            # # plt.violinplot(mean_pv.transpose(), widths=1, showmeans=True, showextrema=False)
+            # plt.xlabel('Generation')
+            # plt.ylabel('Parameter')
+
+            # plt.savefig(fr'{data_dir}/{name}/std_spread_violin.png')
+            # plt.savefig(fr'{data_dir}/{name}/mean_spread_violin.png')
+            # plt.show()
+            # plt.close()
+
+
+        trend_data = np.array(trend_data)
+
+        best_trend_data = np.min(trend_data, axis=1)
+        l1 = ax1.plot(best_trend_data, 
+                        label = f'max {name}',
+                        # label = f'avg {name} | t: {time} sec',
+                        color=cmap(i/cmap_range), 
+                        linestyle='dotted'
+                        )
+        lns.append(l1[0])
+
+        avg_trend_data = np.mean(trend_data, axis=1)
+
+        if run_data_exists:
+            l2 = ax1.plot(avg_trend_data, 
+                            # label = f'avg {name}',
+                            label = f'avg {name} | t: {int(time)} sec',
+                            color=cmap(i/cmap_range), 
+                            # linestyle='dashed'
+                            )
+        else:
+            l2 = ax1.plot(avg_trend_data, 
+                            label = f'avg {name}',
+                            # label = f'avg {name} | t: {int(time)} sec',
+                            color=cmap(i/cmap_range), 
+                            # linestyle='dashed'
+                            )
+        lns.append(l2[0])
+    
+    labs = [l.get_label() for l in lns]
+    ax1.legend(lns, labs, loc='upper right')
+    
+    ax1.set_xlabel('Generation')
+    ax1.set_ylabel('Time to Find Patch')
+
+    # for corner patch search
+    ax1.set_ylim(-20,1020)
+
+    # plt.savefig(fr'{data_dir}/stationarycorner_FNN_width.png')
+    # plt.savefig(fr'{data_dir}/stationarycorner_CNN_width.png')
+    # plt.savefig(fr'{data_dir}/stationarycorner_ep_num.png')
+    # plt.savefig(fr'{data_dir}/stationarycorner_pop_size.png')
+    # plt.savefig(fr'{data_dir}/stationarycorner_init_sig.png')
+    # plt.savefig(fr'{data_dir}/stationarycorner_FNN_width_fast.png')
+    # plt.savefig(fr'{data_dir}/stationarycorner_other_input.png')
+
+    plt.savefig(fr'{data_dir}/stationarypoint.png')
+
+    plt.show()
+
+
+if __name__ == '__main__':
+
+    names = []
+
+    # CNN = 14
+    # FNN = 8
+    # p = 50
+    # e = 10
+    # sig = '0p1'
+
+    # FNN_iter = [
+    #     4,5,6,7,8,16
+    # ]
+    # CNN_iter = [
+    #     12,13,14,18
+    # ]
+    # e_iter = [
+    #     5,10,15
+    # ]
+    # p_iter = [
+    #     25,50,100
+    # ]
+    # sig_iter = [
+    #     '0p1',1,10
+    # ]
+
+    # CNN = 12
+    # p = 25
+    # e = 5
+    # sig = '0p1'
+    # FNN_iter = [
+    #     1,2,4,6
+    # ]
+
+    # for FNN in FNN_iter:
+    # # for CNN in CNN_iter:
+    # # for e in e_iter:
+    # # for p in p_iter:
+    # # for sig in sig_iter:
+    #     name = f'stationarycorner_CNN{str(CNN)}_FNN{str(FNN)}_p{str(p)}e{str(e)}_sig{str(sig)}'
+    #     names.append(name)
+
+    # names.append('stationarycorner_CNN14_FNN8_p25e10_sig0p1')
+    # names.append('stationarycorner_CNN14_FNN8_p50e5_sig0p1')
+    # names.append('stationarycorner_CNN12_FNN8_p50e10_sig0p1')
+    
+    # names.append('stationarycorner_CNN12_FNN1_p25e5_sig0p1')
+    # names.append('stationarycorner_CNN12_FNN1_p25e5_sig0p1_other0')
+
+    # # rnn_hidden_iter = [8,16]
+    # rnn_hidden_iter = [8]
+    # # cnn_dims_iter = [4,8]
+    # cnn_dims_iter = [4]
+    # cnn_depths_iter = [1,2]
+    # # rnn_type_iter = ['fnn','ctrnn','gru']
+    # rnn_type_iter = ['fnn']
+
+    # for l in rnn_type_iter:
+    #     for i in rnn_hidden_iter:
+    #         for j in cnn_dims_iter:
+    #             for k in cnn_depths_iter:
+
+    #                 name = f'stationarypoint_CNN{str(k)}{str(j)}_{l.upper()}{str(i)}_p50e10g500_sig0p1'
+    #                 names.append(name)
+
+    # names.append('stationarypoint_CNN18_FNN8_p50e10g500_sig0p1')
+    # names.append('stationarypoint_CNN18_FNN8_p25e5_sig0p1')
+    # names.append('stationarypoint_CNN18_CTRNN8_p25e5_sig0p1')
+
+    names.append('stationarypoint_CNN14_FNN8_p50e10g500_sig0p1')
+    names.append('stationarypoint_CNN18_FNN8_p50e10g500_sig0p1')
+    names.append('stationarypoint_CNN24_FNN8_p50e10g500_sig0p1')
+
+
+    names.append('stationarypoint_CNN104_FNN8_p50e10g500_sig0p1')
+    names.append('stationarypoint_CNN108_FNN8_p50e10g500_sig0p1')
+    names.append('stationarypoint_CNN108_FNN8_p25e5g500_sig0p1')
+
+
+    
+    # names.append('stationarypoint_CNN18_FNN8_p25e5g500_sig10')
+    names.append('stationarypoint_CNN18_FNN8_p25e5g500_sig0p1_vis16')
+    names.append('stationarypoint_CNN1148_FNN8_p25e5g500_sig0p1')
+    # names.append('stationarypoint_CNN1148_FNN8_p25e5g500_sig10')
+    
+
+
+    # names.append('stationarypoint_CNN18_FNN8_p25e5_sig0p1')
+    # names.append('stationarypoint_CNN18_FNN8_p25e5g500_sig10')
+
+    plot_mult_EA_trends(names)

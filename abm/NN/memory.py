@@ -86,3 +86,19 @@ class LSTM(nn.Module):
         x, (hidden, cell) = self.lstm(input, (hidden, cell))
         return x, hidden, cell
     
+
+# ----------------------------------------------------------------------------------------------
+
+if __name__ == '__main__':
+
+    model = FNN(
+        arch=(8,8),
+    )
+
+    for m in model.modules():
+        if isinstance(m, (nn.Linear, nn.InstanceNorm1d, nn.GRU, nn.LSTM)):
+        
+            print(m)
+            params = sum(p.numel() for p in m.parameters())
+            print(params)
+    

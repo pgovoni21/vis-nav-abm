@@ -12,19 +12,6 @@ from abm.environment.resource import Resource
 from abm.contrib import colors
 from abm.monitoring import tracking, plot_funcs
 
-import os, errno
-def list_fds():
-    # ret = {}
-    base = '/proc/self/fd'
-    for num in os.listdir(base):
-        path = None
-        try:
-            path = os.readlink(os.path.join(base, num))
-        except OSError as err:
-            if err.errno != errno.ENOENT:
-                raise
-        # ret[int(num)] = path
-    return num
 
 class Simulation:
     def __init__(self, width=600, height=480, window_pad=30, 
@@ -37,7 +24,7 @@ class Simulation:
                  N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
                  min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
                  NN=None, RNN_input_other_size=3, CNN_depths=[1,], CNN_dims=[4,], 
-                 RNN_hidden_size=128, LCL_output_size=1, NN_activ='relu',
+                 RNN_hidden_size=128, LCL_output_size=1, NN_activ='relu', RNN_type='fnn',
                  ):
         """
         Initializing the main simulation instance
@@ -172,7 +159,8 @@ class Simulation:
             LCL_output_size
             )
         self.NN_activ = NN_activ
-        
+        self.RNN_type = RNN_type
+
         # if print_enabled: 
         #     print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
         #     print(f" + {self.other_size} (velocity + orientation) = {self.NN_input_size}")
@@ -337,6 +325,7 @@ class Simulation:
                         arch=self.architecture,
                         model=self.model,
                         NN_activ = self.NN_activ,
+                        RNN_type = self.RNN_type,
                         boundary_info=self.boundary_info,
                         radius=self.agent_radii,
                         color=colors.BLUE,
@@ -368,16 +357,22 @@ class Simulation:
 
     def create_resources(self):
         
-        # creates single resource patch in middle of top-left quadrant
+        # creates single resource patch
         id = 0
-        x = self.x_min - self.resrc_radius
-        y = self.y_min - self.resrc_radius
+
+        # ##--> 'stationarycorner' : top-left corner
+        # self.resrc_radius = 100
+        # x = self.x_min - 50
+        # y = self.y_min - 50
+
+        ##--> 'stationarypoint' : top-left off-center off-wall
+        self.resrc_radius = 10
+        x = self.x_min + 120
+        y = self.y_min + 30
 
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
 
-        self.resrc_radius = 100
-        
         resource = Resource(id, self.resrc_radius, (x, y), units, quality)
         self.resources.add(resource)
 
