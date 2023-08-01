@@ -74,7 +74,7 @@ class Agent(pygame.sprite.Sprite):
             self.model = model
         else: 
             from abm.NN.model import WorldModel
-            self.model = WorldModel(arch=arch, activ=NN_activ, RNN_type='fnn')
+            self.model = WorldModel(arch=arch, activ=NN_activ, RNN_type=RNN_type)
 
             print(f'Model Architecture: {arch}')
             param_vec_size = sum(p.numel() for p in self.model.parameters())

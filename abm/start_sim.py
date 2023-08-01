@@ -10,18 +10,26 @@ import numpy as np
 from abm.NN.model import WorldModel as Model
 
 
-def start(model_tuple=None, pv=None, save_ext=None, seed=None): # "abm-start" in terminal
-
-    # calls env dict from root folder
-    env_path = Path(__file__).parent.parent / ".env"
-    envconf = de.dotenv_values(env_path)
+def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): # "abm-start" in terminal
 
     # print(f'Running {save_ext}')
 
-    NN = None
-    if pv is not None:
-        arch, activ, RNN_type = model_tuple
-        NN = Model(arch, activ, RNN_type, pv)
+    if pv is None: # if called from abm-start
+        envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
+        NN = None
+    else:
+        if env_path is None: # if called from EA
+            envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
+            arch, activ, RNN_type = model_tuple
+            NN = Model(arch, activ, RNN_type, pv)
+        
+        else: # if called directly with pickled NN
+            envconf = de.dotenv_values(env_path)
+            NN = reconstruct_NN(envconf, pv)
+
+            # override original EA-written env dict
+            envconf['WITH_VISUALIZATION'] = 1
+            envconf['PLOT_TRAJECTORY'] = 1
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
@@ -76,29 +84,56 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None): # "abm-start" in
     return save_ext, fitnesses, elapsed_time, crash
 
 
+def reconstruct_NN(envconf,pv):
+    """mirrors start_EA arch packaging"""
+    
+    # gather NN variables
+    N                    = int(envconf["N"])
+
+    if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
+    else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+    
+    vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
+    contact_field_res    = int(envconf["CONTACT_FIELD_RESOLUTION"])
+    other_input_size     = int(envconf["RNN_INPUT_OTHER_SIZE"]) # last action + last velocity + on_resrc
+    
+    # assemble NN architecture
+    CNN_input_size       = (num_class_elements, vis_field_res)
+    CNN_depths           = list(map(int,envconf["CNN_DEPTHS"].split(',')))
+    CNN_dims             = list(map(int,envconf["CNN_DIMS"].split(',')))
+    RNN_other_input_size = (contact_field_res, other_input_size)
+    RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
+    LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
+
+    arch = (
+        CNN_input_size, 
+        CNN_depths, 
+        CNN_dims, 
+        RNN_other_input_size, 
+        RNN_hidden_size, 
+        LCL_output_size
+        )
+
+    activ                     =str(envconf["NN_ACTIVATION_FUNCTION"])
+    RNN_type                  =str(envconf["RNN_TYPE"])
+
+    NN = Model(arch, activ, RNN_type, pv)
+
+    return NN
+
+
 if __name__ == '__main__':
 
-    # import pickle
+    import pickle
 
-    # data_dir = Path(__file__).parent / r'data/simulation_data'
-    # name = r'stationarycorner_CNN12_FNN6_p25e5_sig0p1'
-    # file_dir = Path(data_dir, name)
+    # load param_vec + env_path
+    data_dir = Path(__file__).parent / r'data/simulation_data'
+    exp_ext = 'stationarycorner_test'
+    NN_ext = 'gen0/NN0_af513'
+    NN_pv_path = fr'{data_dir}/{exp_ext}/{NN_ext}/NN_pickle.bin'
+    env_path = fr'{data_dir}/{exp_ext}/.env'
 
-    # # compute individual PV from final distribution
-    # with open(fr'{file_dir}/run_data.bin','rb') as f:
-    #     mean_pv, std_pv, time = pickle.load(f)
+    with open(NN_pv_path,'rb') as f:
+        pv = pickle.load(f)
 
-    # final_mean_pv = mean_pv[-1,:]
-    # final_std_pv = std_pv[-1,:]
-
-    # indiv_vec = np.zeros(final_mean_pv.shape)
-    # for n, (m,s) in enumerate(zip(final_mean_pv, final_std_pv)):
-    #     indiv_vec[n] = np.random.normal(m,s)
-
-    # # copy .env values + modify existing
-    # envconf = de.dotenv_values(fr'{file_dir}/.env')
-    # with open(Path(file_dir,'temp'), 'a') as file:
-    #     for k, v in envconf.items():
-    #         file.write(f"{k}={v}\n")
-    
-    start()
+    start(pv=pv, env_path=env_path)

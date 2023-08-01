@@ -26,6 +26,7 @@ class EvolAlgo():
         # Calculate parameter vector size using an example NN (easy generalizable)
         param_vec_size = sum(p.numel() for p in Model(arch,activ,RNN_type).parameters())
 
+        print(f'EA Save Name: {EA_save_name}')
         print(f'Model Architecture: {arch}')
         print(f'Total #Params: {param_vec_size}')
 
@@ -45,9 +46,6 @@ class EvolAlgo():
         
         # Generate initial RNN parameters
         self.NN_param_vectors = self.es.ask()
-        
-        # # Initialize RNN instances for 0th generation
-        # self.NNs = [Model(arch, activ, pv) for pv in self.NN_param_vectors]
 
         # Saving parameters
         self.fitness_evol = []
@@ -89,12 +87,18 @@ class EvolAlgo():
             seeds_per_gen = range(self.start_seed, self.start_seed + self.episodes)
             self.start_seed += self.episodes
 
-            # load inputs for each simulation instance
+            # load inputs for each simulation instance into list (for starmap_async)
             sim_inputs_per_gen = []
             for n, pv in enumerate(self.NN_param_vectors):
                 for e in range(self.episodes):
                     save_ext = fr'{self.EA_save_name}/running/NN{n}/ep{e}'
                     sim_inputs_per_gen.append( (self.model_tuple, pv, save_ext, seeds_per_gen[e]) )
+
+                # save NN param_vec in the parent folder
+                NN_dir = Path(self.root_dir,fr'abm/data/simulation_data/{self.EA_save_name}/running/NN{n}')
+                Path(NN_dir).mkdir(parents=True, exist_ok=True)
+                with open(fr'{NN_dir}/NN_pickle.bin','wb') as f:
+                    pickle.dump(pv, f)
 
             sim_time = time.time()
 
@@ -190,13 +194,8 @@ class EvolAlgo():
                     res_zarr = zarr.open(fr'{NN_save_dir}/ep{e}/res.zarr', mode='r')
                     plot_data = ag_zarr, res_zarr
 
-                    plot_funcs.plot_map(plot_data, x_max=400, y_max=400, 
+                    plot_funcs.plot_map(plot_data, x_max=500, y_max=500, 
                                         save_name=f'{NN_save_dir}_ep{e}')
-
-                # # pickle NN
-                # NN = self.NNs[n_gen]
-                # with open(fr'{NN_save_dir}/NN_pickle.bin','wb') as f:
-                #     pickle.dump(NN, f)
             
             # update/pickle generational fitness data in parent directory
             self.fitness_evol.append(fitness_gen)

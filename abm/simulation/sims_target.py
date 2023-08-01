@@ -354,15 +354,15 @@ class Simulation:
         # creates single resource patch
         id = 0
 
-        # ##--> 'stationarycorner' : top-left corner
-        # self.resrc_radius = 100
-        # x = self.x_min - 50
-        # y = self.y_min - 50
+        ##--> 'stationarycorner' : top-left corner
+        self.resrc_radius = 100
+        x = self.x_min - 50
+        y = self.y_min - 50
 
-        ##--> 'stationarypoint' : top-left off-center off-wall
-        self.resrc_radius = 10
-        x = self.x_min + 120
-        y = self.y_min + 30
+        # ##--> 'stationarypoint' : top-left off-center off-wall
+        # self.resrc_radius = 10
+        # x = self.x_min + 120
+        # y = self.y_min + 30
 
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
