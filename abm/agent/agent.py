@@ -645,6 +645,7 @@ class Agent(pygame.sprite.Sprite):
         # store contact with food/proprio data as 1D array
         other_input = np.zeros(self.contact_field_res + self.other_size)
         other_input[:self.contact_field_res] = self.contact_field
+        # other_input[:self.contact_field_res] = np.zeros(self.contact_field_res) # no contact
 
         if self.other_size == 0:
             pass
@@ -654,6 +655,11 @@ class Agent(pygame.sprite.Sprite):
             other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel ]) # last action + last movement
         elif self.other_size == 3: 
             other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel, self.on_resrc ]) # last action + last movement + food presence
+            # other_input[self.contact_field_res:] = np.array([ 0, self.velocity / self.max_vel, self.on_resrc ]) # fixed angle
+            # other_input[self.contact_field_res:] = np.array([ self.action, 1, self.on_resrc ]) # no speed
+            # other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel, 0 ]) # no food
+            # other_input[self.contact_field_res:] = np.array([ 0, self.velocity / self.max_vel, 0 ]) # no action no food
+            # other_input[self.contact_field_res:] = np.array([ 0, 1, 0 ]) # nothing
         else: raise Exception('NN_input_other_size not valid')
 
         return vis_input, other_input
