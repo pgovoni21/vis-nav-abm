@@ -20,44 +20,27 @@ def set_env_var(key, val):
 
 def EA_runner():
 
-    # start: EA_SAVE_NAME='stationarypoint_CNN18_CTRNN8_p25e5_sig0p1'
+    rnn_type_iter = ['fnn','ctrnn','gru']
+    cnn_dims_iter = ['2','4','8']
+    rnn_hidden_iter = ['2','8']
 
-    # set_env_var('EA_GENERATIONS', '500')
-    # set_env_var('EA_POPULATION_SIZE', '25')
-    # set_env_var('EA_EPISODES', '5')
+    for i in rnn_type_iter:
+        for j in rnn_hidden_iter:
+            for k in cnn_dims_iter:
 
-    # rnn_type_iter = ['fnn','ctrnn','gru']
-    # rnn_hidden_iter = [8,16]
-    # cnn_dims_iter = [4,8]
-    # # cnn_depths_iter = [1,2]
-    # init_sigma_iter = [10, '0p1']
+                name = f'crosscorner_CNN1{k}_{i.upper()}{str(j)}_p25e5g500_sig0p1'
+                print(name)
 
-    # for l in rnn_type_iter:
-    #     for i in rnn_hidden_iter:
-    #         for j in cnn_dims_iter:
-    #             for k in init_sigma_iter:
+                # dir = Path(__file__).parent / fr'data/simulation_data/{name}'
+                # if os.path.isdir(dir):
+                #     print(f'exists, continuing')
+                #     continue
 
-    #                 name = f'stationarypoint_CNN1{str(j)}_{l.upper()}{str(i)}_p50e10g500_sig{str(k)}'
-    #                 print(name)
-
-    #                 dir = Path(__file__).parent / fr'data/simulation_data/{name}'
-    #                 if os.path.isdir(dir):
-    #                     print(f'exists, continuing')
-    #                     continue
-
-    #                 set_env_var('RNN_HIDDEN_SIZE', str(i))
-    #                 set_env_var('CNN_DIMS', str(j))
-    #                 set_env_var('CNN_DEPTHS', str(k))
-    #                 set_env_var('RNN_TYPE', l)
-    #                 set_env_var('EA_SAVE_NAME', name)
-    #                 start_EA()
-
-
-    name = f'stationarypoint_CNN48_FNN8_p25e5g500_sig0p1'    
-    print(name)
-    set_env_var('CNN_DEPTHS', '4')
-    set_env_var('EA_SAVE_NAME', name)
-    start_EA()
+                set_env_var('RNN_TYPE', i)
+                set_env_var('RNN_HIDDEN_SIZE', j)
+                set_env_var('CNN_DIMS', k)
+                set_env_var('EA_SAVE_NAME', name)
+                start_EA()
 
 
 if __name__ == '__main__':
