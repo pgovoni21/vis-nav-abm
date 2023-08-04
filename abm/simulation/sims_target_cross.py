@@ -100,6 +100,7 @@ class Simulation:
 
         self.elapsed_time = 0
         self.fitnesses = []
+        self.fit_time_cum = 0
         self.save_ext = save_ext
 
         # Agent parameters
@@ -130,6 +131,7 @@ class Simulation:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
         self.res_id_counter = 0
+        self.max_patch_regen = 5
 
         # Neural Network parameters
         self.model = NN
@@ -345,19 +347,24 @@ class Simulation:
 ### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
 
     def create_resources(self):
-        
-        # creates single resource patch
-        id = 0
 
-        ##--> 'stationarycorner' : top-left corner
+        # creates single resource patch in alternating positions
+        id = self.res_id_counter
+
         self.resrc_radius = 100
-        x = self.x_min - 50
-        y = self.y_min - 50
 
-        # ##--> 'stationarypoint' : top-left off-center off-wall
-        # self.resrc_radius = 10
-        # x = self.x_min + 120
-        # y = self.y_min + 30
+        if self.res_id_counter % 4 == 0: # top-left corner
+            x = self.x_min - self.resrc_radius/2
+            y = self.y_min - self.resrc_radius/2
+        elif self.res_id_counter % 4 == 1: # bottom-right corner
+            x = self.x_max - self.resrc_radius*3/2
+            y = self.y_max - self.resrc_radius*3/2
+        elif self.res_id_counter % 4 == 2: # bottom-left corner
+            x = self.x_min - self.resrc_radius/2
+            y = self.y_max - self.resrc_radius*3/2
+        else: # self.res_id_counter % 4 == 3: # top-right corner
+            x = self.x_max - self.resrc_radius*3/2
+            y = self.y_min - self.resrc_radius/2
 
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
@@ -371,27 +378,27 @@ class Simulation:
         #     pos_y = self.y_max - y
         #     self.data_res.append([pos_x, pos_y, self.resrc_radius])
 
-    # def consume(self, agent):
-    #     """Carry out agent-resource interactions (depletion, destroying, notifying)"""
-    #     # Call resource agent is on
-    #     resource = agent.res_to_be_consumed
+    def consume(self, agent):
+        """Carry out agent-resource interactions (depletion, destroying, notifying)"""
+        # Call resource agent is on
+        resource = agent.res_to_be_consumed
 
-    #     # Increment remaining resource quantity
-    #     depl_units, destroy_resrc = resource.deplete(agent.consumption)
+        # Increment remaining resource quantity
+        depl_units, destroy_resrc = resource.deplete(agent.consumption)
 
-    #     # Update agent info
-    #     if depl_units > 0:
-    #         agent.collected_r += depl_units
-    #         agent.mode = 'exploit'
-    #     else:
-    #         agent.mode = 'explore'
+        # Update agent info
+        if depl_units > 0:
+            agent.collected_r += depl_units
+            agent.mode = 'exploit'
+        else:
+            agent.mode = 'explore'
 
-    #     # Kill + regenerate patch when fully depleted
-    #     if destroy_resrc:
-    #         resource.kill()
-    #         if self.regenerate_resources:
-    #             # self.add_new_resource_patch_random()
-    #             self.add_new_resource_patch_stationary_single()
+        # Kill + regenerate patch when fully depleted
+        if destroy_resrc:
+            resource.kill()
+            if self.regenerate_resources:
+                self.res_id_counter += 1 # alternates res position
+                self.create_resources()
 
 ### -------------------------- MULTIAGENT INTERACTION FUNCTIONS -------------------------- ###
 
@@ -558,9 +565,13 @@ class Simulation:
 
                     # Food present --> consume + set mode to exploit (if food is still available)
                     if agent.on_resrc == 1:
-                    # if agent.on_resrc == 1 and agent.velocity == 0: 
-                        # self.consume(agent) 
+                        self.consume(agent)
+                        self.fit_time_cum += self.t
+                    # No food --> move via decided action(s) + set mode to collide if collided
+                    else: 
+                        agent.move(agent.action) 
 
+                    if agent.collected_r == self.max_patch_regen:
                         ### ---- END OF SIMULATION (found food - premature termination) ---- ###
 
                         pygame.quit()
@@ -577,16 +588,14 @@ class Simulation:
                             # display static map of simulation
                             if self.plot_trajectory:
                                 plot_data = ag_zarr, res_zarr
-                                plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
+                                plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
 
                         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
                         # self.fitnesses = ag_zarr[:,-1,-1]
-                        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+                        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+                        self.fitnesses = np.array([self.fit_time_cum]) # --> use cumulative time taken to find each food patch
 
                         return self.fitnesses, self.elapsed_time
-
-                    # No food --> move via decided action(s) + set mode to collide if collided
-                    else: agent.move(agent.action) 
 
                 # mod_times[self.t] = time.time() - mod_start
 
@@ -625,10 +634,12 @@ class Simulation:
         # display static map of simulation
         if self.plot_trajectory:
             plot_data = ag_zarr, res_zarr
-            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
+            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
 
         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
         # self.fitnesses = ag_zarr[:,-1,-1]
-        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+        patches_not_reached = self.max_patch_regen - agent.collected_r
+        self.fitnesses = np.array([patches_not_reached * self.T + self.fit_time_cum]) # --> use cumulative time taken to find each food patch + non-reached patch times added on top
 
         return self.fitnesses, self.elapsed_time
