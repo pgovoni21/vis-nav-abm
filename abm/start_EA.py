@@ -1,4 +1,4 @@
-from abm.EA.EA import EvolAlgo
+from abm.metarunner.EA import EvolAlgo
 
 from pathlib import Path
 from dotenv import dotenv_values

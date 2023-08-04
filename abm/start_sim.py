@@ -1,5 +1,7 @@
 # from abm.simulation.sims import Simulation
-from abm.simulation.sims_target import Simulation
+# from abm.simulation.sims_target import Simulation
+# from abm.simulation.sims_target_double import Simulation
+from abm.simulation.sims_target_cross import Simulation
 
 from contextlib import ExitStack
 from pathlib import Path
@@ -22,6 +24,9 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
             envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
             arch, activ, RNN_type = model_tuple
             NN = Model(arch, activ, RNN_type, pv)
+
+            envconf['WITH_VISUALIZATION'] = 0
+            envconf['PLOT_TRAJECTORY'] = 0
         
         else: # if called directly with pickled NN
             envconf = de.dotenv_values(env_path)
@@ -29,7 +34,12 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
 
             # override original EA-written env dict
             envconf['WITH_VISUALIZATION'] = 1
-            envconf['PLOT_TRAJECTORY'] = 1
+            envconf['PLOT_TRAJECTORY'] = 0
+            envconf['LOG_ZARR_FILE'] = 0
+            # envconf['WITH_VISUALIZATION'] = 0
+            # envconf['PLOT_TRAJECTORY'] = 1
+            # envconf['LOG_ZARR_FILE'] = 1
+            envconf['INIT_FRAMERATE'] = 50
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
@@ -77,11 +87,11 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          NN_activ               =str(envconf["NN_ACTIVATION_FUNCTION"]),
                          RNN_type               =str(envconf["RNN_TYPE"]),
                          )
-        fitnesses, elapsed_time, crash = sim.start()
+        fitnesses, elapsed_time = sim.start()
 
-        # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}, crashed? {crash}')
+        # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}')
 
-    return save_ext, fitnesses, elapsed_time, crash
+    return save_ext, fitnesses, elapsed_time
 
 
 def reconstruct_NN(envconf,pv):
@@ -127,13 +137,44 @@ if __name__ == '__main__':
     import pickle
 
     # load param_vec + env_path
-    data_dir = Path(__file__).parent / r'data/simulation_data'
-    exp_ext = 'stationarycorner_test'
-    NN_ext = 'gen0/NN0_af513'
-    NN_pv_path = fr'{data_dir}/{exp_ext}/{NN_ext}/NN_pickle.bin'
-    env_path = fr'{data_dir}/{exp_ext}/.env'
+    data_dir = Path(__file__).parent / r'data/simulation_data/doublecorner'
+    
+
+    # 1 corner only (random spinning after)
+    # exp_name = 'stationarycorner_vis8/stationarycorner_CNN12_FNN8_p25e5g100_sig0p1'
+    # NN_ext = 'gen99/NN0_af41'
+
+
+    # corner to corner
+    # exp_name = 'doublecorner_CNN18_FNN2_p25e5g500_sig0p1'
+    # NN_ext = 'gen293/NN0_af177'
+
+    # hits center-edges of corners (high risk high reward)
+    # exp_name = 'doublecorner_CNN18_FNN2_p25e5g500_sig0p1'
+    # NN_ext = 'gen407/NN0_af169'
+
+    # corner to corner, sometimes shortcut at top edge, faster 2nd corner turning (though that wasn't trained)
+    # exp_name = 'doublecorner_CNN18_FNN2_p25e5g500_sig0p1'
+    # NN_ext = 'gen499/NN0_af220'
+
+
+    # # turns before reaching 1st corner
+    # exp_name = 'doublecorner_CNN18_CTRNN2_p25e5g500_sig0p1'
+    # NN_ext = 'gen496/NN0_af186'
+
+    # turns before reaching 2nd corner (likely to optimize error of going to 2nd corner first)
+    exp_name = 'doublecorner_CNN12_CTRNN2_p25e5g500_sig0p1'
+    NN_ext = 'gen451/NN0_af187'
+
+
+    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
+    env_path = fr'{data_dir}/{exp_name}/.env'
 
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
+
     start(pv=pv, env_path=env_path)
+
+    # for s in [0,1,2]:
+    #     start(pv=pv, env_path=env_path, save_ext=f'1run_{exp_name}_seed{str(s)}', seed=s)
