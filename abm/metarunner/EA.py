@@ -1,7 +1,6 @@
-from abm.start_sim import start as start_sim
-from abm.monitoring import plot_funcs
-
 from abm.NN.model import WorldModel as Model
+from abm import start_sim
+from abm.monitoring import plot_funcs
 
 from pathlib import Path
 import shutil, os, warnings, time
@@ -106,7 +105,7 @@ class EvolAlgo():
             with multiprocessing.Pool(processes=8) as pool:
 
                 # issue all tasks to pool at once (non-blocking + ordered)
-                results = pool.starmap_async( start_sim, sim_inputs_per_gen)
+                results = pool.starmap_async( start_sim.start, sim_inputs_per_gen)
 
                 # wait for all tasks to finish before continuing
                 pool.close()
@@ -135,7 +134,7 @@ class EvolAlgo():
 
                 # pull sim data for each episode
                 fitness_ep = []
-                for _, fitnesses, _, _ in results_list[NN_index : NN_index + self.episodes]:
+                for _, fitnesses, _ in results_list[NN_index : NN_index + self.episodes]:
                     fitness_ep.append(round(fitnesses[0],0))
 
                 avg_fitness = np.mean(fitness_ep)
