@@ -5,7 +5,7 @@ class Stem(nn.Module):
     def __init__(self, dim_in, dim_out):
         super().__init__()
         self.stem = nn.Sequential(
-            nn.Conv1d(dim_in, dim_out, kernel_size=2, stride=2),
+            nn.Conv1d(dim_in, dim_out, kernel_size=2, stride=2),         ## smaller patch than OG - smaller input size
             # LayerNorm(dim_out, eps=1e-6, data_format="channels_first")  ## left out from OG - better speed+accuracy
         )
     def forward(self, x):
@@ -27,7 +27,7 @@ class Downsample(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim, activ):
         super().__init__()
-        self.dwconv = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv
+        self.dwconv = nn.Conv1d(dim, dim, kernel_size=3, padding=1, groups=dim) # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
 
