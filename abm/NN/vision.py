@@ -27,7 +27,8 @@ class Downsample(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim, activ):
         super().__init__()
-        self.dwconv = nn.Conv1d(dim, dim, kernel_size=3, padding=1, groups=dim) # depthwise conv
+        # self.dwconv = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv (old)
+        self.dwconv = nn.Conv1d(dim, dim, kernel_size=3, padding=1, groups=dim) # depthwise conv (new)
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
 

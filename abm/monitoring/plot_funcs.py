@@ -73,7 +73,7 @@ def plot_map(plot_data, x_max, y_max, w=4, h=4, save_name=None):
         matplotlib.use('Agg')
 
         # root_dir = Path(__file__).parent.parent.parent
-        # save_name = Path(root_dir, 'abm/data/simulation_data', f'{save_name[-5:]}_nocontact_nofood_angle0')
+        # save_name = Path(root_dir, 'abm/data/simulation_data', f'{save_name[-5:]}')
 
         plt.savefig(fr'{save_name}.png')
         plt.close()
@@ -209,6 +209,11 @@ def plot_mult_EA_trends(names, save_name=None):
         trend_data = np.array(trend_data)
 
         best_trend_data = np.min(trend_data, axis=1)
+
+        # for i,x in enumerate(best_trend_data):
+        #     print(i, x)
+        # print(np.min(best_trend_data))
+
         l1 = ax1.plot(best_trend_data, 
                         label = f'max {name}',
                         # label = f'avg {name} | t: {time} sec',
@@ -239,7 +244,8 @@ def plot_mult_EA_trends(names, save_name=None):
     labs = [l.get_label() for l in lns]
     ax1.legend(lns, labs, loc='upper right')
     ax1.set_ylabel('Time to Find Patch')
-    ax1.set_ylim(-20,1020)
+    # ax1.set_ylim(-20,1020)
+    ax1.set_ylim(1900,5000)
 
     # ax1.legend(*zip(*violin_labs), loc='upper left')
     # ax1.set_ylabel('Parameter')
@@ -391,10 +397,36 @@ if __name__ == '__main__':
     # plot_mult_EA_trends(['doublecorner_CNN12_GRU2_p25e5g500_sig0p1'],'doublecorner_GRU')
 
 
+    # --> cross corner @ vis8
+
+    # rnn_type_iter = ['fnn']
+    # rnn_type_iter = ['ctrnn']
+    rnn_type_iter = ['gru']
+    cnn_dims_iter = ['2','8']
+    rnn_hidden_iter = ['2','8']
+
+    for i in rnn_type_iter:
+        for j in rnn_hidden_iter:
+            for k in cnn_dims_iter:
+
+                name = f'crosscorner_CNN1{k}_{i.upper()}{str(j)}_p25e5g1000_sig0p1'
+                names.append(name)
+
+    # plot_mult_EA_trends(names, 'crosscorner_FNN')
+    # plot_mult_EA_trends(names, 'crosscorner_CTRNN')
+    plot_mult_EA_trends(names[:-1], 'crosscorner_GRU')
+
+
+    # plot_mult_EA_trends(['crosscorner_CNN12_GRU8_p25e5g1000_sig0p1'])
+
+
+
+
+
     # --> violin plots
     
     # plot_mult_EA_trends(names, fr'stationarycorner_violin_mean')
-    plot_mult_EA_trends(names, fr'stationarycorner_violin_stdv')
+    # plot_mult_EA_trends(names, fr'stationarycorner_violin_stdv')
 
     # name = 'stationarycorner_CNN11_FNN8_p25e5g100_sig0p1'
     # name = 'stationarycorner_CNN12_FNN8_p25e5g100_sig0p1'

@@ -1,7 +1,8 @@
 # from abm.simulation.sims import Simulation
 # from abm.simulation.sims_target import Simulation
 # from abm.simulation.sims_target_double import Simulation
-from abm.simulation.sims_target_cross import Simulation
+from abm.simulation.sims_target_double_offwall import Simulation
+# from abm.simulation.sims_target_cross import Simulation
 
 from contextlib import ExitStack
 from pathlib import Path
@@ -137,7 +138,8 @@ if __name__ == '__main__':
     import pickle
 
     # load param_vec + env_path
-    data_dir = Path(__file__).parent / r'data/simulation_data/doublecorner'
+    data_dir = Path(__file__).parent / r'data/simulation_data/'
+    # data_dir = Path(__file__).parent / r'data/simulation_data/doublecorner_vis8_ck7/'
     
 
     # 1 corner only (random spinning after)
@@ -157,14 +159,25 @@ if __name__ == '__main__':
     # exp_name = 'doublecorner_CNN18_FNN2_p25e5g500_sig0p1'
     # NN_ext = 'gen499/NN0_af220'
 
-
-    # # turns before reaching 1st corner
+    # turns before reaching 1st corner
     # exp_name = 'doublecorner_CNN18_CTRNN2_p25e5g500_sig0p1'
     # NN_ext = 'gen496/NN0_af186'
 
     # turns before reaching 2nd corner (likely to optimize error of going to 2nd corner first)
-    exp_name = 'doublecorner_CNN12_CTRNN2_p25e5g500_sig0p1'
-    NN_ext = 'gen451/NN0_af187'
+    # exp_name = 'doublecorner_CNN12_CTRNN2_p25e5g500_sig0p1'
+    # NN_ext = 'gen451/NN0_af187'
+
+
+    # exp_name = 'crosscorner_CNN18_FNN8_p25e5g1000_sig0p1'
+    # NN_ext = 'gen723/NN0_af2230'
+    # exp_name = 'crosscorner_CNN12_FNN8_p25e5g1000_sig0p1'
+    # NN_ext = 'gen927/NN0_af2349'
+    # exp_name = 'crosscorner_CNN18_CTRNN8_p25e5g1000_sig0p1'
+    # NN_ext = 'gen959/NN0_af2204'
+    # exp_name = 'crosscorner_CNN18_GRU2_p25e5g1000_sig0p1'
+    # NN_ext = 'gen861/NN0_af1927'
+    exp_name = 'crosscorner_CNN12_GRU8_p25e5g1000_sig0p1'
+    NN_ext = 'gen550/NN0_af1935'
 
 
     NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
@@ -172,7 +185,6 @@ if __name__ == '__main__':
 
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
-
 
     start(pv=pv, env_path=env_path)
 
