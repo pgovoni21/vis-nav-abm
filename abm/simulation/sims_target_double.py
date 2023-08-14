@@ -100,6 +100,7 @@ class Simulation:
 
         self.elapsed_time = 0
         self.fitnesses = []
+        self.fit_time_cum = 0
         self.save_ext = save_ext
 
         # Agent parameters
@@ -130,6 +131,7 @@ class Simulation:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
         self.res_id_counter = 0
+        self.max_patch_regen = 5 # 2 when double-time-training / other when cum-training, 10 when re-running
 
         # Neural Network parameters
         self.model = NN
@@ -567,12 +569,12 @@ class Simulation:
                     # Food present --> consume + set mode to exploit (if food is still available)
                     if agent.on_resrc == 1:
                         self.consume(agent) 
+                        self.fit_time_cum += self.t
                     # No food --> move via decided action(s) + set mode to collide if collided
                     else: 
                         agent.move(agent.action) 
 
-                    if agent.collected_r == 2: # when training
-                    # if agent.collected_r == 10: # when re-running
+                    if agent.collected_r == self.max_patch_regen:
                         ### ---- END OF SIMULATION (found food - premature termination) ---- ###
 
                         pygame.quit()
@@ -593,7 +595,8 @@ class Simulation:
 
                         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
                         # self.fitnesses = ag_zarr[:,-1,-1]
-                        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+                        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+                        self.fitnesses = np.array([self.fit_time_cum]) # --> use cumulative time taken to find each food patch
 
                         return self.fitnesses, self.elapsed_time
 
@@ -638,6 +641,8 @@ class Simulation:
 
         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
         # self.fitnesses = ag_zarr[:,-1,-1]
-        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+        patches_not_reached = self.max_patch_regen - agent.collected_r
+        self.fitnesses = np.array([patches_not_reached * self.T + self.fit_time_cum]) # --> use cumulative time taken to find each food patch + non-reached patch times added on top
 
         return self.fitnesses, self.elapsed_time

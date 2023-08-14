@@ -24,7 +24,8 @@ setup(
         'opencv-python',
         'xvfbwrapper',
         'zarr',
-        'torch'
+        'torch',
+        'cma'
     ],
     extras_require={
         'test': [
@@ -36,8 +37,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'abm-start=abm.start_sim:start',
-            'EA-start=abm.start_EA:start_EA',
+            'abm=abm.start_sim:start',
+            'EA=abm.start_EA:start_EA',
+            'multi=abm.start_EA:start_EA_multirun',
         ]
     },
     classifiers=[

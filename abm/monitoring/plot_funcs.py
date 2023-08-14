@@ -167,6 +167,7 @@ def plot_mult_EA_trends(names, save_name=None):
     # establish load directory
     root_dir = Path(__file__).parent.parent
     data_dir = Path(root_dir, r'data/simulation_data')
+    # data_dir = Path(root_dir, r'data/simulation_data/doublepoint_vis8_ck3_max5')
 
     # # init plot details
     fig, ax1 = plt.subplots(figsize=(15,10)) 
@@ -205,16 +206,19 @@ def plot_mult_EA_trends(names, save_name=None):
 
         with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
             trend_data = pickle.load(f)
-
         trend_data = np.array(trend_data)
 
-        best_trend_data = np.min(trend_data, axis=1)
+        top_trend_data = np.min(trend_data, axis=1)
+        
+        # for i,t in enumerate(top_trend_data):
+        #     print(f'{i}: {t}')
 
-        # for i,x in enumerate(best_trend_data):
-        #     print(i, x)
-        # print(np.min(best_trend_data))
+        top_5_ind = np.argsort(top_trend_data)[:5]
+        top_5_fit = [top_trend_data[i] for i in top_5_ind]
+        for g,f in zip(top_5_ind, top_5_fit):
+            print(f'gen {g}: fit {f}')
 
-        l1 = ax1.plot(best_trend_data, 
+        l1 = ax1.plot(top_trend_data, 
                         label = f'max {name}',
                         # label = f'avg {name} | t: {time} sec',
                         color=cmap(i/cmap_range), 
@@ -243,6 +247,8 @@ def plot_mult_EA_trends(names, save_name=None):
 
     labs = [l.get_label() for l in lns]
     ax1.legend(lns, labs, loc='upper right')
+    # ax1.legend(lns, labs, loc='lower left')
+    
     ax1.set_ylabel('Time to Find Patch')
     # ax1.set_ylim(-20,1020)
     ax1.set_ylim(1900,5000)
@@ -399,27 +405,57 @@ if __name__ == '__main__':
 
     # --> cross corner @ vis8
 
-    # rnn_type_iter = ['fnn']
-    # rnn_type_iter = ['ctrnn']
-    rnn_type_iter = ['gru']
-    cnn_dims_iter = ['2','8']
-    rnn_hidden_iter = ['2','8']
+    # # rnn_type_iter = ['fnn']
+    # # rnn_type_iter = ['ctrnn']
+    # rnn_type_iter = ['gru']
+    # cnn_dims_iter = ['2','8']
+    # rnn_hidden_iter = ['2','8']
 
-    for i in rnn_type_iter:
-        for j in rnn_hidden_iter:
-            for k in cnn_dims_iter:
+    # for i in rnn_type_iter:
+    #     for j in rnn_hidden_iter:
+    #         for k in cnn_dims_iter:
 
-                name = f'crosscorner_CNN1{k}_{i.upper()}{str(j)}_p25e5g1000_sig0p1'
-                names.append(name)
+    #             # name = f'crosscorner_CNN1{k}_{i.upper()}{str(j)}_p25e5g1000_sig0p1'
+    #             name = f'doublepoint_CNN1{k}_{i.upper()}{str(j)}_p25e5g1000_sig0p1'
+    #             names.append(name)
 
-    # plot_mult_EA_trends(names, 'crosscorner_FNN')
-    # plot_mult_EA_trends(names, 'crosscorner_CTRNN')
-    plot_mult_EA_trends(names[:-1], 'crosscorner_GRU')
-
+    # # plot_mult_EA_trends(names, 'crosscorner_FNN')
+    # # plot_mult_EA_trends(names, 'crosscorner_CTRNN')
+    # # plot_mult_EA_trends(names[:-1], 'crosscorner_GRU')
+    # plot_mult_EA_trends(names[1:], 'doublepoint_GRU')
 
     # plot_mult_EA_trends(['crosscorner_CNN12_GRU8_p25e5g1000_sig0p1'])
 
 
+    # --> double point @ vis8+32
+
+    plot_mult_EA_trends(['doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_max5'])
+
+    # # vis_res_iter = ['8','32']
+    # vis_res_iter = ['8']
+    # # vis_res_iter = ['32']
+
+    # # rnn_hidden_iter = ['2','8']
+    # rnn_hidden_iter = ['2']
+    # # rnn_hidden_iter = ['8']
+    
+    # cnn_deps_iter = ['1','2']
+    # cnn_dims_iter = ['2','8']
+
+    # for i in vis_res_iter:
+    #     for j in rnn_hidden_iter:
+    #         for k in cnn_dims_iter:
+    #             for l in cnn_deps_iter:
+
+    #                 name = f'doublepoint_CNN{l}{k}_GRU{j}_p25e5g1000_sig0p1_vis{i}'
+    #                 names.append(name)
+
+    # plot_mult_EA_trends(names, 'doublepoint_GRU2_vis8')
+    # # plot_mult_EA_trends(names, 'doublepoint_GRU8_vis8')
+    # # plot_mult_EA_trends(names, 'doublepoint_GRU2_vis32')
+    # # plot_mult_EA_trends(names, 'doublepoint_GRU8_vis32')
+
+    # plot_mult_EA_trends(['doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_vis8'])
 
 
 
