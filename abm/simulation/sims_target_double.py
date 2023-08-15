@@ -574,31 +574,31 @@ class Simulation:
                     else: 
                         agent.move(agent.action) 
 
-                    if agent.collected_r == self.max_patch_regen:
-                        ### ---- END OF SIMULATION (found food - premature termination) ---- ###
+                    # if agent.collected_r == self.max_patch_regen:
+                    #     ### ---- END OF SIMULATION (found food - premature termination) ---- ###
 
-                        pygame.quit()
-                        # compute simulation time in seconds
-                        self.elapsed_time = round( (time.time() - start_time) , 2)
-                        if self.print_enabled:
-                            print(f"Elapsed_time: {self.elapsed_time}")
+                    #     pygame.quit()
+                    #     # compute simulation time in seconds
+                    #     self.elapsed_time = round( (time.time() - start_time) , 2)
+                    #     if self.print_enabled:
+                    #         print(f"Elapsed_time: {self.elapsed_time}")
 
-                        if self.log_zarr_file:
-                            # conclude agent/resource tracking
-                            # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
-                            ag_zarr, res_zarr = tracking.save_zarr_file(self.t+1, self.save_ext, self.print_enabled)
+                    #     if self.log_zarr_file:
+                    #         # conclude agent/resource tracking
+                    #         # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
+                    #         ag_zarr, res_zarr = tracking.save_zarr_file(self.t+1, self.save_ext, self.print_enabled)
 
-                            # display static map of simulation
-                            if self.plot_trajectory:
-                                plot_data = ag_zarr, res_zarr
-                                plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
+                    #         # display static map of simulation
+                    #         if self.plot_trajectory:
+                    #             plot_data = ag_zarr, res_zarr
+                    #             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
 
-                        # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-                        # self.fitnesses = ag_zarr[:,-1,-1]
-                        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
-                        self.fitnesses = np.array([self.fit_time_cum]) # --> use cumulative time taken to find each food patch
+                    #     # extract total fitnesses of each agent + save into sim instance (pulled for EA)
+                    #     self.fitnesses = ag_zarr[:,-1,-1]
+                    #     # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+                    #     # self.fitnesses = np.array([self.fit_time_cum]) # --> use cumulative time taken to find each food patch
 
-                        return self.fitnesses, self.elapsed_time
+                    #     return self.fitnesses, self.elapsed_time
 
                 # mod_times[self.t] = time.time() - mod_start
 
@@ -640,9 +640,9 @@ class Simulation:
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
 
         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-        # self.fitnesses = ag_zarr[:,-1,-1]
+        self.fitnesses = ag_zarr[:,-1,-1]
         # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
-        patches_not_reached = self.max_patch_regen - agent.collected_r
-        self.fitnesses = np.array([patches_not_reached * self.T + self.fit_time_cum]) # --> use cumulative time taken to find each food patch + non-reached patch times added on top
+        # patches_not_reached = self.max_patch_regen - agent.collected_r
+        # self.fitnesses = np.array([patches_not_reached * self.T + self.fit_time_cum]) # --> use cumulative time taken to find each food patch + non-reached patch times added on top
 
         return self.fitnesses, self.elapsed_time

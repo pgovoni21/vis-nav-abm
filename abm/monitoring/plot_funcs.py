@@ -208,12 +208,14 @@ def plot_mult_EA_trends(names, save_name=None):
             trend_data = pickle.load(f)
         trend_data = np.array(trend_data)
 
-        top_trend_data = np.min(trend_data, axis=1)
+        # top_trend_data = np.min(trend_data, axis=1) # min : top
+        top_trend_data = np.max(trend_data, axis=1) # max : top
         
         # for i,t in enumerate(top_trend_data):
         #     print(f'{i}: {t}')
 
-        top_5_ind = np.argsort(top_trend_data)[:5]
+        # top_5_ind = np.argsort(top_trend_data)[:5] # min : top
+        top_5_ind = np.argsort(top_trend_data)[-1:-6:-1] # max : top
         top_5_fit = [top_trend_data[i] for i in top_5_ind]
         for g,f in zip(top_5_ind, top_5_fit):
             print(f'gen {g}: fit {f}')
@@ -248,10 +250,13 @@ def plot_mult_EA_trends(names, save_name=None):
     labs = [l.get_label() for l in lns]
     ax1.legend(lns, labs, loc='upper right')
     # ax1.legend(lns, labs, loc='lower left')
-    
-    ax1.set_ylabel('Time to Find Patch')
-    # ax1.set_ylim(-20,1020)
-    ax1.set_ylim(1900,5000)
+
+    # ax1.set_ylabel('Time to Find Patch')
+    # # ax1.set_ylim(-20,1020)
+    # ax1.set_ylim(1900,5000)
+
+    ax1.set_ylabel('# Patches Found')
+    ax1.set_ylim(0,8)
 
     # ax1.legend(*zip(*violin_labs), loc='upper left')
     # ax1.set_ylabel('Parameter')
@@ -429,7 +434,7 @@ if __name__ == '__main__':
 
     # --> double point @ vis8+32
 
-    plot_mult_EA_trends(['doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_max5'])
+    # plot_mult_EA_trends(['doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_max5'])
 
     # # vis_res_iter = ['8','32']
     # vis_res_iter = ['8']
@@ -458,6 +463,10 @@ if __name__ == '__main__':
     # plot_mult_EA_trends(['doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_vis8'])
 
 
+    names.append('doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_vis8_dirfit')
+    names.append('doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit')
+
+    plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit')
 
     # --> violin plots
     

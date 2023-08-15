@@ -1,4 +1,5 @@
-from abm.NN.model import WorldModel as Model
+# from abm.NN.model import WorldModel as Model
+from abm.NN.model_simp import WorldModel as Model
 from abm import start_sim
 from abm.monitoring import plot_funcs
 
@@ -140,13 +141,13 @@ class EvolAlgo():
                 avg_fitness = np.mean(fitness_ep)
                 fitness_gen.append(avg_fitness)
 
-            # # list all averaged fitnesses
-            # print(f'Fitnesses: {fitness_gen}')
+            # list all averaged fitnesses
+            print(f'Fitnesses: {fitness_gen}')
             
             # Track top fitness per generation
-            # top_fg = int(np.max(fitness_gen)) # max : first
-            top_fg = int(np.min(fitness_gen)) # min : first
-            avg_fg = int(np.mean(fitness_gen))
+            top_fg = round(np.max(fitness_gen),1) # max : top
+            # top_fg = int(np.min(fitness_gen)) # min : top
+            avg_fg = round(np.mean(fitness_gen),2)
             print(f'Highest Across Gen: {top_fg} | Avg Across Gen: {avg_fg} ---')
             
             # print('Running Dir Contents:')
@@ -160,11 +161,12 @@ class EvolAlgo():
 
 
             # cycle through the top X performers
-            # top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_nn_saved : -1] # max : first
-            top_indices = np.argsort(fitness_gen)[ : self.num_top_nn_saved] # min : first
+            top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_nn_saved : -1] # max : top
+            # top_indices = np.argsort(fitness_gen)[ : self.num_top_nn_saved] # min : top
 
             # top_fitnesses = [int(fitness_gen[n_gen]) for n_gen in top_indices]
-            # print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
+            top_fitnesses = [round(fitness_gen[n_gen],2) for n_gen in top_indices]
+            print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
 
             for n_top, n_gen in enumerate(top_indices):
 
@@ -205,15 +207,15 @@ class EvolAlgo():
             #### ---- Update optimizer + RNN instances ---- ####
 
             # Pass parameters + resulting fitness list to *minimizing* optimizer class
+            fitness_gen = [-f for f in fitness_gen] # flips sign (only applicable if max : top)
             self.es.tell(self.NN_param_vectors, fitness_gen)
 
             # Save param_vec distribution
             self.mean_param_vec[i,:] = self.es.mean
             self.std_param_vec[i,:] = self.es.stds
             
-            # Generate new RNN parameters + instances for next generation
+            # Generate new RNN parameters for next generation
             self.NN_param_vectors = self.es.ask()
-            # self.NNs = [Model(self.arch, self.activ, pv) for pv in self.NN_param_vectors]
 
             end_eval_time = time.time() - eval_time
             print(f'Performance Evaluation Time: {round( end_eval_time, 2)} sec')

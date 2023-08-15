@@ -10,6 +10,7 @@ import os
 import numpy as np
 
 from abm.NN.model import WorldModel as Model
+# from abm.NN.model_simp import WorldModel as Model
 
 
 def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): # "abm-start" in terminal
@@ -166,11 +167,14 @@ if __name__ == '__main__':
 
     # exp_name = 'doublepoint_vis8_ck3_max5_v1/doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_max5' # point to point
     # NN_ext = 'gen866/NN0_af2330'
-    exp_name = 'doublepoint_vis8_ck3_max5_v1/doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_max5' # top wall bounce to point
-    NN_ext = 'gen566/NN0_af2336'
+    # exp_name = 'doublepoint_vis8_ck3_max5_v1/doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_max5' # top wall bounce to point
+    # NN_ext = 'gen566/NN0_af2336'
 
     # exp_name = 'doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_vis8'
     # NN_ext = 'gen996/NN0_af2213'
+
+    exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit'
+    NN_ext = 'gen999/NN0_af7'
 
 
     NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
