@@ -57,7 +57,10 @@ class WorldModel(nn.Module):
         # disable autograd computation since we're not computing gradients
         for param in self.parameters():
             param.requires_grad = False
-    
+
+        # limit parallel computation to avoid CPU interference with multiproc sims
+        torch.set_num_threads(1)
+
 
     def assign_params(self, param_vector):
         # chunk mutated params + send to model data

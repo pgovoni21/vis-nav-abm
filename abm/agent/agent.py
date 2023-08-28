@@ -74,6 +74,7 @@ class Agent(pygame.sprite.Sprite):
             self.model = model
         else: 
             from abm.NN.model import WorldModel
+            # from abm.NN.model_simp import WorldModel
             self.model = WorldModel(arch=arch, activ=NN_activ, RNN_type=RNN_type)
 
             print(f'Model Architecture: {arch}')
@@ -647,20 +648,28 @@ class Agent(pygame.sprite.Sprite):
         other_input[:self.contact_field_res] = self.contact_field
         # other_input[:self.contact_field_res] = np.zeros(self.contact_field_res) # no contact
 
-        if self.other_size == 0:
-            pass
-        elif self.other_size == 1: 
-            other_input[self.contact_field_res:] = np.array([ self.action ]) # last action
-        elif self.other_size == 2: 
-            other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel ]) # last action + last movement
-        elif self.other_size == 3: 
-            other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel, self.on_resrc ]) # last action + last movement + food presence
-            # other_input[self.contact_field_res:] = np.array([ 0, self.velocity / self.max_vel, self.on_resrc ]) # fixed angle
+        # *ordered in chance of occurence*
+        if self.other_size == 3:   # last action + last movement + food presence
+            other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel, self.on_resrc ]) 
+            # other_input[self.contact_field_res:] = np.array([ 0, 1, 0 ]) # no proprio
             # other_input[self.contact_field_res:] = np.array([ self.action, 1, self.on_resrc ]) # no speed
+            # other_input[self.contact_field_res:] = np.array([ 0, self.velocity / self.max_vel, self.on_resrc ]) # 0turn
+            # other_input[self.contact_field_res:] = np.array([ .5, self.velocity / self.max_vel, self.on_resrc ]) # halfturn
+            # other_input[self.contact_field_res:] = np.array([ 1, self.velocity / self.max_vel, self.on_resrc ]) # 1turn
             # other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel, 0 ]) # no food
-            # other_input[self.contact_field_res:] = np.array([ 0, self.velocity / self.max_vel, 0 ]) # no action no food
-            # other_input[self.contact_field_res:] = np.array([ 0, 1, 0 ]) # nothing
+        elif self.other_size == 0: # none
+            pass
+        elif self.other_size == 2: # last action + last movement
+            other_input[self.contact_field_res:] = np.array([ self.action, self.velocity / self.max_vel ]) 
+        elif self.other_size == 1: # last action
+            other_input[self.contact_field_res:] = np.array([ self.action ]) 
         else: raise Exception('NN_input_other_size not valid')
+
+        # mask = [0,0,0,0,1,1,1] # no contact
+        # mask = [1,1,1,1,1,1,0] # no food
+        # mask = [1,1,1,1,0,1,1] # no angle
+        # mask = [1,1,1,1,1,0,1] # no speed
+        # other_input = np.array([x*y for x,y in zip(other_input,mask)])
 
         return vis_input, other_input
 

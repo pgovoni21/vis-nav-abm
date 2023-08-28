@@ -103,7 +103,7 @@ class EvolAlgo():
             sim_time = time.time()
 
             # using process pool executor/manager
-            with multiprocessing.Pool(processes=8) as pool:
+            with multiprocessing.Pool() as pool:
 
                 # issue all tasks to pool at once (non-blocking + ordered)
                 results = pool.starmap_async( start_sim.start, sim_inputs_per_gen)
@@ -131,7 +131,7 @@ class EvolAlgo():
 
             # skip to start of each episode series/chunk
             fitness_gen = []
-            for n, NN_index in enumerate(range(0, len(results_list), self.episodes)):
+            for NN_index in range(0, len(results_list), self.episodes):
 
                 # pull sim data for each episode
                 fitness_ep = []
