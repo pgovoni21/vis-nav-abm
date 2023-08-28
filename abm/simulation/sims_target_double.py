@@ -11,6 +11,7 @@ from abm.agent.agent import Agent
 from abm.environment.resource import Resource
 from abm.contrib import colors
 from abm.monitoring import tracking, plot_funcs
+# from abm.monitoring.screen_recorder import ScreenRecorder
 
 class Simulation:
     def __init__(self, width=600, height=480, window_pad=30, 
@@ -94,13 +95,12 @@ class Simulation:
         # Tracking parameters
         self.log_zarr_file = log_zarr_file
 
-        # if not self.log_zarr_file: # set up agent/resource data logging
-        #     self.data_agent = np.zeros( (self.N, self.T, 4) ) # (pos_x, pos_y, mode, coll_res)
-        #     self.data_res = []
+        if not self.log_zarr_file: # set up agent/resource data logging
+            self.data_agent = np.zeros( (self.N, self.T, 4) ) # (pos_x, pos_y, mode, coll_res)
+            self.data_res = []
 
         self.elapsed_time = 0
         self.fitnesses = []
-        self.fit_time_cum = 0
         self.save_ext = save_ext
 
         # Agent parameters
@@ -131,7 +131,6 @@ class Simulation:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
         self.res_id_counter = 0
-        self.max_patch_regen = 5 # 2 when double-time-training / other when cum-training, 10 when re-running
 
         # Neural Network parameters
         self.model = NN
@@ -167,6 +166,7 @@ class Simulation:
         if self.with_visualization:
             pygame.init()
             self.screen = pygame.display.set_mode([self.x_min + self.x_max, self.y_min + self.y_max])
+            # self.recorder = ScreenRecorder(self.x_min + self.x_max, self.y_min + self.y_max, framerate, out_file='sim.mp4')
         else:
             pygame.display.init()
             pygame.display.set_mode([1,1])
@@ -511,6 +511,8 @@ class Simulation:
 
             if not self.is_paused:
 
+                # self.recorder.capture_frame(self.screen)
+
                 ### ---- OBSERVATIONS ---- ###
 
                 # obs_start = time.time()
@@ -553,8 +555,8 @@ class Simulation:
                 if self.log_zarr_file:
                     tracking.save_agent_data_RAM(self)
                     tracking.save_resource_data_RAM(self)
-                # else:
-                #     self.save_data_agent()
+                else:
+                    self.save_data_agent()
                 # sav_times[self.t] = time.time() - sav_start
 
                 ### ---- MODEL + ACTIONS ---- ###
@@ -569,36 +571,9 @@ class Simulation:
                     # Food present --> consume + set mode to exploit (if food is still available)
                     if agent.on_resrc == 1:
                         self.consume(agent) 
-                        self.fit_time_cum += self.t
                     # No food --> move via decided action(s) + set mode to collide if collided
                     else: 
                         agent.move(agent.action) 
-
-                    # if agent.collected_r == self.max_patch_regen:
-                    #     ### ---- END OF SIMULATION (found food - premature termination) ---- ###
-
-                    #     pygame.quit()
-                    #     # compute simulation time in seconds
-                    #     self.elapsed_time = round( (time.time() - start_time) , 2)
-                    #     if self.print_enabled:
-                    #         print(f"Elapsed_time: {self.elapsed_time}")
-
-                    #     if self.log_zarr_file:
-                    #         # conclude agent/resource tracking
-                    #         # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
-                    #         ag_zarr, res_zarr = tracking.save_zarr_file(self.t+1, self.save_ext, self.print_enabled)
-
-                    #         # display static map of simulation
-                    #         if self.plot_trajectory:
-                    #             plot_data = ag_zarr, res_zarr
-                    #             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
-
-                    #     # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-                    #     self.fitnesses = ag_zarr[:,-1,-1]
-                    #     # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
-                    #     # self.fitnesses = np.array([self.fit_time_cum]) # --> use cumulative time taken to find each food patch
-
-                    #     return self.fitnesses, self.elapsed_time
 
                 # mod_times[self.t] = time.time() - mod_start
 
@@ -622,6 +597,7 @@ class Simulation:
 
         ### ---- END OF SIMULATION ---- ###
 
+        # self.recorder.end_recording()
         pygame.quit()
 
         # compute simulation time in seconds
@@ -633,16 +609,28 @@ class Simulation:
             # conclude agent/resource tracking
             # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
             ag_zarr, res_zarr = tracking.save_zarr_file(self.T, self.save_ext, self.print_enabled)
+            plot_data = ag_zarr, res_zarr
+            # extract total fitnesses of each agent + save into sim instance (pulled for EA)
+            self.fitnesses = ag_zarr[:,-1,-1]
+        else: # use ag/res tracking from self instance
+            # convert list to 3D array similar to zarr file
+            data_res_array = np.zeros( (len(self.data_res), 1, 3 ))
+            for id, (pos_x, pos_y, radius) in enumerate(self.data_res):
+                data_res_array[id, 0, 0] = pos_x
+                data_res_array[id, 0, 1] = pos_y
+                data_res_array[id, 0, 2] = radius
+
+            # assign plot data as numpy arrays
+            plot_data = self.data_agent, data_res_array
+            # extract agent fitnesses from self
+            self.fitnesses = self.data_agent[:,-1,-1]
+
+        # print list of agent fitnesses
+        if self.print_enabled:
+            print(f"Fitnesses: {self.fitnesses}")
 
         # display static map of simulation
         if self.plot_trajectory:
-            plot_data = ag_zarr, res_zarr
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
-
-        # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-        self.fitnesses = ag_zarr[:,-1,-1]
-        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
-        # patches_not_reached = self.max_patch_regen - agent.collected_r
-        # self.fitnesses = np.array([patches_not_reached * self.T + self.fit_time_cum]) # --> use cumulative time taken to find each food patch + non-reached patch times added on top
 
         return self.fitnesses, self.elapsed_time
