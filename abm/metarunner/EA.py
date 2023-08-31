@@ -1,5 +1,5 @@
-# from abm.NN.model import WorldModel as Model
-from abm.NN.model_simp import WorldModel as Model
+from abm.NN.model import WorldModel as Model
+# from abm.NN.model_simp import WorldModel as Model
 from abm import start_sim
 from abm.monitoring import plot_funcs
 
@@ -52,8 +52,8 @@ class EvolAlgo():
         self.num_top_nn_saved = num_top_nn_saved
         self.num_top_nn_plots = num_top_nn_plots
         self.EA_save_name = EA_save_name
-        self.root_dir = Path(__file__).parent.parent.parent                                  # /home/govoni/gh-repos/DavidMezey-PyGame-ABM
-        self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)     # /home/govoni/gh-repos/DavidMezey-PyGame-ABM/abm/data/simulation_data/stationarypatch_CMAES
+        self.root_dir = Path(__file__).parent.parent.parent
+        self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)
         
         self.mean_param_vec = np.zeros([generations, param_vec_size])
         self.std_param_vec = np.zeros([generations, param_vec_size])
@@ -95,9 +95,9 @@ class EvolAlgo():
                     sim_inputs_per_gen.append( (self.model_tuple, pv, save_ext, seeds_per_gen[e]) )
 
                 # save NN param_vec in the parent folder
-                NN_dir = Path(self.root_dir,fr'abm/data/simulation_data/{self.EA_save_name}/running/NN{n}')
+                NN_dir = Path(self.root_dir,fr'abm/data/simulation_data/{self.EA_save_name}/running')
                 Path(NN_dir).mkdir(parents=True, exist_ok=True)
-                with open(fr'{NN_dir}/NN_pickle.bin','wb') as f:
+                with open(fr'{NN_dir}/NN{n}_pickle.bin','wb') as f:
                     pickle.dump(pv, f)
 
             sim_time = time.time()
@@ -149,12 +149,6 @@ class EvolAlgo():
             # top_fg = int(np.min(fitness_gen)) # min : top
             avg_fg = round(np.mean(fitness_gen),2)
             print(f'Highest Across Gen: {top_fg} | Avg Across Gen: {avg_fg} ---')
-            
-            # print('Running Dir Contents:')
-            # run_dir = Path(self.EA_save_dir, 'running')
-            # contents = list(run_dir.iterdir())
-            # for c in contents:
-            #     print(c)
 
 
             #### ---- Save/plot performance + NN from top performers  ---- ####
@@ -172,31 +166,19 @@ class EvolAlgo():
 
                 # pull saved sim runs from 'running' directory + archive in parent directory
                 # ('running' directory is rewritten each generation)
-                NN_load_name = fr'running/NN{n_gen}'
-                NN_save_name = fr'gen{i}/NN{n_top}_af{int(fitness_gen[n_gen])}'
-
-                # print(f'From: {NN_load_name}')
-                # print(f'To:   {NN_save_name}')
-
-                NN_load_dir = Path(self.EA_save_dir, NN_load_name)
-                NN_save_dir = Path(self.EA_save_dir, NN_save_name)
-
+                NN_load_dir = Path(self.EA_save_dir, fr'running/NN{n_gen}_pickle.bin')
+                NN_save_dir = Path(self.EA_save_dir, fr'gen{i}_NN{n_top}_pickle.bin')
                 shutil.move(NN_load_dir, NN_save_dir)
 
-                # print('Save Dir Contents:')
-                # contents = list(NN_save_dir.iterdir())
-                # for c in contents:
-                #     print(c)
+                # # plot saved runs + output in parent directory
+                # for e in range(self.num_top_nn_plots):
 
-                # plot saved runs + output in parent directory
-                for e in range(self.num_top_nn_plots):
+                #     ag_zarr = zarr.open(fr'{NN_save_dir}/ep{e}/ag.zarr', mode='r')
+                #     res_zarr = zarr.open(fr'{NN_save_dir}/ep{e}/res.zarr', mode='r')
+                #     plot_data = ag_zarr, res_zarr
 
-                    ag_zarr = zarr.open(fr'{NN_save_dir}/ep{e}/ag.zarr', mode='r')
-                    res_zarr = zarr.open(fr'{NN_save_dir}/ep{e}/res.zarr', mode='r')
-                    plot_data = ag_zarr, res_zarr
-
-                    plot_funcs.plot_map(plot_data, x_max=500, y_max=500, 
-                                        save_name=f'{NN_save_dir}_ep{e}')
+                #     plot_funcs.plot_map(plot_data, x_max=500, y_max=500, 
+                #                         save_name=f'{NN_save_dir}_ep{e}')
             
             # update/pickle generational fitness data in parent directory
             self.fitness_evol.append(fitness_gen)
