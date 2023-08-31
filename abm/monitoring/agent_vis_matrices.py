@@ -86,7 +86,7 @@ def build_Nact_matrix_parallel(name):
     orient_range = np.arange(0, 2*np.pi, np.pi/8) 
 
     # construct matrix of each neuron activity for each grid pos/dir
-    vis_field_res = int(envconf["VISUAL_FIELD_RESOLUTION"])
+    vis_field_res = list(map(int,envconf["CNN_DIMS"].split(',')))[-1]
     rnn_hidden_size = int(envconf["RNN_HIDDEN_SIZE"])
     lcl_output_size = int(envconf["LCL_OUTPUT_SIZE"])
     Nact_size = vis_field_res + rnn_hidden_size + lcl_output_size
@@ -433,10 +433,10 @@ if __name__ == '__main__':
     ### --- complex model --- ###
 
 
-    exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep2'
-    gen_ext = 'gen549'
-    NN_ext = 'NN0_af8'
-    names.append( (exp_name, gen_ext, NN_ext) )
+    # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep2'
+    # gen_ext = 'gen549'
+    # NN_ext = 'NN0_af8'
+    # names.append( (exp_name, gen_ext, NN_ext) )
 
     # exp_name = 'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep4'
     # gen_ext = 'gen969'
@@ -462,11 +462,16 @@ if __name__ == '__main__':
     # names.append( (exp_name, gen_ext, NN_ext) )
     
 
+    exp_name = 'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
+    gen_ext = 'gen969'
+    NN_ext = 'NN0_af7'
+    names.append( (exp_name, gen_ext, NN_ext) )
+
 
 
     for name in names:
         print(f'build/plot matrix for: {name}')
-        # Nact_matrix = build_Nact_matrix_parallel(name)
-        # plot_Nactmat_imshow(name)
+        Nact_matrix = build_Nact_matrix_parallel(name)
+        plot_Nactmat_imshow(name)
         build_agent_trajs_parallel(name, space_step, orient_step, timesteps)
         plot_agent_trajs(name, space_step, orient_step, timesteps)

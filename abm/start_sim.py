@@ -145,13 +145,19 @@ if __name__ == '__main__':
     # NN_ext = 'gen997/NN0_af7'
     # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep1'
     # NN_ext = 'gen977/NN0_af6'
-    exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep2'
-    NN_ext = 'gen549/NN0_af8'
+    # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep2'
+    # NN_ext = 'gen549/NN0_af8'
     # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep3'
     # NN_ext = 'gen999/NN0_af7'
+    # exp_name = 'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
+    # NN_ext = 'gen969/NN0_af7'
+
+    exp_name = 'test'
+    NN_ext = 'gen0_NN0'
+    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}.bin'
 
 
-    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
+    # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
     print(NN_pv_path)
     env_path = fr'{data_dir}/{exp_name}/.env'
 

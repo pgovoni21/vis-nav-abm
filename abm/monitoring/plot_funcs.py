@@ -252,7 +252,7 @@ def plot_mult_EA_trends(names, save_name=None):
                         label = f'max {name}',
                         # label = f'avg {name} | t: {time} sec',
                         color=cmap(i/cmap_range), 
-                        linestyle='dotted'
+                        # linestyle='dotted'
                         )
         lns.append(l1[0])
 
@@ -262,14 +262,14 @@ def plot_mult_EA_trends(names, save_name=None):
                             # label = f'avg {name}',
                             label = f'avg {name} | t: {int(time)} sec',
                             color=cmap(i/cmap_range), 
-                            # linestyle='dashed'
+                            linestyle='dotted'
                             )
         else:
             l2 = ax1.plot(avg_trend_data, 
                             label = f'avg {name}',
                             # label = f'avg {name} | t: {int(time)} sec',
                             color=cmap(i/cmap_range), 
-                            # linestyle='dashed'
+                            linestyle='dotted'
                             )
         lns.append(l2[0])
     
@@ -402,116 +402,77 @@ if __name__ == '__main__':
 
     names = []
 
-    # names.append('doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_vis8_dirfit')
-    # names.append('doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_comp')
+    # plot_mult_EA_trends([f'doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_18')
+    # plot_mult_EA_trends([f'doublepoint_CNN14_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_GRU_14')
 
-    # names.append('doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit')
-    # names.append('doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit')
-    # names.append('doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_comp')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_FNN')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_CTRNN')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_GRU')
 
-    # names.append('doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_other0')
-    # names.append('doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_other0')
-    # names.append('doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_other0')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_FNN_other0')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_CTRNN_other0')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_GRU_other0')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_GRU_other0_1unit')
 
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)], 'doublepoint_vis8_dirfit_simp_FNN')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)], 'doublepoint_vis8_dirfit_simp_CTRNN')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)], 'doublepoint_vis8_dirfit_simp_GRU')
 
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_FNN')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_CTRNN')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_GRU')
+    # plot_mult_EA_trends([f'doublepoint_CNN1126_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1126')
+    # plot_mult_EA_trends([f'doublepoint_CNN1124_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1124')
+    # plot_mult_EA_trends([f'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1122')
+    # plot_mult_EA_trends([f'doublepoint_CNN1118_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1118')
+    # plot_mult_EA_trends([f'doublepoint_CNN1116_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1116')
+    # plot_mult_EA_trends([f'doublepoint_CNN1114_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1114')
+    # plot_mult_EA_trends([f'doublepoint_CNN1112_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1112')
 
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_FNN_other0')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_CTRNN_other0')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_GRU_other0')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_GRU_other0_1unit')
+    # plot_mult_EA_trends([f'doublepoint_CNN111124_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_GRU_111124')
 
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_simp_FNN')
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_simp_CTRNN')
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # plot_mult_EA_trends(names, 'doublepoint_vis8_dirfit_simp_GRU')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU1')
+    # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU3_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU3')
 
 
 ### ----------group pop runs----------- ###
 
     groups = []
 
-    # names = []
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
-    # groups.append(('FNN',names))
+    # groups.append(('GRU_14',[f'doublepoint_CNN14_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # groups.append(('GRU_18',[f'doublepoint_CNN18_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_GRU_1x_groups')
 
-    # names = []
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
-    # groups.append(('CTRNN',names))
-
-    # names = []
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
-    # groups.append(('GRU',names))
-
+    # groups.append(('FNN',[f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
+    # groups.append(('CTRNN',[f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
+    # groups.append(('GRU',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
     # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_groups')
 
+    # groups.append(('FNN',[f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
+    # groups.append(('CTRNN',[f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
+    # groups.append(('GRU',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
+    # groups.append(('GRU_1',[f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
+    # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_other0_groups')
 
-    # names = []
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # groups.append(('FNN',names))
-
-    # names = []
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # groups.append(('CTRNN',names))
-
-    # names = []
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # groups.append(('GRU',names))
-
+    # groups.append(('FNN',[f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)]))
+    # groups.append(('CTRNN',[f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)]))
+    # groups.append(('GRU',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)]))
     # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_simp_groups')
 
+    # groups.append(('1128',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
+    # groups.append(('1126',[f'doublepoint_CNN1126_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # groups.append(('1124',[f'doublepoint_CNN1124_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # groups.append(('1122',[f'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_GRU_112x_groups')
 
-    # names = []
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # groups.append(('FNN',names))
+    # groups.append(('1118',[f'doublepoint_CNN1118_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # groups.append(('1116',[f'doublepoint_CNN1116_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # groups.append(('1114',[f'doublepoint_CNN1114_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # groups.append(('1112',[f'doublepoint_CNN1112_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_GRU_111x_groups')
 
-    # names = []
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # groups.append(('CTRNN',names))
-
-    # names = []
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # groups.append(('GRU',names))
-
-    # names = []
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # groups.append(('GRU_1',names))
-
-    # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_other0_groups')
+    groups.append(('GRU 1',[f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    groups.append(('GRU 2',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
+    groups.append(('GRU 3',[f'doublepoint_CNN1128_GRU3_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
+    groups.append(('GRU 1 / other0',[f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
+    plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_GRUx_groups')
     
 
 ### ----------singles----------- ###
