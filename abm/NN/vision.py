@@ -5,8 +5,7 @@ class Stem(nn.Module):
     def __init__(self, dim_in, dim_out):
         super().__init__()
         self.stem = nn.Sequential(
-            nn.Conv1d(dim_in, dim_out, kernel_size=2, stride=2),         ## smaller patch than OG - smaller input size
-            # LayerNorm(dim_out, eps=1e-6, data_format="channels_first")  ## left out from OG - better speed+accuracy
+            nn.Conv1d(dim_in, dim_out, kernel_size=2, stride=2),         # -- patchy downsample (smaller than OG)
         )
     def forward(self, x):
         return self.stem(x)
@@ -15,9 +14,8 @@ class Downsample(nn.Module):
     def __init__(self, dim_in, dim_out):
         super().__init__()
         self.downsample_layer = nn.Sequential(
-                # LayerNorm(dim_in, eps=1e-6, data_format="channels_first"), ## OG - did not train (channel-wise local)
-                nn.GroupNorm(num_groups=1, num_channels=dim_in),             ## switched from OG (spatial/channel global)
-                nn.Conv1d(dim_in, dim_out, kernel_size=2, stride=2),
+                nn.GroupNorm(num_groups=1, num_channels=dim_in),            # -- global separation (OG was channel-wise local)
+                nn.Conv1d(dim_in, dim_out, kernel_size=2, stride=2),        # -- patchy downsample (smaller than OG)
             )
     def forward(self, x):
         return self.downsample_layer(x)
@@ -27,10 +25,9 @@ class Downsample(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim, activ):
         super().__init__()
-        # self.dwconv = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv (old)
-        self.dwconv = nn.Conv1d(dim, dim, kernel_size=3, padding=1, groups=dim) # depthwise conv (new)
-        self.norm = LayerNorm(dim, eps=1e-6)
-        self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
+        self.dwconv = nn.Conv1d(dim, dim, kernel_size=3, padding=1, groups=dim) # -- spatial mixing (smaller than OG)
+        self.norm = LayerNorm(dim, eps=1e-6) # -- channel separation (relative to other channels only)
+        self.pwconv1 = nn.Linear(dim, 4 * dim) # -- channel mixing
 
         # set activation function
         if activ == 'relu': self.activ = torch.relu
@@ -39,8 +36,8 @@ class Block(nn.Module):
         elif activ == 'gelu': self.active = torch.nn.GELU()
         else: raise ValueError(f'Invalid activation function: {activ}')
 
-        self.grn = GRN(4 * dim)
-        self.pwconv2 = nn.Linear(4 * dim, dim)
+        self.grn = GRN(4 * dim) # -- channel separation (relative to global mean)
+        self.pwconv2 = nn.Linear(4 * dim, dim) # -- channel mixing
 
     def forward(self, x):
         input = x
@@ -136,27 +133,27 @@ class GRN(nn.Module):
 
 if __name__ == '__main__':
 
-    # image = torch.rand(1, 6, 8)
-    # print(f'Image: {image.shape}')
-    # print('')
+    image = torch.rand(1, 4, 8)
+    print(f'Image: {image.shape}')
+    print('')
 
     model = ConvNeXt(
         in_dims=4,
-        depths=[1,], 
-        dims=[8,],
+        depths=[1,1], 
+        dims=[2,8],
         activ='relu'
         )
     
-    # print(f'Model: {model(image).shape}') # torch.Size([1, {outputs}])
+    print(f'Model: {model(image).shape}') # torch.Size([1, {outputs}])
     # print(f'Total #Params: {sum(p.numel() for p in model.parameters())}')
     # print('')
 
-    for m in model.modules():
-        if isinstance(m, (nn.Linear, nn.Conv1d, nn.LayerNorm, LayerNorm, GRN)):
+    # for m in model.modules():
+    #     if isinstance(m, (nn.Linear, nn.Conv1d, nn.LayerNorm, LayerNorm, GRN)):
             
-            print(m)
-            params = sum(p.numel() for p in m.parameters())
-            print(params)
+    #         print(m)
+    #         params = sum(p.numel() for p in m.parameters())
+    #         print(params)
     
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f'Total #Params: {total_params}')
+    # total_params = sum(p.numel() for p in model.parameters())
+    # print(f'Total #Params: {total_params}')
