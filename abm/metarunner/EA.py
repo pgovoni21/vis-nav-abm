@@ -141,8 +141,8 @@ class EvolAlgo():
                 avg_fitness = np.mean(fitness_ep)
                 fitness_gen.append(avg_fitness)
 
-            # list all averaged fitnesses
-            print(f'Fitnesses: {fitness_gen}')
+            # # list all averaged fitnesses
+            # print(f'Fitnesses: {fitness_gen}')
             
             # Track top fitness per generation
             top_fg = round(np.max(fitness_gen),1) # max : top
@@ -158,9 +158,9 @@ class EvolAlgo():
             top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_nn_saved : -1] # max : top
             # top_indices = np.argsort(fitness_gen)[ : self.num_top_nn_saved] # min : top
 
-            # top_fitnesses = [int(fitness_gen[n_gen]) for n_gen in top_indices]
-            top_fitnesses = [round(fitness_gen[n_gen],2) for n_gen in top_indices]
-            print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
+            # # top_fitnesses = [int(fitness_gen[n_gen]) for n_gen in top_indices]
+            # top_fitnesses = [round(fitness_gen[n_gen],2) for n_gen in top_indices]
+            # print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
 
             for n_top, n_gen in enumerate(top_indices):
 

@@ -19,18 +19,22 @@ def set_env_var(key, val):
 
 
 def EA_runner():
-
-    set_env_var('EA_NUM_TOP_NN_SAVED', '1')
-    set_env_var('EA_NUM_TOP_NN_PLOTS', '1')
     
-    set_env_var('RNN_TYPE', 'gru')
-    set_env_var('RNN_HIDDEN_SIZE', '2')
-    set_env_var('RNN_INPUT_OTHER_SIZE', '3')
+    set_env_var('CNN_DEPTHS', '1,1')
+    set_env_var('CNN_DIMS', '2,8')
 
-    set_env_var('CNN_DEPTHS', '1,1,1')
-    set_env_var('CNN_DIMS', '2,4,8')
-    for x in range(5):
-        set_env_var('EA_SAVE_NAME', f'doublepoint_CNN111248_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
+    set_env_var('RNN_HIDDEN_SIZE', '2')
+
+
+    set_env_var('RNN_INPUT_OTHER_SIZE', '0')
+    set_env_var('RNN_TYPE', 'gru')
+    for x in range(20):
+        set_env_var('EA_SAVE_NAME', f'symdoublepoint_CNN1128_GRU2_other0_rep{x}')
+        start_EA()
+
+    set_env_var('RNN_TYPE', 'fnn')
+    for x in range(20):
+        set_env_var('EA_SAVE_NAME', f'symdoublepoint_CNN1128_FNN2_other0_rep{x}')
         start_EA()
 
 

@@ -34,13 +34,13 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
             NN, arch = reconstruct_NN(envconf, pv)
 
             # override original EA-written env dict
-            envconf['WITH_VISUALIZATION'] = 1
-            envconf['PLOT_TRAJECTORY'] = 0
-            envconf['LOG_ZARR_FILE'] = 0
-            # envconf['WITH_VISUALIZATION'] = 0
-            # envconf['PLOT_TRAJECTORY'] = 1
-            # envconf['LOG_ZARR_FILE'] = 1
+            # envconf['WITH_VISUALIZATION'] = 1
+            # envconf['PLOT_TRAJECTORY'] = 0
+            # envconf['LOG_ZARR_FILE'] = 0
             # envconf['INIT_FRAMERATE'] = 50
+            envconf['WITH_VISUALIZATION'] = 0
+            envconf['PLOT_TRAJECTORY'] = 1
+            envconf['LOG_ZARR_FILE'] = 1
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
@@ -149,15 +149,15 @@ if __name__ == '__main__':
     # NN_ext = 'gen549/NN0_af8'
     # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep3'
     # NN_ext = 'gen999/NN0_af7'
-    # exp_name = 'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
-    # NN_ext = 'gen969/NN0_af7'
+    exp_name = 'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
+    NN_ext = 'gen969/NN0_af7'
 
-    exp_name = 'test'
-    NN_ext = 'gen0_NN0'
-    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}.bin'
+    # exp_name = 'test'
+    # NN_ext = 'gen0_NN0'
+    # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}.bin'
 
 
-    # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
+    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
     print(NN_pv_path)
     env_path = fr'{data_dir}/{exp_name}/.env'
 
