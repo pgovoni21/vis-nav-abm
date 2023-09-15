@@ -360,14 +360,23 @@ class Simulation:
         #     x = self.x_max - self.resrc_radius*3/2
         #     y = self.y_max - self.resrc_radius*3/2
 
-        # top-left / bottom-right points, off-center / off-wall (centers @ 140,450 - 450,140)
+        # # top-left / bottom-right points, off-center / off-wall / asym (centers @ 140,450 - 450,140)
+        # self.resrc_radius = 20
+        # if self.res_id_counter % 2 == 0:
+        #     x = self.x_min + 120
+        #     y = self.y_min + 30
+        # else:
+        #     x = self.x_max - self.resrc_radius/2 - self.window_pad - 30
+        #     y = self.y_max - self.resrc_radius/2 - self.window_pad - 120
+
+        # top-left / bottom-right points, off-center / off-wall / sym (centers @ 140,450 - 360,50)
         self.resrc_radius = 20
         if self.res_id_counter % 2 == 0:
             x = self.x_min + 120
             y = self.y_min + 30
         else:
-            x = self.x_max - self.resrc_radius/2 - self.window_pad - 30
-            y = self.y_max - self.resrc_radius/2 - self.window_pad - 120
+            x = self.x_max - self.resrc_radius/2 - self.window_pad - 120
+            y = self.y_max - self.resrc_radius/2 - self.window_pad - 30
 
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
@@ -375,11 +384,11 @@ class Simulation:
         resource = Resource(id, self.resrc_radius, (x, y), units, quality)
         self.resources.add(resource)
 
-        # if not self.log_zarr_file: # save in sim instance
-        #     x,y = resource.pt_center
-        #     pos_x = x - self.window_pad
-        #     pos_y = self.y_max - y
-        #     self.data_res.append([pos_x, pos_y, self.resrc_radius])
+        if not self.log_zarr_file: # save in sim instance
+            x,y = resource.pt_center
+            pos_x = x - self.window_pad
+            pos_y = self.y_max - y
+            self.data_res.append([pos_x, pos_y, self.resrc_radius])
 
     def consume(self, agent):
         """Carry out agent-resource interactions (depletion, destroying, notifying)"""
