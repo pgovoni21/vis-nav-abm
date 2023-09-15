@@ -14,27 +14,27 @@ setup(
     python_requires=">=3.7",
     install_requires=[
         'pygame',
-        'pygame-widgets',
+        # 'pygame-widgets',
         'numpy',
-        'scipy',
+        # 'scipy',
         'matplotlib',
         'python-dotenv',
-        'pandas',
-        'influxdb<5.3.0',
-        'opencv-python',
-        'xvfbwrapper',
+        # 'pandas',
+        # 'influxdb<5.3.0',
+        # 'opencv-python',
+        # 'xvfbwrapper',
         'zarr',
         'torch',
         'cma'
     ],
-    extras_require={
-        'test': [
-            'bandit',
-            'flake8',
-            'pytest',
-            'pytest-cov'
-        ]
-    },
+    # extras_require={
+    #     'test': [
+    #         'bandit',
+    #         'flake8',
+    #         'pytest',
+    #         'pytest-cov'
+    #     ]
+    # },
     entry_points={
         'console_scripts': [
             'abm=abm.start_sim:start',
