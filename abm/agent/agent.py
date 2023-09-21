@@ -48,10 +48,9 @@ class Agent(pygame.sprite.Sprite):
         self.orientation = orientation
         self.velocity = 0  # (absolute)
         
-        self.pt_center = self.position + radius
         self.pt_eye = np.array([
-            self.pt_center[0] + np.cos(orientation) * radius, 
-            self.pt_center[1] - np.sin(orientation) * radius])
+            self.position[0] + np.cos(orientation) * radius, 
+            self.position[1] - np.sin(orientation) * radius])
 
         self.mode = "explore"  # explore / exploit / collide
         self.max_vel = max_vel
@@ -107,6 +106,7 @@ class Agent(pygame.sprite.Sprite):
 
         # Environment related parameters
         self.x_min, self.x_max, self.y_min, self.y_max = boundary_info
+        self.window_pad = 30
         # define names for each endpoint (top/bottom + left/right)
         self.boundary_endpts = [
             ('TL', np.array([ self.x_min, self.y_min ])),
@@ -132,7 +132,7 @@ class Agent(pygame.sprite.Sprite):
         pygame.draw.line(self.image, colors.BACKGROUND, (radius, radius),
                          ((1 + np.cos(self.orientation)) * radius, (1 - np.sin(self.orientation)) * radius), 3)
         self.rect = self.image.get_rect()
-        self.rect.x, self.rect.y = self.position
+        self.rect.x, self.rect.y = self.position + self.window_pad
         self.mask = pygame.mask.from_surface(self.image)
 
 ### -------------------------- VISUAL FUNCTIONS -------------------------- ###
@@ -141,16 +141,13 @@ class Agent(pygame.sprite.Sprite):
         """
         update position/direction points + vector of self
         """
-        # center point of self
-        self.pt_center = self.position + self.radius
-
         # front-facing point on agent's perimeter according to its orientation
         self.pt_eye = np.array([
-            self.pt_center[0] + np.cos(self.orientation) * self.radius, 
-            self.pt_center[1] - np.sin(self.orientation) * self.radius])
+            self.position[0] + np.cos(self.orientation) * self.radius, 
+            self.position[1] - np.sin(self.orientation) * self.radius])
 
         # direction vector, magnitude = radius, flipped y-axis
-        self.vec_self_dir = self.pt_eye - self.pt_center
+        self.vec_self_dir = self.pt_eye - self.position
         ## where v1[0] --> + : right, 0 : center, - : left, 10 : max
         ## where v1[1] --> + : down, 0 : center, - : up, 10 : max
 
@@ -424,7 +421,7 @@ class Agent(pygame.sprite.Sprite):
         Signals blocked directions to the agent for all boundary walls
         """
         # Call agent center coordinates
-        x, y = self.pt_center
+        x, y = self.position
 
         # Zero contact_field + block_angles lists from previous step
         self.contact_field = [0] * self.contact_field_res
@@ -704,6 +701,7 @@ class Agent(pygame.sprite.Sprite):
             pygame.draw.circle(
                 self.image, self.color, (self.radius, self.radius), self.radius
             )
+        self.rect.centerx, self.rect.centery = self.position + self.window_pad
 
         # showing agent orientation with a line towards agent orientation
         pygame.draw.line(self.image, colors.BACKGROUND, (self.radius, self.radius),

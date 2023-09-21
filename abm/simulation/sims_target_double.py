@@ -73,8 +73,8 @@ class Simulation:
         self.WIDTH = width
         self.HEIGHT = height
         self.window_pad = window_pad
-        self.x_min, self.x_max = window_pad, window_pad + width # [30, 430]
-        self.y_min, self.y_max = window_pad, window_pad + height # [30, 430]
+        self.x_min, self.x_max = 0, width
+        self.y_min, self.y_max = 0, height
         self.boundary_info = (self.x_min, self.x_max, self.y_min, self.y_max)
 
         # Simulation parameters
@@ -165,7 +165,7 @@ class Simulation:
         # Initializing pygame
         if self.with_visualization:
             pygame.init()
-            self.screen = pygame.display.set_mode([self.x_min + self.x_max, self.y_min + self.y_max])
+            self.screen = pygame.display.set_mode([self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2])
             # self.recorder = ScreenRecorder(self.x_min + self.x_max, self.y_min + self.y_max, framerate, out_file='sim.mp4')
         else:
             pygame.display.init()
@@ -181,17 +181,17 @@ class Simulation:
     def draw_walls(self):
         """Drawing walls on the arena according to initialization"""
         pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_min, self.y_min],
-                         [self.x_min, self.y_max])
+                         [self.window_pad, self.window_pad],
+                         [self.window_pad, self.window_pad + self.HEIGHT])
         pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_min, self.y_min],
-                         [self.x_max, self.y_min])
+                         [self.window_pad, self.window_pad],
+                         [self.window_pad + self.WIDTH, self.window_pad])
         pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_max, self.y_min],
-                         [self.x_max, self.y_max])
+                         [self.window_pad + self.WIDTH, self.window_pad],
+                         [self.window_pad + self.WIDTH, self.window_pad + self.HEIGHT])
         pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_min, self.y_max],
-                         [self.x_max, self.y_max])
+                         [self.window_pad, self.window_pad + self.HEIGHT],
+                         [self.window_pad + self.WIDTH, self.window_pad + self.HEIGHT])
 
     def draw_framerate(self):
         """Showing framerate, sim time and pause status on simulation windows"""
@@ -228,9 +228,9 @@ class Simulation:
         for agent in self.agents:
             # Show visual range as circle if non-limiting FOV
             if self.agent_fov == 1:
-                pygame.draw.circle(self.screen, colors.GREY, agent.pt_eye, agent.vision_range, width=1)
+                pygame.draw.circle(self.screen, colors.GREY, agent.pt_eye + self.window_pad, agent.vision_range, width=1)
             else: # self.agent_fov < 1 --> show limits of FOV as radial lines with length of visual range
-                start_pos = agent.pt_eye
+                start_pos = agent.pt_eye + self.window_pad
                 angles = (agent.orientation + agent.phis[0], 
                           agent.orientation + agent.phis[-1])
                 for angle in angles: ### draws lines that don't quite meet borders
@@ -240,6 +240,10 @@ class Simulation:
 
             # Show what it is seeing as discretized circles, color reflects identity
             for phi, vis_name in zip(agent.phis, agent.vis_field):
+
+                end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * 1500,
+                            start_pos[1] - np.sin(agent.orientation - phi) * 1500)
+                pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
 
                 if vis_name == 'wall_north': # --> red
                     pygame.draw.circle(
@@ -280,7 +284,7 @@ class Simulation:
         self.draw_agent_stats()
 
         # vision range + projection field
-        if self.show_vision_range and self.x_max > self.vision_range: 
+        if self.show_vision_range and self.WIDTH > self.vision_range: 
             self.draw_visual_fields()
 
 ### -------------------------- AGENT FUNCTIONS -------------------------- ###
@@ -333,8 +337,8 @@ class Simulation:
     def save_data_agent(self):
         """Tracks key variables (position, mode, resources collected) via array for current timestep"""
         for agent in self.agents:
-            x, y = agent.pt_center
-            pos_x = x - self.window_pad
+            x, y = agent.position
+            pos_x = x
             pos_y = self.y_max - y
 
             if agent.mode == 'explore': mode_num = 0
@@ -351,7 +355,7 @@ class Simulation:
         # creates single resource patch in alternating positions
         id = self.res_id_counter
 
-        # top-left / bottom-right corners (centers @ 50,450 - 450,50)
+        # # top-left / bottom-right corners (centers @ 50,450 - 450,50)
         # self.resrc_radius = 100
         # if self.res_id_counter % 2 == 0: 
         #     x = self.x_min - self.resrc_radius/2
@@ -359,6 +363,19 @@ class Simulation:
         # else:
         #     x = self.x_max - self.resrc_radius*3/2
         #     y = self.y_max - self.resrc_radius*3/2
+
+        # top-left / bottom-right corners (centers @ 315,685 - 685,315)
+        self.resrc_radius = self.WIDTH/2 # 100 if width=2000
+        print(self.resrc_radius)
+        if self.res_id_counter % 2 == 0: 
+            x = 0
+            y = 0
+            # x = 800 - self.resrc_radius/2 + self.window_pad
+            # y = 800 - self.resrc_radius/2 - self.window_pad
+        else:
+            x = self.WIDTH/2 + self.resrc_radius*2 - self.resrc_radius/2
+            y = self.WIDTH/2 + self.resrc_radius*2 - self.resrc_radius/2
+        print(x,y)
 
         # # top-left / bottom-right points, off-center / off-wall / asym (centers @ 140,450 - 450,140)
         # self.resrc_radius = 20
@@ -369,14 +386,14 @@ class Simulation:
         #     x = self.x_max - self.resrc_radius/2 - self.window_pad - 30
         #     y = self.y_max - self.resrc_radius/2 - self.window_pad - 120
 
-        # top-left / bottom-right points, off-center / off-wall / sym (centers @ 140,450 - 360,50)
-        self.resrc_radius = 20
-        if self.res_id_counter % 2 == 0:
-            x = self.x_min + 120
-            y = self.y_min + 30
-        else:
-            x = self.x_max - self.resrc_radius/2 - self.window_pad - 120
-            y = self.y_max - self.resrc_radius/2 - self.window_pad - 30
+        # # top-left / bottom-right points, off-center / off-wall / sym (centers @ 140,450 - 360,50)
+        # self.resrc_radius = 20
+        # if self.res_id_counter % 2 == 0:
+        #     x = self.x_min + 120
+        #     y = self.y_min + 30
+        # else:
+        #     x = self.x_max - self.resrc_radius/2 - self.window_pad - 120
+        #     y = self.y_max - self.resrc_radius/2 - self.window_pad - 30
 
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
@@ -385,8 +402,8 @@ class Simulation:
         self.resources.add(resource)
 
         if not self.log_zarr_file: # save in sim instance
-            x,y = resource.pt_center
-            pos_x = x - self.window_pad
+            x,y = resource.position
+            pos_x = x
             pos_y = self.y_max - y
             self.data_res.append([pos_x, pos_y, self.resrc_radius])
 
@@ -424,7 +441,7 @@ class Simulation:
         for agent, resource_list in collision_group_ar.items():
             for resource in resource_list:
                 # Flip bool variable if agent is within patch boundary
-                if supcalc.distance(agent.pt_center, resource.pt_center) <= resource.radius:
+                if supcalc.distance(agent.position, resource.position) <= resource.radius:
                     agent.on_resrc = 1
                     agent.res_to_be_consumed = resource
                     break
@@ -529,7 +546,6 @@ class Simulation:
 
                     # Update agent parameters
                     agent.on_resrc = 0
-                    agent.rect.x, agent.rect.y = agent.position
 
                     if self.with_visualization:
                         agent.draw_update() 

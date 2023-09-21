@@ -38,8 +38,7 @@ class Resource(pygame.sprite.Sprite):
         self.position = np.array(position, dtype=np.float64)
         self.quality = quality 
 
-        # Patch position
-        self.pt_center = self.position + self.radius 
+        self.window_pad = 30
 
         # Visualization
         self.color = colors.GREY
@@ -53,7 +52,7 @@ class Resource(pygame.sprite.Sprite):
         )
         self.mask = pygame.mask.from_surface(self.image)
         self.rect = self.image.get_rect()
-        self.rect.centerx, self.rect.centery = self.pt_center
+        self.rect.centerx, self.rect.centery = self.position + self.window_pad
 
         self.show_stats = True # display resource information
         self.is_clicked = False # mouse events --> move patch + show_stats
@@ -100,7 +99,7 @@ class Resource(pygame.sprite.Sprite):
             self.image, self.resrc_left_color, (self.radius, self.radius), small_radius
         )
         self.rect = self.image.get_rect()
-        self.rect.centerx, self.rect.centery = self.pt_center
+        self.rect.centerx, self.rect.centery = self.position + self.window_pad
         self.mask = pygame.mask.from_surface(self.image)
         if self.is_clicked or self.show_stats:
             font = pygame.font.Font(None, 18)
@@ -113,7 +112,7 @@ class Resource(pygame.sprite.Sprite):
         """
         if self.rect.collidepoint(mouse):
             self.is_clicked = True
-            self.pt_center = mouse 
+            self.position = mouse 
             self.draw_update()
         else:
             self.is_clicked = False
