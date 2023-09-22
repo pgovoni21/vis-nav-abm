@@ -3,8 +3,8 @@ agent.py : including the main classes to create an agent. Supplementary calculat
             are removed from this file.
 """
 
-from abm.contrib import colors
-from abm.agent import supcalc
+from abm import colors
+from abm.sprites import supcalc
 # from abm.helpers import timer
 
 import pygame

@@ -248,17 +248,10 @@ cython_debug/
 *_copy.env
 
 # ignore data
-/abm/data/*
+abm/data/
 *.bin
 ...start.bat
 ..data.lnk
-outcmaes/axlen.dat
-outcmaes/axlencorr.dat
-outcmaes/axlenprec.dat
-outcmaes/fit.dat
-outcmaes/sigvec.dat
-outcmaes/stddev.dat
-outcmaes/xmean.dat
-outcmaes/xrecentbest.dat
+outcmaes/*
 sim.gif
 sim.mp4

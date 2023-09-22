@@ -6,10 +6,10 @@ import numpy as np
 import sys
 import time
 
-from abm.agent import supcalc
-from abm.agent.agent import Agent
-from abm.environment.resource import Resource
-from abm.contrib import colors
+from abm import colors
+from abm.sprites import supcalc
+from abm.sprites.agent import Agent
+from abm.sprites.resource import Resource
 from abm.monitoring import tracking, plot_funcs
 # from abm.monitoring.screen_recorder import ScreenRecorder
 # from abm.helpers import timer
@@ -324,9 +324,9 @@ class Simulation:
                 x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
                 y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
                 # x,y = self.WIDTH*29/30-5, self.WIDTH*29/30
-                # x,y = 981, 981
+                # x,y = 19, 981
                 orient = np.random.uniform(0, 2 * np.pi)
-                # orient = 5.3
+                # orient = 1.5
 
                 agent = Agent(
                         id=i,
@@ -378,13 +378,13 @@ class Simulation:
         id = self.res_id_counter
 
         # top-left / bottom-right corners
-        self.resrc_radius = self.WIDTH/20 # 100 if width=2000
+        self.resrc_radius = self.WIDTH/10 # 100 if width=1000
         if self.res_id_counter % 2 == 0: 
-            x = self.WIDTH/2 - self.resrc_radius*5
-            y = self.WIDTH/2 - self.resrc_radius*5
+            x = self.WIDTH/2 - self.resrc_radius
+            y = self.WIDTH/2 - self.resrc_radius
         else:
-            x = self.WIDTH/2 + self.resrc_radius*5
-            y = self.WIDTH/2 + self.resrc_radius*5
+            x = self.WIDTH/2 + self.resrc_radius
+            y = self.WIDTH/2 + self.resrc_radius
 
         # # top-left / bottom-right points, off-center / off-wall / asym (centers @ 140,450 - 450,140)
         # self.resrc_radius = 20
@@ -456,6 +456,10 @@ class Simulation:
                     agent.on_resrc = 1
                     agent.res_to_be_consumed = resource
                     break
+
+    def collide_agent_wall(self):
+        
+        pass
 
     # def collide_agent_agent(self):
 

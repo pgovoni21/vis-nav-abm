@@ -3,7 +3,7 @@ Resource.py : including the main classes to create a Resource entity that can be
 """
 import pygame
 import numpy as np
-from abm.contrib import colors
+from abm import colors
 
 class Resource(pygame.sprite.Sprite):
     """
