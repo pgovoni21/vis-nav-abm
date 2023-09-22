@@ -380,22 +380,39 @@ class Agent(pygame.sprite.Sprite):
         """
         Mark projection field according to each wall or agent
         """
-        # pull relevant info from dict
-        for obj_name, v in proj_dict.items():
+        # # pull relevant info from dict ---> loops over walls ---> can result in error at border points since it does not check
+        # for obj_name, v in proj_dict.items():
+        #     if dict_type == 'walls':
+        #         phi_from = v["proj_L"]
+        #         phi_to = v["proj_R"]
+        #     else: # dict_type == 'agents
+        #         phi_from = v["proj_L_ex"]
+        #         phi_to = v["proj_R_ex"]
+        #         obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
+        #     # raycast to wall/agent for each discretized perception angle within FOV range
+        #     # fill in relevant identification information (wall name / agent mode)
+        #     for i in range(phi_from, phi_to + 1):
+        #         self.vis_field[i] = obj_name
 
-            if dict_type == 'walls':
-                phi_from = v["proj_L"]
-                phi_to = v["proj_R"]
-            else: # dict_type == 'agents
-                phi_from = v["proj_L_ex"]
-                phi_to = v["proj_R_ex"]
-                obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
 
-            # raycast to wall/agent for each discretized perception angle within FOV range
-            # fill in relevant identification information (wall name / agent mode)
-            for i in range(phi_from, phi_to + 1):
-                
-                self.vis_field[i] = obj_name
+        # raycast to wall/agent for each discretized perception angle within FOV range
+        # fill in relevant identification information (wall name / agent mode)
+        for i in range(self.vis_field_res):
+
+            # look for intersections
+            for obj_name, v in proj_dict.items():
+                if v["angle_L"] <= self.phis[i] <= v["angle_R"]:
+                    # if dict_type == 'agents': obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
+                    self.vis_field[i] = obj_name
+            
+            # no intersections bc one endpoint is behind back, iterate again
+            if self.vis_field[i] == 0:
+                for obj_name, v in proj_dict.items():
+                    # if dict_type == 'agents': obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
+                    if v["angle_L"] > v["angle_R"]:
+                        self.vis_field[i] = obj_name
+        
+        # print(self.vis_field)
 
     # @timer
     def visual_sensing(self):
