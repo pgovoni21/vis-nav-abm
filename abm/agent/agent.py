@@ -610,38 +610,28 @@ class Agent(pygame.sprite.Sprite):
         Calculates next position with collisions as absorbing boundary conditions
         """
         # NN output via tanh scales to a range of [-1 : 1]
-        # Scale to max 45 deg turns [-pi/4 : pi/4] per timestep
-        turn = NN_output * np.pi / 4
+        # Scale to max 90 deg turns [-pi/2 : pi/2] per timestep
+        turn = NN_output * np.pi / 2
 
         # Shift orientation accordingly + bind to [0 : 2pi]
         self.orientation += turn
         # self.orientation += np.pi/16
         self.bind_orientation()
 
-        ### For NN_output_size = 2 ###
-        # # Unpack actions (NN outputs, tanh scales possible range to [-1 : +1])
-        # dvel, dtheta = actions
-
-        # # Update + bound velocity/orientation
+        # Update velocity
         # self.velocity += dvel
         # self.bind_velocity()  # to [0 : max_vel]
-        # self.orientation += dtheta
-        # self.bind_orientation()  # to [0 : 2pi]
+        self.velocity = self.max_vel * (1 - abs(NN_output))
 
         # Impelement collision boundary conditions
         self.wall_collision_sticky()
-        # moving_dir = self.wall_collision_absorbtion()
-        # self.wall_collision_reflection()
 
         # Calculate agent's next position
-        self.position[0] += self.velocity * np.cos(self.orientation)
-        self.position[1] -= self.velocity * np.sin(self.orientation)
-        # if moving_dir:
-        #     self.position[0] += self.velocity * np.cos(moving_dir)
-        #     self.position[1] -= self.velocity * np.sin(moving_dir)
-        # else:
-        #     self.position[0] += self.velocity * np.cos(self.orientation)
-        #     self.position[1] -= self.velocity * np.sin(self.orientation)
+        orient_comp = np.array((
+            np.cos(self.orientation),
+            -np.sin(self.orientation)
+        ))
+        self.position += self.velocity * orient_comp
 
 ### -------------------------- NEURAL NETWORK FUNCTIONS -------------------------- ###
 
