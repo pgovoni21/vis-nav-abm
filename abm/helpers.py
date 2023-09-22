@@ -12,9 +12,11 @@ def timer(func):
         value = func(*args, **kwargs)
         end_time = time.perf_counter()      # 2
         run_time = end_time - start_time    # 3
-        print(f"Finished {func.__name__!r} in {run_time:.4f} secs")
+        if run_time > 1e-04:
+            print(f"{func.__name__!r} : {run_time:.4f} secs")
         return value
     return wrapper_timer
+    return None
 
 def debug(func):
     """Print function signature and return value"""

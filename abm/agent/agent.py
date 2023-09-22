@@ -5,6 +5,7 @@ agent.py : including the main classes to create an agent. Supplementary calculat
 
 from abm.contrib import colors
 from abm.agent import supcalc
+# from abm.helpers import timer
 
 import pygame
 import numpy as np
@@ -14,7 +15,7 @@ class Agent(pygame.sprite.Sprite):
     Agent class that includes all private parameters of the agents and all methods necessary to move in the environment
     and to make decisions.
     """
-
+    # @timer
     def __init__(self, id, position, orientation, max_vel, collision_slowdown, 
                  FOV, vision_range, visual_exclusion, consumption, 
                  arch, model, RNN_type, NN_activ, boundary_info, radius, color):
@@ -155,8 +156,12 @@ class Agent(pygame.sprite.Sprite):
         """
         create dictionary storing visually relevant information for each boundary endpoint
         """
+
         # print()
         # print(f'self \t {np.round(self.vec_self_dir/self.radius,2)} \t {np.round(self.orientation*90/np.pi,0)}')
+
+        # print(np.round(self.phis*90/np.pi,0))
+
         self.boundary_endpt_dict = {}
         for endpt_name, endpt_coord in self.boundary_endpts:
 
@@ -169,7 +174,7 @@ class Agent(pygame.sprite.Sprite):
             # calc orientation angle
             angle_bw = supcalc.angle_between(self.vec_self_dir, vec_between, self.radius, distance)
             ## relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
-            
+
             # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}')
 
             # project to FOV
@@ -178,6 +183,7 @@ class Agent(pygame.sprite.Sprite):
             # update dictionary with added info
             self.boundary_endpt_dict[endpt_name] = (endpt_coord, distance, angle_bw, proj)
 
+    # @timer
     def gather_boundary_wall_info(self):
 
         # initialize wall dict
@@ -202,6 +208,8 @@ class Agent(pygame.sprite.Sprite):
 
             # if at least one endpt is visually perceivable, build dict entry
             if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
+
+                # print(f'see \t {wall_name} \t {np.round(angle_L*90/np.pi,0), np.round(angle_R*90/np.pi,0)}')
 
                 self.vis_field_wall_dict[wall_name] = {}
                 self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
@@ -240,7 +248,7 @@ class Agent(pygame.sprite.Sprite):
                 for wall_name, pt_L, pt_R in walls:
                     if pt_L == closest_nonvis_L_endpt_name:
                         break
-                
+                # print(f'see \t {wall_name} \t {np.round(angle_L*90/np.pi,0), np.round(angle_R*90/np.pi,0)}')
                 # create dict entry for this wall
                 coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
                 coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
@@ -263,7 +271,7 @@ class Agent(pygame.sprite.Sprite):
                     for wall_name, pt_L, pt_R in walls:
                         if pt_R == closest_nonvis_R_endpt_name:
                             break
-                    
+                    # print(f'see \t {wall_name} \t {np.round(angle_L*90/np.pi,0), np.round(angle_R*90/np.pi,0)}')
                     # create dict entry for this wall
                     coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
                     coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
@@ -367,7 +375,7 @@ class Agent(pygame.sprite.Sprite):
     #                 if obs_close["proj_L"] <= obs_far["proj_L_ex"] and obs_close["proj_R"] >= obs_far["proj_R_ex"]:
     #                     obs_far["proj_L_ex"] = -1
     #                     obs_far["proj_R_ex"] = -1
-    
+
     def fill_vis_field(self, proj_dict, dict_type=None):
         """
         Mark projection field according to each wall or agent
@@ -389,6 +397,7 @@ class Agent(pygame.sprite.Sprite):
                 
                 self.vis_field[i] = obj_name
 
+    # @timer
     def visual_sensing(self):
         """
         Accumulates visual sensory functions
@@ -416,6 +425,7 @@ class Agent(pygame.sprite.Sprite):
         self.contact_field[index] = 1
         self.blocked_angles.append(angle)
 
+    # @timer
     def wall_contact_sensing(self):
         """
         Signals blocked directions to the agent for all boundary walls
@@ -427,13 +437,13 @@ class Agent(pygame.sprite.Sprite):
         self.contact_field = [0] * self.contact_field_res
         self.blocked_angles = []
 
-        if y < self.y_min: # top wall
+        if y < self.y_min + self.radius*2: # top wall
             self.block_angle(np.pi/2)
-        if y > self.y_max: # bottom wall
+        if y > self.y_max - self.radius*2: # bottom wall
             self.block_angle(3*np.pi/2)
-        if x < self.x_min: # left wall
+        if x < self.x_min + self.radius*2: # left wall
             self.block_angle(np.pi)
-        if x > self.x_max: # right wall
+        if x > self.x_max - self.radius*2: # right wall
             self.block_angle(0)
 
     def bind_velocity(self):
@@ -576,6 +586,7 @@ class Agent(pygame.sprite.Sprite):
                 self.velocity = 0
                 self.mode = "collide"
 
+    # @timer
     def move(self, NN_output):
         """
         Incorporates NN outputs (change in orientation, or velocity + orientation)
@@ -587,6 +598,7 @@ class Agent(pygame.sprite.Sprite):
 
         # Shift orientation accordingly + bind to [0 : 2pi]
         self.orientation += turn
+        # self.orientation += np.pi/16
         self.bind_orientation()
 
         ### For NN_output_size = 2 ###
@@ -635,6 +647,7 @@ class Agent(pygame.sprite.Sprite):
             #     field_onehot[i,5] = 1
         return field_onehot
 
+    # @timer
     def assemble_NN_inputs(self):
 
         # transform visual data to onehot encoding --> matrix passed directly to CNN
@@ -680,7 +693,7 @@ class Agent(pygame.sprite.Sprite):
             self.color = colors.GREEN
         elif self.mode == "collide":
             self.color = colors.RED
-
+    # @timer
     def draw_update(self):
         """
         updating the outlook of the agent according to position and orientation

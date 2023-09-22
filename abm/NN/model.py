@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 
 from abm.NN.memory import FNN, CTRNN, GRU
-
 from abm.NN.vision import ConvNeXt as CNN
 from abm.NN.vision import LayerNorm, GRN
+# from abm.helpers import timer
 
 class WorldModel(nn.Module):
+    # @timer
     def __init__(self,
                  arch=((4,8),[1],[4],3,16,1),
                  activ='relu',
@@ -81,7 +82,7 @@ class WorldModel(nn.Module):
                     nn.init.trunc_normal_(m.weight, std=.02)
                     nn.init.constant_(m.bias, 0)
 
-
+    # @timer
     def forward(self, vis_input, other_input, hidden):
 
         # initialize hidden state to zeros (t = 0 for sim run, saved in Agent instance)

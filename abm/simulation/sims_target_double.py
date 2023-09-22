@@ -12,8 +12,10 @@ from abm.environment.resource import Resource
 from abm.contrib import colors
 from abm.monitoring import tracking, plot_funcs
 # from abm.monitoring.screen_recorder import ScreenRecorder
+# from abm.helpers import timer
 
 class Simulation:
+    # @timer
     def __init__(self, width=600, height=480, window_pad=30, 
                  N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, 
                  plot_trajectory=False, log_zarr_file=False, save_ext="",
@@ -192,6 +194,20 @@ class Simulation:
         pygame.draw.line(self.screen, colors.BLACK,
                          [self.window_pad, self.window_pad + self.HEIGHT],
                          [self.window_pad + self.WIDTH, self.window_pad + self.HEIGHT])
+    
+        # drawing contact limit
+        pygame.draw.line(self.screen, colors.GREY,
+                         [self.window_pad + self.agent_radii*2, self.window_pad + self.agent_radii*2],
+                         [self.window_pad + self.agent_radii*2, self.window_pad - self.agent_radii*2 + self.HEIGHT])
+        pygame.draw.line(self.screen, colors.GREY,
+                         [self.window_pad + self.agent_radii*2, self.window_pad + self.agent_radii*2],
+                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad + self.agent_radii*2])
+        pygame.draw.line(self.screen, colors.GREY,
+                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad + self.agent_radii*2],
+                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad - self.agent_radii*2 + self.HEIGHT])
+        pygame.draw.line(self.screen, colors.GREY,
+                         [self.window_pad + self.agent_radii*2, self.window_pad - self.agent_radii*2 + self.HEIGHT],
+                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad - self.agent_radii*2 + self.HEIGHT])
 
     def draw_framerate(self):
         """Showing framerate, sim time and pause status on simulation windows"""
@@ -272,7 +288,8 @@ class Simulation:
                 # elif vis_name == 'exploit': ax.scatter(orient-phi, 600, s=20, c='k')
                 # else: # non-exploiting 
                 #     ax.scatter(orient-phi, 600, s=20, c='y')
-    
+
+    # @timer
     def draw_frame(self):
         """Drawing environment, agents and every other visualization in each timestep"""
         pygame.display.flip()
@@ -289,6 +306,7 @@ class Simulation:
 
 ### -------------------------- AGENT FUNCTIONS -------------------------- ###
 
+    # @timer
     def create_agents(self):
         """
         Instantiates agent objects according to simulation parameters
@@ -305,7 +323,10 @@ class Simulation:
 
                 x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
                 y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
+                # x,y = self.WIDTH*29/30-5, self.WIDTH*29/30
+                # x,y = 981, 981
                 orient = np.random.uniform(0, 2 * np.pi)
+                # orient = 5.3
 
                 agent = Agent(
                         id=i,
@@ -329,11 +350,11 @@ class Simulation:
                 colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
                 retries += 1
 
-                if retries > 10:
-                    print(f'Retries > 10')
+                if retries > 10: print(f'Retries > 10')
 
             self.agents.add(agent)
 
+    # @timer
     def save_data_agent(self):
         """Tracks key variables (position, mode, resources collected) via array for current timestep"""
         for agent in self.agents:
@@ -350,32 +371,20 @@ class Simulation:
 
 ### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
 
+    # @timer
     def create_resources(self):
 
         # creates single resource patch in alternating positions
         id = self.res_id_counter
 
-        # # top-left / bottom-right corners (centers @ 50,450 - 450,50)
-        # self.resrc_radius = 100
-        # if self.res_id_counter % 2 == 0: 
-        #     x = self.x_min - self.resrc_radius/2
-        #     y = self.y_min - self.resrc_radius/2
-        # else:
-        #     x = self.x_max - self.resrc_radius*3/2
-        #     y = self.y_max - self.resrc_radius*3/2
-
-        # top-left / bottom-right corners (centers @ 315,685 - 685,315)
-        self.resrc_radius = self.WIDTH/2 # 100 if width=2000
-        print(self.resrc_radius)
+        # top-left / bottom-right corners
+        self.resrc_radius = self.WIDTH/20 # 100 if width=2000
         if self.res_id_counter % 2 == 0: 
-            x = 0
-            y = 0
-            # x = 800 - self.resrc_radius/2 + self.window_pad
-            # y = 800 - self.resrc_radius/2 - self.window_pad
+            x = self.WIDTH/2 - self.resrc_radius*5
+            y = self.WIDTH/2 - self.resrc_radius*5
         else:
-            x = self.WIDTH/2 + self.resrc_radius*2 - self.resrc_radius/2
-            y = self.WIDTH/2 + self.resrc_radius*2 - self.resrc_radius/2
-        print(x,y)
+            x = self.WIDTH/2 + self.resrc_radius*5
+            y = self.WIDTH/2 + self.resrc_radius*5
 
         # # top-left / bottom-right points, off-center / off-wall / asym (centers @ 140,450 - 450,140)
         # self.resrc_radius = 20
@@ -407,6 +416,7 @@ class Simulation:
             pos_y = self.y_max - y
             self.data_res.append([pos_x, pos_y, self.resrc_radius])
 
+    # @timer
     def consume(self, agent):
         """Carry out agent-resource interactions (depletion, destroying, notifying)"""
         # Call resource agent is on
@@ -431,6 +441,7 @@ class Simulation:
 
 ### -------------------------- MULTIAGENT INTERACTION FUNCTIONS -------------------------- ###
 
+    # @timer
     def collide_agent_res(self):
 
         # Create dict of every agent that has collided : [colliding resources]
