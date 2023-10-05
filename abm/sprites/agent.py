@@ -278,10 +278,7 @@ class Agent(pygame.sprite.Sprite):
                     self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
                     self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
 
-                else:
-                    # parameters = nans from exploding gradient
-                    # gradient clipping not a viable method for RL
-                    # --> send signal to parent function + crash simulation + return 0 fitness
+                else: # shouldn't happen - used to be crash scenario - solved by clipped dot product
                     self.vis_field_wall_dict = None
 
     # def gather_agent_info(self, agents):
@@ -420,9 +417,6 @@ class Agent(pygame.sprite.Sprite):
         self.gather_self_percep_info()
         self.gather_boundary_endpt_info()
         self.gather_boundary_wall_info()
-
-        # crash condition --> agent isn't able to create visual projection field dictionary
-        if self.vis_field_wall_dict is None: return True
 
         # Fill in vis_field with identification info for each visual perception ray
         self.fill_vis_field(self.vis_field_wall_dict, dict_type='walls')

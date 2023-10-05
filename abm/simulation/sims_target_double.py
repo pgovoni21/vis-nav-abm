@@ -635,12 +635,7 @@ class Simulation:
                     agent.mode = 'explore'
 
                     # Update visual projections (vis_field)
-                    crash = agent.visual_sensing()
-                    
-                    # if crash: # position = nan : RNN weight explosion due to spinning
-                    #     pygame.quit() # stop simulation
-                    #     tracking.clean_global_dicts() # clean global data structures
-                    #     return np.array([0.]), 0, True # as fitnesses, elapsed_time, crash_bool
+                    agent.visual_sensing()
 
                 # Update sprite collisions
                 self.collide_agent_wall()
