@@ -20,14 +20,12 @@ class Simulation:
     def __init__(self, width=600, height=480, window_pad=30, 
                  N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, 
                  plot_trajectory=False, log_zarr_file=False, save_ext="",
-                 agent_radius=10, max_vel=5, collision_slowdown=0.5, 
-                 vis_field_res=8, contact_field_res=4, collide_agents=True, 
-                 vision_range=150, agent_fov=1.0, visual_exclusion=False, 
-                 show_vision_range=False, agent_consumption=1, 
+                 agent_radius=10, max_vel=5, vis_field_res=8, vision_range=150, agent_fov=1.0, 
+                 visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
                  N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
                  min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
-                 NN=None, RNN_input_other_size=3, CNN_depths=[1,], CNN_dims=[4,], 
-                 RNN_hidden_size=128, LCL_output_size=1, NN_activ='relu', RNN_type='fnn',
+                 NN=None, RNN_other_input_size=1, CNN_depths=[1,], CNN_dims=[4,], RNN_hidden_size=128, LCL_output_size=1, 
+                 NN_activ='relu', RNN_type='fnn',
                  ):
         """
         Initializing the main simulation instance
@@ -45,10 +43,7 @@ class Simulation:
         :param save_ext:
         :param agent_radius: radius of the agents
         :param max_vel:
-        :param collision_slowdown:
         :param vis_field_res: projection field (visual + proximity) resolution in pixels
-        :param contact_field_res:
-        :param collide_agents: boolean switch agents can overlap if false
         :param vision_range: range (in px) of agents' vision
         :param agent_fov (float): the field of view of the agent as percentage. e.g. if 0.5, the the field of view is
                                 between -pi/2 and pi/2
@@ -109,10 +104,7 @@ class Simulation:
         # Agent parameters
         self.agent_radii = agent_radius
         self.max_vel = max_vel
-        self.collision_slowdown = collision_slowdown
         self.vis_field_res = vis_field_res
-        self.contact_field_res = contact_field_res
-        self.collide_agents = collide_agents
         self.vision_range = vision_range
         self.agent_fov = agent_fov
         self.visual_exclusion = visual_exclusion
@@ -142,17 +134,11 @@ class Simulation:
         else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
         
         CNN_input_size = (self.num_class_elements, vis_field_res)
-        CNN_depths = CNN_depths
-        CNN_dims = CNN_dims # last is num vis features fed to RNN
-        RNN_nonvis_input_size = (contact_field_res, RNN_input_other_size) # other: on_resrc + (velocity + orientation)
-        RNN_hidden_size = RNN_hidden_size
-        LCL_output_size = LCL_output_size # dvel + dtheta
-
         self.architecture = (
             CNN_input_size, 
             CNN_depths, 
             CNN_dims, 
-            RNN_nonvis_input_size, 
+            RNN_other_input_size, 
             RNN_hidden_size, 
             LCL_output_size
             )
@@ -329,8 +315,8 @@ class Simulation:
             retries = 0
             while len(colliding_resources) > 0:
 
-                x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
-                y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
+                x = np.random.randint(self.x_min + 2*self.agent_radii, self.x_max - 2*self.agent_radii)
+                y = np.random.randint(self.y_min + 2*self.agent_radii, self.y_max - 2*self.agent_radii)
                 # x,y = 981, 20
                 
                 orient = np.random.uniform(0, 2 * np.pi)
@@ -341,7 +327,6 @@ class Simulation:
                         position=(x, y),
                         orientation=orient,
                         max_vel=self.max_vel,
-                        collision_slowdown=self.collision_slowdown,
                         FOV=self.agent_fov,
                         vision_range=self.vision_range,
                         visual_exclusion=self.visual_exclusion,
@@ -370,9 +355,9 @@ class Simulation:
                 retries = 0
                 while len(colliding_resources) > 0 or len(colliding_agents) > 0:
 
-                    # x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
-                    # y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
-                    x,y = 305+15*i, 305+15*i
+                    x = np.random.randint(self.x_min + 2*self.agent_radii, self.x_max - 2*self.agent_radii)
+                    y = np.random.randint(self.y_min + 2*self.agent_radii, self.y_max - 2*self.agent_radii)
+                    # x,y = 305+15*i, 305+15*i
                     
                     orient = np.random.uniform(0, 2 * np.pi)
 
@@ -381,7 +366,6 @@ class Simulation:
                             position=(x, y),
                             orientation=orient,
                             max_vel=self.max_vel,
-                            collision_slowdown=self.collision_slowdown,
                             FOV=self.agent_fov,
                             vision_range=self.vision_range,
                             visual_exclusion=self.visual_exclusion,
@@ -427,8 +411,8 @@ class Simulation:
 
         # top-left / bottom-right corners
         self.resrc_radius = self.WIDTH/10 # 100 if width=1000
-        if self.res_id_counter % 2 == 0: 
-        # if self.res_id_counter % 2 == np.random.randint(2): 
+        if self.res_id_counter % 2 == np.random.randint(2): 
+        # if self.res_id_counter % 2 == 0: 
             x = self.WIDTH/2 - self.resrc_radius
             y = self.WIDTH/2 - self.resrc_radius
         else:
@@ -501,6 +485,7 @@ class Simulation:
             for resource in resource_list:
                 # Flip bool variable if agent is within patch boundary
                 if supcalc.distance(agent.position, resource.position) <= resource.radius:
+                    agent.mode = 'exploit'
                     agent.on_resrc = 1
                     agent.res_to_be_consumed = resource
                     break
@@ -637,7 +622,7 @@ class Simulation:
                     # Update visual projections (vis_field)
                     agent.visual_sensing()
 
-                # Update sprite collisions
+                # Update sprite collisions + flip agent modes for 'collide'/'exploit'
                 self.collide_agent_wall()
                 self.collide_agent_agent()
                 self.collide_agent_res()
@@ -666,14 +651,14 @@ class Simulation:
                 # mod_start = time.time()
                 for agent in self.agents:
 
-                    # Pass observables through NN to calculate actions (dvel + dtheta) & advance agent's hidden state
-                    vis_input, other_input = agent.assemble_NN_inputs()
-                    agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
+                    # Pass observables through NN to calculate action & advance agent's hidden state
+                    vis_input = agent.encode_one_hot(agent.vis_field)
+                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_resrc]), agent.hidden)
 
-                    # Food present --> consume + set mode to exploit (if food is still available)
-                    if agent.on_resrc == 1:
+                    # Food present --> consume (if food is still available)
+                    if agent.mode == 'exploit':
                         self.consume(agent) 
-                    # No food --> move via decided action(s) + set mode to collide if collided
+                    # No food --> move via decided action (stationary if collided object in front)
                     else: 
                         agent.move(agent.action)
 

@@ -35,9 +35,8 @@ class WorldModel(nn.Module):
             )
 
         # init memory module
-        contact_size, other_size = RNN_other_input_size
         self.RNN_hidden_size = RNN_hidden_size
-        RNN_in_size = CNN_out_size + contact_size + other_size
+        RNN_in_size = CNN_out_size + RNN_other_input_size
         RNN_arch = (RNN_in_size, RNN_hidden_size)
         if RNN_type == 'fnn': self.rnn = FNN(arch=RNN_arch,activ=activ)
         elif RNN_type == 'ctrnn': self.rnn = CTRNN(arch=RNN_arch,activ=activ)
