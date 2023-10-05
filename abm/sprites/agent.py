@@ -96,6 +96,8 @@ class Agent(pygame.sprite.Sprite):
         self.contact_phis = np.linspace(0, 2*np.pi - 2*np.pi/contact_field_res, contact_field_res)
         self.contact_field = [0] * contact_field_res
 
+        self.collided_points = []
+
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
         self.on_resrc = 0 # binary : whether agent is currently on top of a resource patch or not
@@ -119,22 +121,15 @@ class Agent(pygame.sprite.Sprite):
         # Visualization / human interaction parameters
         self.radius = radius
         self.color = color
-        self.selected_color = colors.BLACK
+        # self.selected_color = colors.BLACK
+        # self.show_stats = False
+        # self.is_moved_with_cursor = 0
 
-        self.show_stats = False
-        self.is_moved_with_cursor = 0
-
-        # Initial Visualization of agent
+        # Initializing body + position
         self.image = pygame.Surface([radius * 2, radius * 2])
         self.image.fill(colors.BACKGROUND)
         self.image.set_colorkey(colors.BACKGROUND)
-        pygame.draw.circle(self.image, color, (radius, radius), radius)
-        # Showing agent orientation with a line towards agent orientation
-        pygame.draw.line(self.image, colors.BACKGROUND, (radius, radius),
-                         ((1 + np.cos(self.orientation)) * radius, (1 - np.sin(self.orientation)) * radius), 3)
-        self.rect = self.image.get_rect()
-        self.rect.x, self.rect.y = self.position + self.window_pad
-        self.mask = pygame.mask.from_surface(self.image)
+        self.rect = self.image.get_rect(center = self.position + self.window_pad)
 
 ### -------------------------- VISUAL FUNCTIONS -------------------------- ###
 
@@ -172,7 +167,7 @@ class Agent(pygame.sprite.Sprite):
             distance = np.linalg.norm(vec_between)
 
             # calc orientation angle
-            angle_bw = supcalc.angle_between(self.vec_self_dir, vec_between, self.radius, distance)
+            angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, distance)
             ## relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
 
             # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}')
@@ -310,7 +305,7 @@ class Agent(pygame.sprite.Sprite):
     #                 # exclude agents outside FOV limits (calculate visual boundaries of agent)
 
     #                 # orientation angle relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
-    #                 angle_bw = supcalc.angle_between(self.vec_self_dir, vec_between, self.radius, agent_distance)
+    #                 angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, agent_distance)
     #                 # exclusionary angle between agent + self, taken to L/R boundaries
     #                 angle_edge = np.arctan(self.radius / agent_distance)
     #                 angle_L = angle_bw - angle_edge
@@ -434,34 +429,34 @@ class Agent(pygame.sprite.Sprite):
 
 ### -------------------------- MOVEMENT FUNCTIONS -------------------------- ###
 
-    def block_angle(self, angle):
-        """
-        Updates contact_field (bool) + blocked_angle (float) with the agent's currently blocked direction
-        """
-        index = supcalc.find_nearest(self.contact_phis, angle)
-        self.contact_field[index] = 1
-        self.blocked_angles.append(angle)
+    # def block_angle(self, angle):
+    #     """
+    #     Updates contact_field (bool) + blocked_angle (float) with the agent's currently blocked direction
+    #     """
+    #     index = supcalc.find_nearest(self.contact_phis, angle)
+    #     self.contact_field[index] = 1
+    #     self.blocked_angles.append(angle)
 
     # @timer
-    def wall_contact_sensing(self):
-        """
-        Signals blocked directions to the agent for all boundary walls
-        """
-        # Call agent center coordinates
-        x, y = self.position
+    # def wall_contact_sensing(self):
+    #     """
+    #     Signals blocked directions to the agent for all boundary walls
+    #     """
+    #     # Call agent center coordinates
+    #     x, y = self.position
 
-        # Zero contact_field + block_angles lists from previous step
-        self.contact_field = [0] * self.contact_field_res
-        self.blocked_angles = []
+    #     # Zero contact_field + block_angles lists from previous step
+    #     self.contact_field = [0] * self.contact_field_res
+    #     self.blocked_angles = []
 
-        if y < self.y_min + self.radius*2: # top wall
-            self.block_angle(np.pi/2)
-        if y > self.y_max - self.radius*2: # bottom wall
-            self.block_angle(3*np.pi/2)
-        if x < self.x_min + self.radius*2: # left wall
-            self.block_angle(np.pi)
-        if x > self.x_max - self.radius*2: # right wall
-            self.block_angle(0)
+    #     if y < self.y_min + self.radius*2: # top wall
+    #         self.block_angle(np.pi/2)
+    #     if y > self.y_max - self.radius*2: # bottom wall
+    #         self.block_angle(3*np.pi/2)
+    #     if x < self.x_min + self.radius*2: # left wall
+    #         self.block_angle(np.pi)
+    #     if x > self.x_max - self.radius*2: # right wall
+    #         self.block_angle(0)
 
     def bind_velocity(self):
         """
@@ -574,34 +569,34 @@ class Agent(pygame.sprite.Sprite):
     #     print(self.velocity, moving_dir)
     #     return moving_dir
 
-    def wall_collision_sticky(self):
-        """
-        Implements sticky conditions on environmental boundaries according to orientation
-        - v = 0 when orientation is facing into a wall
-        - agent only allowed to move when orientation changes
-        - mode is set to 'collide'
-        """
-        # Set agent as non-colliding (exploring at max velocity) until proven otherwise
-        self.velocity = self.max_vel
-        self.mode = "explore"
+    # def wall_collision_sticky(self):
+    #     """
+    #     Implements sticky conditions on environmental boundaries according to orientation
+    #     - v = 0 when orientation is facing into a wall
+    #     - agent only allowed to move when orientation changes
+    #     - mode is set to 'collide'
+    #     """
+    #     # Set agent as non-colliding (exploring at max velocity) until proven otherwise
+    #     self.velocity = self.max_vel
+    #     self.mode = "explore"
 
-        for angle in self.blocked_angles:
+    #     for angle in self.blocked_angles:
 
-            if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
-                self.velocity = 0
-                self.mode = "collide"
+    #         if angle == np.pi/2 and 0 < self.orientation < np.pi: # top wall
+    #             self.velocity = 0
+    #             self.mode = "collide"
 
-            if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
-                self.velocity = 0
-                self.mode = "collide"
+    #         if angle == 3*np.pi/2 and np.pi < self.orientation < 2*np.pi: # bottom wall
+    #             self.velocity = 0
+    #             self.mode = "collide"
 
-            if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
-                self.velocity = 0
-                self.mode = "collide"
+    #         if angle == np.pi and np.pi/2 < self.orientation < 3*np.pi/2: # left wall
+    #             self.velocity = 0
+    #             self.mode = "collide"
 
-            if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
-                self.velocity = 0
-                self.mode = "collide"
+    #         if angle == 0 and (3*np.pi/2 < self.orientation or self.orientation < np.pi/2): # right wall
+    #             self.velocity = 0
+    #             self.mode = "collide"
 
     # @timer
     def move(self, NN_output):
@@ -618,13 +613,36 @@ class Agent(pygame.sprite.Sprite):
         # self.orientation += np.pi/16
         self.bind_orientation()
 
-        # Update velocity
+        # Update velocity (constrained by turn angle)
         # self.velocity += dvel
         # self.bind_velocity()  # to [0 : max_vel]
         self.velocity = self.max_vel * (1 - abs(NN_output))
 
-        # Impelement collision boundary conditions
-        self.wall_collision_sticky()
+        # Check for velocity-stopping collisions for each point of contact
+        if self.mode == 'collide':
+            for pt in self.collided_points:
+
+                # calc vector between collided point + agent center
+                vec_coll = pt - self.position - self.window_pad
+
+                # calc orientation angle
+                distance = np.linalg.norm(vec_coll)
+                angle_coll = supcalc.angle_bw_coll(vec_coll, np.array([10,0]), distance, self.radius)
+                # print(np.round(angle_coll,3), np.round(self.orientation,3))
+
+                # check if collision angle is within 180d of current orientation + wrapping constraints
+                if angle_coll + np.pi/2 > 2*np.pi:
+                    if (angle_coll-np.pi/2) < self.orientation or (angle_coll+np.pi/2-2*np.pi) > self.orientation:
+                        self.velocity = 0
+                        # print('block wrap +')
+                elif angle_coll - np.pi/2 < 0:
+                    if (angle_coll+np.pi/2) > self.orientation or (angle_coll-np.pi/2+2*np.pi) < self.orientation:
+                        self.velocity = 0
+                        # print('block wrap -')
+                else:
+                    if (angle_coll-np.pi/2) < self.orientation < (angle_coll+np.pi/2):
+                        self.velocity = 0
+                        # print('block')
 
         # Calculate agent's next position
         orient_comp = np.array((
@@ -709,38 +727,24 @@ class Agent(pygame.sprite.Sprite):
         self.change_color()
 
         # update surface according to new orientation
-        # creating visualization surface for agent as a filled circle
-        self.image = pygame.Surface([self.radius * 2, self.radius * 2])
-        self.image.fill(colors.BACKGROUND)
-        self.image.set_colorkey(colors.BACKGROUND)
-        if self.is_moved_with_cursor:
-            pygame.draw.circle(
-                self.image, self.selected_color, (self.radius, self.radius), self.radius
-            )
-        else:
-            pygame.draw.circle(
-                self.image, self.color, (self.radius, self.radius), self.radius
-            )
-        self.rect.centerx, self.rect.centery = self.position + self.window_pad
-
-        # showing agent orientation with a line towards agent orientation
+        pygame.draw.circle(self.image, self.color, (self.radius, self.radius), self.radius)
         pygame.draw.line(self.image, colors.BACKGROUND, (self.radius, self.radius),
-                         ((1 + np.cos(self.orientation)) * self.radius, (1 - np.sin(self.orientation)) * self.radius),
-                         3)
-        self.mask = pygame.mask.from_surface(self.image)
+                         ((1 + np.cos(self.orientation)) * self.radius, (1 - np.sin(self.orientation)) * self.radius), 3)
+        self.rect = self.image.get_rect(center = self.position + self.window_pad)
 
-    def move_with_mouse(self, mouse, left_state, right_state):
-        """Moving the agent with the mouse cursor, and rotating"""
-        if self.rect.collidepoint(mouse):
-            # setting position of agent to cursor position
-            self.position = mouse - self.radius
-            if left_state:
-                self.orientation += 0.1
-            if right_state:
-                self.orientation -= 0.1
-            self.prove_orientation()
-            self.is_moved_with_cursor = 1
-            # updating agent visualization to make it more responsive
-            self.draw_update()
-        else:
-            self.is_moved_with_cursor = 0
+
+    # def move_with_mouse(self, mouse, left_state, right_state):
+    #     """Moving the agent with the mouse cursor, and rotating"""
+    #     if self.rect.collidepoint(mouse):
+    #         # setting position of agent to cursor position
+    #         self.position = mouse - self.radius
+    #         if left_state:
+    #             self.orientation += 0.1
+    #         if right_state:
+    #             self.orientation -= 0.1
+    #         self.prove_orientation()
+    #         self.is_moved_with_cursor = 1
+    #         # updating agent visualization to make it more responsive
+    #         self.draw_update()
+    #     else:
+    #         self.is_moved_with_cursor = 0

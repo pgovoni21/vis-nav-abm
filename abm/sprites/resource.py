@@ -50,9 +50,7 @@ class Resource(pygame.sprite.Sprite):
         pygame.draw.circle(
             self.image, self.color, (radius, radius), radius
         )
-        self.mask = pygame.mask.from_surface(self.image)
-        self.rect = self.image.get_rect()
-        self.rect.centerx, self.rect.centery = self.position + self.window_pad
+        self.rect = self.image.get_rect(center = self.position + self.window_pad)
 
         self.show_stats = True # display resource information
         self.is_clicked = False # mouse events --> move patch + show_stats
@@ -98,22 +96,20 @@ class Resource(pygame.sprite.Sprite):
         pygame.draw.circle(
             self.image, self.resrc_left_color, (self.radius, self.radius), small_radius
         )
-        self.rect = self.image.get_rect()
-        self.rect.centerx, self.rect.centery = self.position + self.window_pad
-        self.mask = pygame.mask.from_surface(self.image)
-        if self.is_clicked or self.show_stats:
-            font = pygame.font.Font(None, 18)
-            text = font.render(f"{self.resrc_left:.2f}, Q{self.quality:.2f}", True, colors.BLACK)
-            self.image.blit(text, (0, 0))
+        self.rect = self.image.get_rect(center = self.position + self.window_pad)
+        # if self.is_clicked or self.show_stats:
+        #     font = pygame.font.Font(None, 18)
+        #     text = font.render(f"{self.resrc_left:.2f}, Q{self.quality:.2f}", True, colors.BLACK)
+        #     self.image.blit(text, (0, 0))
     
-    def update_clicked_status(self, mouse):
-        """
-        Checking if the resource patch was clicked on a mouse event
-        """
-        if self.rect.collidepoint(mouse):
-            self.is_clicked = True
-            self.position = mouse 
-            self.draw_update()
-        else:
-            self.is_clicked = False
-            self.draw_update()
+    # def update_clicked_status(self, mouse):
+    #     """
+    #     Checking if the resource patch was clicked on a mouse event
+    #     """
+    #     if self.rect.collidepoint(mouse):
+    #         self.is_clicked = True
+    #         self.position = mouse 
+    #         self.draw_update()
+    #     else:
+    #         self.is_clicked = False
+    #         self.draw_update()

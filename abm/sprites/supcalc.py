@@ -9,7 +9,7 @@ def find_nearest(array, value):
     return idx
 
 
-def angle_between(v1, v2, v1_norm, v2_norm):
+def angle_bw_vis(v1, v2, v1_norm, v2_norm):
     """ 
     Returns the angle in radians between vectors 'v1' and 'v2'::
 
@@ -42,7 +42,28 @@ def angle_between(v1, v2, v1_norm, v2_norm):
 
     return angle
 
+def angle_bw_coll(v1, v2, v1_norm, v2_norm):
+    v1_u = v1 / v1_norm
+    v2_u = v2 / v2_norm
+
+    dot = np.dot(v1_u, v2_u)
+
+    angle = np.arccos( np.clip(dot, -1, 1) )
+
+    # remaps collisions from south to abosolute orientation
+    if v1_u[0] * v2_u[1] - v1_u[1] * v2_u[0] < 0: 
+        angle = 2*np.pi - angle
+
+    return angle
 
 def distance(coord1, coord2):
     """Euclidean distance between 2 agent class agents in the environment as pixels""" ## todo - hamming dist for calc speed
     return np.linalg.norm(coord1 - coord2)
+
+import pygame
+def within_group_collision(sprite1, sprite2):
+    """Custom colllision check that omits collisions of sprite with itself. This way we can use group collision
+    detect WITHIN a single group instead of between multiple groups"""
+    if sprite1 != sprite2:
+        return pygame.sprite.collide_circle(sprite1, sprite2)
+    return False

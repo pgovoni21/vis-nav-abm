@@ -10,6 +10,7 @@ from abm import colors
 from abm.sprites import supcalc
 from abm.sprites.agent import Agent
 from abm.sprites.resource import Resource
+from abm.sprites.wall import Wall
 from abm.monitoring import tracking, plot_funcs
 # from abm.monitoring.screen_recorder import ScreenRecorder
 # from abm.helpers import timer
@@ -168,12 +169,15 @@ class Simulation:
         if self.with_visualization:
             pygame.init()
             self.screen = pygame.display.set_mode([self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2])
+            self.font = pygame.font.Font(None, int(self.window_pad/2))
             # self.recorder = ScreenRecorder(self.x_min + self.x_max, self.y_min + self.y_max, framerate, out_file='sim.mp4')
         else:
-            pygame.display.init()
-            pygame.display.set_mode([1,1])
+            pass
+            # pygame.display.init()
+            # pygame.display.set_mode([1,1])
 
         # pygame related class attributes
+        self.walls = pygame.sprite.Group()
         self.agents = pygame.sprite.Group()
         self.resources = pygame.sprite.Group()
         self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
@@ -194,50 +198,33 @@ class Simulation:
         pygame.draw.line(self.screen, colors.BLACK,
                          [self.window_pad, self.window_pad + self.HEIGHT],
                          [self.window_pad + self.WIDTH, self.window_pad + self.HEIGHT])
-    
-        # drawing contact limit
-        pygame.draw.line(self.screen, colors.GREY,
-                         [self.window_pad + self.agent_radii*2, self.window_pad + self.agent_radii*2],
-                         [self.window_pad + self.agent_radii*2, self.window_pad - self.agent_radii*2 + self.HEIGHT])
-        pygame.draw.line(self.screen, colors.GREY,
-                         [self.window_pad + self.agent_radii*2, self.window_pad + self.agent_radii*2],
-                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad + self.agent_radii*2])
-        pygame.draw.line(self.screen, colors.GREY,
-                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad + self.agent_radii*2],
-                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad - self.agent_radii*2 + self.HEIGHT])
-        pygame.draw.line(self.screen, colors.GREY,
-                         [self.window_pad + self.agent_radii*2, self.window_pad - self.agent_radii*2 + self.HEIGHT],
-                         [self.window_pad - self.agent_radii*2 + self.WIDTH, self.window_pad - self.agent_radii*2 + self.HEIGHT])
 
     def draw_framerate(self):
         """Showing framerate, sim time and pause status on simulation windows"""
-        tab_size = self.window_pad
-        line_height = int(self.window_pad / 2)
-        font = pygame.font.Font(None, line_height)
         status = [
             f"FPS: {self.framerate}, t = {self.t}/{self.T}",
         ]
         if self.is_paused:
             status.append("-Paused-")
         for i, stat_i in enumerate(status):
-            text = font.render(stat_i, True, colors.BLACK)
-            self.screen.blit(text, (tab_size, i * line_height))
+            text = self.font.render(stat_i, True, colors.BLACK)
+            self.screen.blit(text, (self.window_pad, 0))
 
-    def draw_agent_stats(self, font_size=15, spacing=0):
-        """Showing agent information when paused"""
-        font = pygame.font.Font(None, font_size)
-        for agent in self.agents:
-            if agent.is_moved_with_cursor or agent.show_stats:
-                status = [
-                    f"ID: {agent.id}",
-                    f"res.: {agent.collected_r:.2f}",
-                    f"ori.: {agent.orientation:.2f}",
-                    f"w: {agent.w:.2f}"
-                ]
-                for i, stat_i in enumerate(status):
-                    text = font.render(stat_i, True, colors.BLACK)
-                    self.screen.blit(text, (agent.position[0] + 2 * agent.radius,
-                                            agent.position[1] + 2 * agent.radius + i * (font_size + spacing)))
+    # def draw_agent_stats(self, font_size=15, spacing=0):
+    #     """Showing agent information when paused"""
+    #     font = pygame.font.Font(None, font_size)
+    #     for agent in self.agents:
+    #         if agent.is_moved_with_cursor or agent.show_stats:
+    #             status = [
+    #                 f"ID: {agent.id}",
+    #                 f"res.: {agent.collected_r:.2f}",
+    #                 f"ori.: {agent.orientation:.2f}",
+    #                 f"w: {agent.w:.2f}"
+    #             ]
+    #             for i, stat_i in enumerate(status):
+    #                 text = font.render(stat_i, True, colors.BLACK)
+    #                 self.screen.blit(text, (agent.position[0] + 2 * agent.radius,
+    #                                         agent.position[1] + 2 * agent.radius + i * (font_size + spacing)))
 
     def draw_visual_fields(self):
         """Visualizing range of vision as opaque circles around the agents""" 
@@ -292,17 +279,40 @@ class Simulation:
     # @timer
     def draw_frame(self):
         """Drawing environment, agents and every other visualization in each timestep"""
-        pygame.display.flip()
+        pygame.display.update()
         self.screen.fill(colors.BACKGROUND)
+        self.walls.draw(self.screen)
         self.resources.draw(self.screen)
         self.agents.draw(self.screen)
         self.draw_walls()
         self.draw_framerate()
-        self.draw_agent_stats()
+        # self.draw_agent_stats()
 
         # vision range + projection field
         if self.show_vision_range and self.WIDTH > self.vision_range: 
             self.draw_visual_fields()
+    
+### -------------------------- WALL FUNCTIONS -------------------------- ###
+    
+    def create_walls(self):
+
+        thickness = self.agent_radii
+
+        walls = [
+            ('wall_north', (self.WIDTH, thickness), np.array([ self.x_min, self.y_min ])),
+            ('wall_south', (self.WIDTH, thickness), np.array([ self.x_min, self.y_max - thickness ])),
+            ('wall_east', (thickness, self.HEIGHT), np.array([ self.x_max - thickness, self.y_min ])),
+            ('wall_west', (thickness, self.HEIGHT), np.array([ self.x_min, self.y_min ]))
+        ]
+
+        for id, size, position in walls:
+            wall = Wall(
+                id=id,
+                size=size,
+                position=position,
+                window_pad=self.window_pad
+            )
+            self.walls.add(wall)
 
 ### -------------------------- AGENT FUNCTIONS -------------------------- ###
 
@@ -314,22 +324,20 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
-        for i in range(self.N):
-
+        if self.N == 1:
             colliding_resources = [0]
-
             retries = 0
             while len(colliding_resources) > 0:
 
                 x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
                 y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
-                # x,y = self.WIDTH*29/30-5, self.WIDTH*29/30
-                # x,y = 19, 981
+                # x,y = 981, 20
+                
                 orient = np.random.uniform(0, 2 * np.pi)
-                # orient = 1.5
+                # orient = .5
 
                 agent = Agent(
-                        id=i,
+                        id=0,
                         position=(x, y),
                         orientation=orient,
                         max_vel=self.max_vel,
@@ -348,11 +356,51 @@ class Simulation:
                     )
                 
                 colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+
                 retries += 1
-
                 if retries > 10: print(f'Retries > 10')
-
             self.agents.add(agent)
+
+        else: # N > 1
+            for i in range(self.N):
+
+                colliding_resources = [0]
+                colliding_agents = [0]
+
+                retries = 0
+                while len(colliding_resources) > 0 or len(colliding_agents) > 0:
+
+                    # x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
+                    # y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
+                    x,y = 305+15*i, 305+15*i
+                    
+                    orient = np.random.uniform(0, 2 * np.pi)
+
+                    agent = Agent(
+                            id=i,
+                            position=(x, y),
+                            orientation=orient,
+                            max_vel=self.max_vel,
+                            collision_slowdown=self.collision_slowdown,
+                            FOV=self.agent_fov,
+                            vision_range=self.vision_range,
+                            visual_exclusion=self.visual_exclusion,
+                            consumption=self.agent_consumption,
+                            arch=self.architecture,
+                            model=self.model,
+                            NN_activ = self.NN_activ,
+                            RNN_type = self.RNN_type,
+                            boundary_info=self.boundary_info,
+                            radius=self.agent_radii,
+                            color=colors.BLUE,
+                        )
+                    
+                    colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+                    colliding_agents = pygame.sprite.spritecollide(agent, self.agents, False, supcalc.within_group_collision)
+
+                    retries += 1
+                    if retries > 10: print(f'Retries > 10')
+                self.agents.add(agent)
 
     # @timer
     def save_data_agent(self):
@@ -380,6 +428,7 @@ class Simulation:
         # top-left / bottom-right corners
         self.resrc_radius = self.WIDTH/10 # 100 if width=1000
         if self.res_id_counter % 2 == 0: 
+        # if self.res_id_counter % 2 == np.random.randint(2): 
             x = self.WIDTH/2 - self.resrc_radius
             y = self.WIDTH/2 - self.resrc_radius
         else:
@@ -439,14 +488,13 @@ class Simulation:
                 self.res_id_counter += 1 # alternates res position
                 self.create_resources()
 
-### -------------------------- MULTIAGENT INTERACTION FUNCTIONS -------------------------- ###
+### -------------------------- COLLISION FUNCTIONS -------------------------- ###
 
     # @timer
     def collide_agent_res(self):
 
         # Create dict of every agent that has collided : [colliding resources]
-        collision_group_ar = pygame.sprite.groupcollide(self.agents, self.resources, False, False,
-                                                        pygame.sprite.collide_circle)
+        collision_group_ar = pygame.sprite.groupcollide(self.agents, self.resources, False, False, pygame.sprite.collide_circle)
 
         # Switch on all agents currently on a resource 
         for agent, resource_list in collision_group_ar.items():
@@ -459,24 +507,45 @@ class Simulation:
 
     def collide_agent_wall(self):
         
-        pass
+        # Create dict of every agent that has collided : [colliding walls]
+        collision_group_aw = pygame.sprite.groupcollide(self.agents, self.walls, False, False)
 
-    # def collide_agent_agent(self):
+        # Change agent mode + note points of contact (carry out velocity-stopping check later in agent.move())
+        for agent, wall_list in collision_group_aw.items():
 
-        # # Create dict of every agent that has collided : [colliding agents]
-        # collision_group_aa = pygame.sprite.groupcollide(self.agents, self.agents, False, False,
-        #     itra.within_group_collision)
+            agent.mode = 'collide'
+
+            for wall in wall_list:
+
+                clip = agent.rect.clip(wall.rect)
+                pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+
+                # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
+
+                agent.collided_points.append(clip.center)
+
+                # hits = [edge for edge in ['bottom', 'top', 'left', 'right'] if getattr(clip, edge) == getattr(agent.rect, edge)]
+                # text = self.font.render(f'Collision at {", ".join(hits)}', True, pygame.Color('black'))
+                # self.screen.blit(text, (self.window_pad, int(self.window_pad/2)))
+
+    def collide_agent_agent(self):
+
+        # Create dict of every agent that has collided : [colliding agents]
+        collision_group_aa = pygame.sprite.groupcollide(self.agents, self.agents, False, False, supcalc.within_group_collision)
         
-        # # Carry out agent-agent collisions + generate list of non-exploiting collided agents
-        # for agent1, other_agents in collision_group_aa.items():
-        #     collided_agents_instance = self.agent_agent_collision_proximity(agent1, other_agents)
-        #     collided_agents.append(collided_agents_instance)
-        # collided_agents = [agent for sublist in collided_agents for agent in sublist]
-        
-        # # Turn off collision mode when over
-        # for agent in self.agents:
-        #     if agent not in collided_agents and agent.get_mode() == "collide":
-        #         agent.set_mode("explore")
+        # Carry out agent-agent collisions + generate list of collided agents
+        for agent1, other_agents in collision_group_aa.items():
+
+            agent1.mode = 'collide'
+
+            for agentX in other_agents:
+
+                clip = agent1.rect.clip(agentX.rect)
+                pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+
+                # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
+
+                agent1.collided_points.append(clip.center)
 
 ### -------------------------- HUMAN INTERACTION FUNCTIONS -------------------------- ###
 
@@ -487,12 +556,12 @@ class Simulation:
             if event.type == pygame.QUIT:
                 sys.exit()
 
-            # Change orientation with mouse wheel
-            if event.type == pygame.MOUSEWHEEL:
-                if event.y == -1:
-                    event.y = 0
-                for ag in self.agents:
-                    ag.move_with_mouse(pygame.mouse.get_pos(), event.y, 1 - event.y)
+            # # Change orientation with mouse wheel
+            # if event.type == pygame.MOUSEWHEEL:
+            #     if event.y == -1:
+            #         event.y = 0
+            #     for ag in self.agents:
+            #         ag.move_with_mouse(pygame.mouse.get_pos(), event.y, 1 - event.y)
 
             # Pause on Space
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
@@ -510,23 +579,23 @@ class Simulation:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_d:
                 self.framerate = self.framerate_orig
 
-            # Continuous mouse events (move with cursor)
-            if pygame.mouse.get_pressed()[0]:
-                try:
-                    for ag in self.agents:
-                        ag.move_with_mouse(event.pos, 0, 0)
-                    for res in self.resources:
-                        res.update_clicked_status(event.pos)
-                except AttributeError:
-                    for ag in self.agents:
-                        ag.move_with_mouse(pygame.mouse.get_pos(), 0, 0)
-            else:
-                for ag in self.agents:
-                    ag.is_moved_with_cursor = False
-                    ag.draw_update()
-                for res in self.resources:
-                    res.is_clicked = False
-                    res.draw_update()
+            # # Continuous mouse events (move with cursor)
+            # if pygame.mouse.get_pressed()[0]:
+            #     try:
+            #         for ag in self.agents:
+            #             ag.move_with_mouse(event.pos, 0, 0)
+            #         for res in self.resources:
+            #             res.update_clicked_status(event.pos)
+            #     except AttributeError:
+            #         for ag in self.agents:
+            #             ag.move_with_mouse(pygame.mouse.get_pos(), 0, 0)
+            # else:
+            #     for ag in self.agents:
+            #         ag.is_moved_with_cursor = False
+            #         ag.draw_update()
+            #     for res in self.resources:
+            #         res.is_clicked = False
+            #         res.draw_update()
 
 
 ##################################################################################
@@ -538,6 +607,7 @@ class Simulation:
         ### ---- INITIALIZATION ---- ###
 
         start_time = time.time()
+        self.create_walls()
         self.create_resources()
         self.create_agents()
 
@@ -561,9 +631,8 @@ class Simulation:
 
                     # Update agent parameters
                     agent.on_resrc = 0
-
-                    if self.with_visualization:
-                        agent.draw_update() 
+                    agent.collided_points = []
+                    agent.mode = 'explore'
 
                     # Update visual projections (vis_field)
                     crash = agent.visual_sensing()
@@ -573,20 +642,18 @@ class Simulation:
                     #     tracking.clean_global_dicts() # clean global data structures
                     #     return np.array([0.]), 0, True # as fitnesses, elapsed_time, crash_bool
 
-                    # Update collisions with walls (contact_field)
-                    agent.wall_contact_sensing() 
-
-                # Update collisions with resources (on_resrc)
+                # Update sprite collisions
+                self.collide_agent_wall()
+                self.collide_agent_agent()
                 self.collide_agent_res()
-                    
-                # # Update collisions amongst agents (contact_field)
-                # if self.collide_agents:
-                #     self.collide_agent_agent()
+
                 # obs_times[self.t] = time.time() - obs_start
 
                 ### ---- VISUALIZATION ---- ###
 
                 if self.with_visualization:
+                    for agent in self.agents:
+                        agent.draw_update() 
                     self.draw_frame()
 
                 ### ---- TRACKING ---- ### 
@@ -613,7 +680,7 @@ class Simulation:
                         self.consume(agent) 
                     # No food --> move via decided action(s) + set mode to collide if collided
                     else: 
-                        agent.move(agent.action) 
+                        agent.move(agent.action)
 
                 # mod_times[self.t] = time.time() - mod_start
 
