@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 import pickle
 
-def plot_map(plot_data, x_max, y_max, w=4, h=4, save_name=None):
+def plot_map(plot_data, x_max, y_max, cbt, w=4, h=4, save_name=None):
 
     ag_data, res_data = plot_data
 
@@ -16,6 +16,16 @@ def plot_map(plot_data, x_max, y_max, w=4, h=4, save_name=None):
     # rescale plotting area to square
     l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
     fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+    # collision boundaries via rectangles (drawn as 2*thickness to coincide with agent center pos when collided)
+    walls = [
+        ((0, y_max - cbt*2), x_max, cbt*2),
+        ((0, 0), x_max, cbt*2),
+        ((x_max - cbt*2, 0), cbt*2, y_max),
+        ((0, 0), cbt*2, y_max),
+    ]
+    for (x,y),w,h in walls:
+        axes.add_patch( plt.Rectangle((x,y), w, h, color='lightgray', zorder=0) )
 
     # resource patches via circles
     N_res = res_data.shape[0]
@@ -52,8 +62,8 @@ def plot_map(plot_data, x_max, y_max, w=4, h=4, save_name=None):
         # add agent directional trajectory via arrows 
         arrows(axes, traj_explore[:,0], traj_explore[:,1])
 
-        # add agent positional trajectory + mode via points
-        axes.plot(traj_explore[:,0], traj_explore[:,1],'o', color='royalblue', ms=.5, zorder=2)
+        # add agent positional trajectory + mode via points (every 10 ts for explore, every ts for exploit/collisions)
+        axes.plot(traj_explore[::10,0], traj_explore[::10,1],'o', color='royalblue', ms=.5, zorder=2)
         if traj_exploit.size: axes.plot(traj_exploit[:,0], traj_exploit[:,1],'o', color='green', ms=5, zorder=3)
         if traj_collide.size: axes.plot(traj_collide[:,0], traj_collide[:,1],'o', color='red', ms=5, zorder=3, clip_on=False)
 
@@ -133,7 +143,7 @@ def arrows(axes, x, y, ahl=6, ahw=3):
     r = np.array(r)
 
     # set arrow spacing
-    num_arrows = int(len(x) / 15)
+    num_arrows = int(len(x) / 50)
     aspace = r.sum() / (num_arrows + 1)
     
     # set inital arrow position at first space
@@ -164,7 +174,7 @@ def arrows(axes, x, y, ahl=6, ahw=3):
             if arrowPos > rtot[-1]:
                 break
 
-    for ax,ay,theta in arrowData:
+    for ax,ay,theta in arrowData[1:]:
         # use aspace as a guide for size and length of things
         # scaling factors were chosen by experimenting a bit
 
@@ -432,13 +442,13 @@ if __name__ == '__main__':
     # plot_mult_EA_trends([f'doublepoint_CNN1112_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_1112')
 
     # plot_mult_EA_trends([f'doublepoint_CNN111124_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)], 'doublepoint_vis8_dirfit_GRU_111124')
+    # plot_mult_EA_trends([f'doublepoint_CNN111248_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_111248')
 
     # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU1')
     # plot_mult_EA_trends([f'doublepoint_CNN1128_GRU3_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU3')
 
 
 
-    # plot_mult_EA_trends([f'doublepoint_CNN111248_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_111248')
     # plot_mult_EA_trends([f'doublepoint_CNN11210_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_11210')
     # plot_mult_EA_trends([f'doublepoint_CNN11212_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_11212')
     # plot_mult_EA_trends([f'doublepoint_CNN11110_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_11110')
@@ -469,24 +479,49 @@ if __name__ == '__main__':
     # groups.append(('GRU_1',[f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
     # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_other0_groups')
 
+
+
+    # groups.append(('FNN',[f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(20)]))
+    # # groups.append(('CTRNN',[f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
+    # groups.append(('GRU',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(20)]))
+    # # groups.append(('GRU_1',[f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
+    # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_other0_groups')
+
+    groups = []
+    groups.append(('FNN_other0',[f'symdoublepoint_CNN1128_FNN2_other0_rep{x}' for x in range(20)]))
+    groups.append(('GRU_other0',[f'symdoublepoint_CNN1128_GRU2_other0_rep{x}' for x in range(20)]))
+    plot_mult_EA_trends_groups(groups, 'symdoublepoint_other0')
+
+
+
     # groups.append(('FNN',[f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)]))
     # groups.append(('CTRNN',[f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)]))
     # groups.append(('GRU',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}' for x in range(6)]))
     # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_simp_groups')
 
-    # groups.append(('11212',[f'doublepoint_CNN11212_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
-    # groups.append(('11210',[f'doublepoint_CNN11210_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
-    # groups.append(('1128',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
+    # groups = []
+    # groups.append(('11212',[f'doublepoint_CNN11212_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(10)]))
+    # groups.append(('11210',[f'doublepoint_CNN11210_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(10)]))
+    # groups.append(('1128',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(100)]))
     # groups.append(('1126',[f'doublepoint_CNN1126_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # groups.append(('1124',[f'doublepoint_CNN1124_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # groups.append(('1122',[f'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_GRU_112x_groups')
 
+    # groups = []
+    # groups.append(('11112',[f'doublepoint_CNN11112_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(10)]))
+    # groups.append(('11110',[f'doublepoint_CNN11110_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(10)]))
     # groups.append(('1118',[f'doublepoint_CNN1118_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # groups.append(('1116',[f'doublepoint_CNN1116_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # groups.append(('1114',[f'doublepoint_CNN1114_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # groups.append(('1112',[f'doublepoint_CNN1112_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_GRU_111x_groups')
+
+    # groups = []
+    # groups.append(('111124',[f'doublepoint_CNN111124_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
+    # groups.append(('111248',[f'doublepoint_CNN111248_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(10)]))
+    # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_GRU_111xxx_groups')
+
 
     # groups.append(('GRU 1',[f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)]))
     # groups.append(('GRU 2',[f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(4)]))
@@ -529,10 +564,15 @@ if __name__ == '__main__':
     # plot_mult_EA_trends_groups(groups, 'doublepoint_CNN1128_GRU2_repvar_p75')
 
 
+    # groups.append(('CNN1128_GRU2_sig0p1', [f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(100)]))
+    # groups.append(('CNN1128_GRU2_sig1', [f'doublepoint_CNN1128_GRU2_p25e5g1000_sig10_vis8_dirfit_rep{x}' for x in range(11)]))
+    # groups.append(('CNN1128_GRU2_sig10', [f'doublepoint_CNN1128_GRU2_p25e5g1000_sig10_vis8_dirfit_rep{x}' for x in range(20)]))
+    # plot_mult_EA_trends_groups(groups, 'doublepoint_CNN1128_GRU2_sigvar')
 
-    groups.append(('GRU_other3', [f'symdoublepoint_CNN1128_GRU2_rep{x}' for x in range(100)]))
-    groups.append(('FNN_other3', [f'symdoublepoint_CNN1128_FNN2_rep{x}' for x in range(78)]))
-    plot_mult_EA_trends_groups(groups, 'symdoublepoint')
+    # groups = []
+    # groups.append(('FNN_other3', [f'symdoublepoint_CNN1128_FNN2_rep{x}' for x in range(100)]))
+    # groups.append(('GRU_other3', [f'symdoublepoint_CNN1128_GRU2_rep{x}' for x in range(100)]))
+    # plot_mult_EA_trends_groups(groups, 'symdoublepoint')
     
     # groups.append(('GRU_other3', [f'symdoublepoint_CNN1128_GRU2_rep{x}' for x in range(100)]))
     # groups.append(('GRU_other3', [f'symdoublepoint_CNN1128_GRU2_rep{x}' for x in range(50)]))

@@ -17,7 +17,7 @@ from abm.monitoring import tracking, plot_funcs
 
 class Simulation:
     # @timer
-    def __init__(self, width=600, height=480, window_pad=30, 
+    def __init__(self, width=600, height=480, window_pad=30,
                  N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, 
                  plot_trajectory=False, log_zarr_file=False, save_ext="",
                  agent_radius=10, max_vel=5, vis_field_res=8, vision_range=150, agent_fov=1.0, 
@@ -71,6 +71,7 @@ class Simulation:
         self.WIDTH = width
         self.HEIGHT = height
         self.window_pad = window_pad
+        self.coll_boundary_thickness = agent_radius
         self.x_min, self.x_max = 0, width
         self.y_min, self.y_max = 0, height
         self.boundary_info = (self.x_min, self.x_max, self.y_min, self.y_max)
@@ -83,7 +84,7 @@ class Simulation:
         if self.with_visualization:
             self.framerate_orig = framerate
         else:
-            # this is more than what is possible withy pygame so it will use the maximal framerate
+            # this is more than what is possible with pygame so it will use the maximal framerate
             self.framerate_orig = 2000
         self.framerate = self.framerate_orig # distinguished for varying in-game framerate
         self.is_paused = False
@@ -125,7 +126,7 @@ class Simulation:
         if self.max_resrc_units < 0:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
-        self.res_id_counter = 0
+        self.res_id_counter = np.random.randint(2)
 
         # Neural Network parameters
         self.model = NN
@@ -158,9 +159,9 @@ class Simulation:
             self.font = pygame.font.Font(None, int(self.window_pad/2))
             # self.recorder = ScreenRecorder(self.x_min + self.x_max, self.y_min + self.y_max, framerate, out_file='sim.mp4')
         else:
-            pass
-            # pygame.display.init()
-            # pygame.display.set_mode([1,1])
+            # pass
+            pygame.display.init()
+            pygame.display.set_mode([1,1])
 
         # pygame related class attributes
         self.walls = pygame.sprite.Group()
@@ -296,13 +297,11 @@ class Simulation:
     
     def create_walls(self):
 
-        thickness = self.agent_radii
-
         walls = [
-            ('wall_north', (self.WIDTH, thickness), np.array([ self.x_min, self.y_min ])),
-            ('wall_south', (self.WIDTH, thickness), np.array([ self.x_min, self.y_max - thickness ])),
-            ('wall_east', (thickness, self.HEIGHT), np.array([ self.x_max - thickness, self.y_min ])),
-            ('wall_west', (thickness, self.HEIGHT), np.array([ self.x_min, self.y_min ]))
+            ('wall_north', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_min ])),
+            ('wall_south', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_max - self.coll_boundary_thickness ])),
+            ('wall_east', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_max - self.coll_boundary_thickness, self.y_min ])),
+            ('wall_west', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_min, self.y_min ]))
         ]
 
         for id, size, position in walls:
@@ -424,14 +423,13 @@ class Simulation:
         id = self.res_id_counter
 
         # top-left / bottom-right corners
-        self.resrc_radius = self.WIDTH/10 # 100 if width=1000
-        if self.res_id_counter % 2 == np.random.randint(2): 
-        # if self.res_id_counter % 2 == 0: 
-            x = self.WIDTH/2 - self.resrc_radius
-            y = self.WIDTH/2 - self.resrc_radius
+        self.resrc_radius = self.WIDTH*.1 # 100 if width=1000
+        if self.res_id_counter % 2 == 0: 
+            x = self.WIDTH*.37
+            y = self.HEIGHT*.37
         else:
-            x = self.WIDTH/2 + self.resrc_radius
-            y = self.WIDTH/2 + self.resrc_radius
+            x = self.WIDTH*.63
+            y = self.HEIGHT*.63
 
         # # top-left / bottom-right points, off-center / off-wall / asym (centers @ 140,450 - 450,140)
         # self.resrc_radius = 20
@@ -652,6 +650,9 @@ class Simulation:
                     for res in self.resources:
                         res.draw_update() 
                     self.draw_frame()
+                else: # still have to update rect for wall collisions
+                    for agent in self.agents:
+                        agent.rect = agent.image.get_rect(center = agent.position + self.window_pad)
 
                 ### ---- TRACKING ---- ### 
 
@@ -677,7 +678,8 @@ class Simulation:
                         self.consume(agent) 
                     # No food --> move via decided action (stationary if collided object in front)
                     else: 
-                        agent.move(agent.action)
+                        # agent.move(agent.action)
+                        agent.move(np.random.uniform(-0.1,0.1))
 
                 # mod_times[self.t] = time.time() - mod_start
 
@@ -735,6 +737,6 @@ class Simulation:
 
         # display static map of simulation
         if self.plot_trajectory:
-            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, save_name=self.save_ext)
+            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
         return self.fitnesses, self.elapsed_time

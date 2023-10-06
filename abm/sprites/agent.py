@@ -76,7 +76,7 @@ class Agent(pygame.sprite.Sprite):
 
             # print(f'Model Architecture: {arch}')
             param_vec_size = sum(p.numel() for p in self.model.parameters())
-            # print(f'Total #Params: {param_vec_size}')
+            print(f'Total #Params: {param_vec_size}')
         
         # Visual field parameters
         self.vis_field_res = vis_field_res
@@ -259,7 +259,6 @@ class Agent(pygame.sprite.Sprite):
             if occ_objs:
                 # use closest object to fill in field
                 occ_objs.sort()
-                # if len(occ_objs) > 1: print(self.id, occ_objs)
                 _, _, mode = occ_objs[0]
 
                 if mode == "exploit": 
@@ -363,7 +362,7 @@ class Agent(pygame.sprite.Sprite):
             elif x == 'wall_east': field_onehot[2,i] = 1
             elif x == 'wall_west': field_onehot[3,i] = 1
             elif x == 'agent_exploit': field_onehot[4,i] = 1
-            else: # x == 'agent_nonexplore
+            else: # x == 'agent_explore
                 field_onehot[5,i] = 1
         return field_onehot
 
@@ -372,11 +371,11 @@ class Agent(pygame.sprite.Sprite):
 
     def change_color(self):
         """Changing color of agent according to the behavioral mode the agent is currently in."""
-        if self.mode == "explore":
+        if self.mode == 'explore':
             self.color = colors.BLUE
-        elif self.mode == "exploit":
+        elif self.mode == 'exploit':
             self.color = colors.GREEN
-        elif self.mode == "collide":
+        elif self.mode == 'collide':
             self.color = colors.RED
     # @timer
     def draw_update(self):

@@ -2,12 +2,9 @@
 @author: mezdahun
 @description: Helper functions for InfluxDB
 """
-# import importlib
-# import abm.contrib.tracking_params as tp
 
 from pathlib import Path
 import zarr
-# import sys
 
 resources_dict = {}
 agents_dict = {}
@@ -40,8 +37,8 @@ def save_agent_data_RAM(sim):
             agents_dict[ag.id][f"collected_r"] = []
 
         # convert positional coordinates
-        x,y = ag.pt_center
-        pos_x = x - sim.window_pad
+        x,y = ag.position
+        pos_x = x
         pos_y = sim.y_max - y
 
         # input data of current time step
@@ -62,8 +59,8 @@ def save_resource_data_RAM(sim):
         if res.id not in list(resources_dict.keys()): # setup subdict
             
             # convert positional coordinates
-            x,y = res.pt_center
-            pos_x = x - sim.window_pad
+            x,y = res.position
+            pos_x = x
             pos_y = sim.y_max - y
 
             resources_dict[res.id] = {}
