@@ -45,8 +45,8 @@ class Resource(pygame.sprite.Sprite):
         self.resrc_left_color = colors.DARK_GREY
 
         self.image = pygame.Surface([self.radius * 2, self.radius * 2])
-        self.image.fill(colors.BACKGROUND)
-        self.image.set_colorkey(colors.BACKGROUND)
+        self.image.fill(colors.WHITE)
+        self.image.set_colorkey(colors.WHITE)
         pygame.draw.circle(
             self.image, self.color, (radius, radius), radius
         )
@@ -87,8 +87,8 @@ class Resource(pygame.sprite.Sprite):
         """
         # Initial Visualization of Resource
         self.image = pygame.Surface([self.radius * 2, self.radius * 2])
-        self.image.fill(colors.BACKGROUND)
-        self.image.set_colorkey(colors.BACKGROUND)
+        self.image.fill(colors.WHITE)
+        self.image.set_colorkey(colors.WHITE)
         pygame.draw.circle(
             self.image, self.color, (self.radius, self.radius), self.radius
         )

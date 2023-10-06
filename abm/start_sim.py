@@ -63,10 +63,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          save_ext               =save_ext,
                          agent_radius           =int(envconf["RADIUS_AGENT"]),
                          max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
-                         collision_slowdown     =float(envconf["COLLISION_SLOWDOWN"]),
                          vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
-                         contact_field_res      =int(envconf["CONTACT_FIELD_RESOLUTION"]),
-                         collide_agents         =bool(int(envconf["AGENT_AGENT_COLLISION"])),
                          vision_range           =int(envconf["VISION_RANGE"]),
                          agent_fov              =float(envconf['AGENT_FOV']),
                          visual_exclusion       =bool(int(envconf["VISUAL_EXCLUSION"])),
@@ -82,7 +79,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          NN                     =NN,
                          CNN_depths             =list(map(int,envconf["CNN_DEPTHS"].split(','))),
                          CNN_dims               =list(map(int,envconf["CNN_DIMS"].split(','))),
-                         RNN_input_other_size   =int(envconf["RNN_INPUT_OTHER_SIZE"]),
+                         RNN_other_input_size   =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                          RNN_hidden_size        =int(envconf["RNN_HIDDEN_SIZE"]),
                          LCL_output_size        =int(envconf["LCL_OUTPUT_SIZE"]),
                          NN_activ               =str(envconf["NN_ACTIVATION_FUNCTION"]),
@@ -90,7 +87,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          )
         fitnesses, elapsed_time = sim.start()
 
-        # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}')
+        print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}')
 
     return save_ext, fitnesses, elapsed_time
 

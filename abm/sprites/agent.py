@@ -116,8 +116,8 @@ class Agent(pygame.sprite.Sprite):
 
         # Initializing body + position
         self.image = pygame.Surface([radius * 2, radius * 2])
-        self.image.fill(colors.BACKGROUND)
-        self.image.set_colorkey(colors.BACKGROUND)
+        self.image.fill(colors.WHITE)
+        self.image.set_colorkey(colors.WHITE)
         self.rect = self.image.get_rect(center = self.position + self.window_pad)
 
 ### -------------------------- VISUAL FUNCTIONS -------------------------- ###
@@ -140,10 +140,8 @@ class Agent(pygame.sprite.Sprite):
         """
         create dictionary storing visually relevant information for each boundary endpoint
         """
-
         # print()
         # print(f'self \t {np.round(self.vec_self_dir/self.radius,2)} \t {np.round(self.orientation*90/np.pi,0)}')
-
         # print(np.round(self.phis*90/np.pi,0))
 
         self.boundary_endpt_dict = {}
@@ -157,15 +155,12 @@ class Agent(pygame.sprite.Sprite):
 
             # calc orientation angle
             angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, distance)
-            ## relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
-
-            # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}')
-
-            # project to FOV
-            proj = supcalc.find_nearest(self.phis, angle_bw)
+            ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
 
             # update dictionary with added info
-            self.boundary_endpt_dict[endpt_name] = (endpt_coord, distance, angle_bw, proj)
+            self.boundary_endpt_dict[endpt_name] = angle_bw
+
+            # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}'
 
     # @timer
     def gather_boundary_wall_info(self):
@@ -179,236 +174,116 @@ class Agent(pygame.sprite.Sprite):
             ('wall_east', 'TR', 'BR'),
             ('wall_west', 'BL', 'TL'),
         ]
-        # unpack L/R angle limits of visual projection field
-        phi_L_limit = self.phis[0]
-        phi_R_limit = self.phis[-1]
-
         # loop over the 4 walls
         for wall_name, pt_L, pt_R in walls:
 
             # unpack dict entry for each corresponding endpt
-            coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
-            coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
+            angle_L = self.boundary_endpt_dict[pt_L]
+            angle_R = self.boundary_endpt_dict[pt_R]
 
-            # if at least one endpt is visually perceivable, build dict entry
-            if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
+            self.vis_field_wall_dict[wall_name] = {}
+            self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
+            self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
 
-                # print(f'see \t {wall_name} \t {np.round(angle_L*90/np.pi,0), np.round(angle_R*90/np.pi,0)}')
+    # @timer
+    def gather_agent_info(self, agents):
 
-                self.vis_field_wall_dict[wall_name] = {}
-                self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
-                self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
+        # initialize agent dict
+        self.vis_field_agent_dict = {}
 
-                self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
-                self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
+        # for all agents in the simulation
+        for ag in agents:
 
-                if proj_L <= proj_R:
+            # exclude self from list
+            if ag.id != self.id:
 
-                    self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
-                    self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
+                # exclude agents outside range of vision (calculate distance bw agent center + self eye)
+                agent_coord = ag.position
+                vec_between = agent_coord - self.pt_eye
+                agent_distance = np.linalg.norm(vec_between)
+                if agent_distance <= self.vision_range:
 
-                # L/R edge cases (angle sign switches behind the agent)
-                else: # proj_L > proj_R 
+                    # exclude agents outside FOV limits (calculate visual boundaries of agent)
 
-                    # L-endpoint is far enough L it becomes R (positive + end of visual field)
-                    if proj_L == len(self.phis)-1:
-                        self.vis_field_wall_dict[wall_name]['proj_L'] = 0
-                        self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
+                    # orientation angle relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
+                    angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, agent_distance)
+                    # exclusionary angle between agent + self, taken to L/R boundaries
+                    angle_edge = np.arctan(self.radius / agent_distance)
+                    angle_L = angle_bw - angle_edge
+                    angle_R = angle_bw + angle_edge
+                    # unpack L/R angle limits of visual projection field
+                    phi_L_limit = self.phis[0]
+                    phi_R_limit = self.phis[-1]
+                    if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
 
-                    else: # R-endpoint is far enough R it becomes L (negative + start of visual field)
-                        self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
-                        self.vis_field_wall_dict[wall_name]['proj_R'] = len(self.phis)-1
+                        # update dictionary with all relevant info
+                        agent_name = f'agent_{ag.id}'
+                        self.vis_field_agent_dict[agent_name] = {}
+                        self.vis_field_agent_dict[agent_name]['mode'] = ag.mode
+                        self.vis_field_agent_dict[agent_name]['distance'] = agent_distance
+                        self.vis_field_agent_dict[agent_name]['angle_L'] = angle_L
+                        self.vis_field_agent_dict[agent_name]['angle_R'] = angle_R
 
-
-        if not self.vis_field_wall_dict: # no walls had endpoints within FOV - find closest wall via L endpoints
-
-            # list endpoints left of L perception limit
-            nonvis_L_endpts = [(name,angle) for name,(_,_,angle,_) in self.boundary_endpt_dict.items() if angle < phi_L_limit]
-
-            if nonvis_L_endpts:
-                # return endpt name with max angle of these L angles
-                closest_nonvis_L_endpt_name,_ = max(nonvis_L_endpts, key = lambda t: t[1])
-                # find corresponding wall_name + R endpt
-                for wall_name, pt_L, pt_R in walls:
-                    if pt_L == closest_nonvis_L_endpt_name:
-                        break
-                # print(f'see \t {wall_name} \t {np.round(angle_L*90/np.pi,0), np.round(angle_R*90/np.pi,0)}')
-                # create dict entry for this wall
-                coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
-                coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
-                self.vis_field_wall_dict[wall_name] = {}
-                self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
-                self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
-                self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
-                self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
-                self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
-                self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
-            
-            else:
-                # list endpoints left of R perception limit
-                nonvis_R_endpts = [(name,angle) for name,(_,_,angle,_) in self.boundary_endpt_dict.items() if angle > phi_R_limit]
-                
-                if nonvis_R_endpts:
-                    # return endpt name with max angle of these R angles
-                    closest_nonvis_R_endpt_name,_ = min(nonvis_R_endpts, key = lambda t: t[1])
-                    # find corresponding wall_name + L endpt
-                    for wall_name, pt_L, pt_R in walls:
-                        if pt_R == closest_nonvis_R_endpt_name:
-                            break
-                    # print(f'see \t {wall_name} \t {np.round(angle_L*90/np.pi,0), np.round(angle_R*90/np.pi,0)}')
-                    # create dict entry for this wall
-                    coord_L, _, angle_L, proj_L = self.boundary_endpt_dict[pt_L]
-                    coord_R, _, angle_R, proj_R = self.boundary_endpt_dict[pt_R]
-                    self.vis_field_wall_dict[wall_name] = {}
-                    self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
-                    self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
-                    self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
-                    self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
-                    self.vis_field_wall_dict[wall_name]['proj_L'] = proj_L
-                    self.vis_field_wall_dict[wall_name]['proj_R'] = proj_R
-
-                else: # shouldn't happen - used to be crash scenario - solved by clipped dot product
-                    self.vis_field_wall_dict = None
-
-    # def gather_agent_info(self, agents):
-
-    #     # initialize agent dict
-    #     self.vis_field_agent_dict = {}
-
-    #     # for all agents in the simulation
-    #     for ag in agents:
-
-    #         # exclude self from list
-    #         agent_id = ag.id
-    #         if agent_id != self.id:
-
-    #             # exclude agents outside range of vision (calculate distance bw agent center + self eye)
-    #             agent_coord = ag.position + self.radius
-    #             vec_between = agent_coord - self.pt_eye
-    #             agent_distance = np.linalg.norm(vec_between)
-    #             if agent_distance <= self.vision_range:
-                    
-    #                 # exclude agents outside FOV limits (calculate visual boundaries of agent)
-
-    #                 # orientation angle relative to perceiving agent, in radians between [+pi (left/CCW), -pi (right/CW)]
-    #                 angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, agent_distance)
-    #                 # exclusionary angle between agent + self, taken to L/R boundaries
-    #                 angle_edge = np.arctan(self.radius / agent_distance)
-    #                 angle_L = angle_bw - angle_edge
-    #                 angle_R = angle_bw + angle_edge
-    #                 # unpack L/R angle limits of visual projection field
-    #                 phi_L_limit = self.phis[0]
-    #                 phi_R_limit = self.phis[-1]
-    #                 if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
-
-    #                     # find projection endpoints
-    #                     proj_L = supcalc.find_nearest(self.phis, angle_L)
-    #                     proj_R = supcalc.find_nearest(self.phis, angle_R)
-
-    #                     # calculate left edgepoint on agent's perimeter according to the angle in which it is perceived
-    #                     coord_L = np.array([
-    #                         agent_coord[0] + np.cos(self.orientation - angle_bw + np.pi/2) * self.radius, 
-    #                         agent_coord[1] - np.sin(self.orientation - angle_bw + np.pi/2) * self.radius])
-    #                     # exploiting symmetry to find right edge
-    #                     vec_agent_L_edge = agent_coord - coord_L
-    #                     coord_R = agent_coord + vec_agent_L_edge
-                    
-    #                     # update dictionary with all relevant info
-    #                     self.vis_field_agent_dict['agent_'+id] = {}
-    #                     self.vis_field_agent_dict['agent_'+id]['coord_center'] = agent_coord
-    #                     self.vis_field_agent_dict['agent_'+id]['mode'] = ag.get_mode()
-    #                     self.vis_field_agent_dict['agent_'+id]['distance'] = agent_distance
-    #                     self.vis_field_agent_dict['agent_'+id]['angle'] = angle_bw
-    #                     self.vis_field_agent_dict['agent_'+id]['proj_L'] = proj_L
-    #                     self.vis_field_agent_dict['agent_'+id]['proj_R'] = proj_R
-    #                     self.vis_field_agent_dict['agent_'+id]['proj_L_ex'] = proj_L
-    #                     self.vis_field_agent_dict['agent_'+id]['proj_R_ex'] = proj_R
-    #                     self.vis_field_agent_dict['agent_'+id]['coord_L'] = coord_L
-    #                     self.vis_field_agent_dict['agent_'+id]['coord_R'] = coord_R
-
-    #                     # key differences -->
-    #                     # dict includes both agent + boundary wall info
-    #                     # calculates visual exclusions from all agents
-    #                         # also includes those on the same exploited patch (patchwise_social_exclusion)
-    #                     # includes non-exploiting agents in end perception
-
-    # def calculate_perceptual_exclusions(self):
-    #     """
-    #     Iterates over pairs of obstacles, excluding occluded obstacles/parts
-    #     """
-    #     # filter visual dict for agents + rank according to distance from self (low first)
-    #     agent_by_dist_info = sorted(self.vis_field_agent_dict, key=lambda kv: kv[1]['distance'])
-    #     self.vis_field_agent_dict = OrderedDict(agent_by_dist_info)
-
-    #     # combination operation, though itertools doesn't seem to provide performance benefit and is less understandable
-    #     for id_close, obs_close in self.vis_field_agent_dict.items():
-    #         for id_far, obs_far in self.vis_field_agent_dict.items():
-    #             if obs_far["distance"] > obs_close["distance"]: 
-    #                 # Partial R-side exclusion
-    #                 if obs_far["proj_R_ex"] > obs_close["proj_L"] > obs_far["proj_L_ex"]: 
-    #                     obs_far["proj_R_ex"] = obs_close["proj_L"]
-    #                     continue
-    #                 # Partial L-side exclusion
-    #                 if obs_far["proj_L_ex"] < obs_close["proj_R"] < obs_far["proj_R_ex"]:
-    #                     obs_far["proj_L_ex"] = obs_close["proj_R"]
-    #                     continue
-    #                 # Total exclusion
-    #                 if obs_close["proj_L"] <= obs_far["proj_L_ex"] and obs_close["proj_R"] >= obs_far["proj_R_ex"]:
-    #                     obs_far["proj_L_ex"] = -1
-    #                     obs_far["proj_R_ex"] = -1
-
-    def fill_vis_field(self, proj_dict, dict_type=None):
+    def fill_vis_field_walls(self):
         """
-        Mark projection field according to each wall or agent
+        Mark projection field according to each wall
         """
-        # # pull relevant info from dict ---> loops over walls ---> can result in error at border points since it does not check
-        # for obj_name, v in proj_dict.items():
-        #     if dict_type == 'walls':
-        #         phi_from = v["proj_L"]
-        #         phi_to = v["proj_R"]
-        #     else: # dict_type == 'agents
-        #         phi_from = v["proj_L_ex"]
-        #         phi_to = v["proj_R_ex"]
-        #         obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
-        #     # raycast to wall/agent for each discretized perception angle within FOV range
-        #     # fill in relevant identification information (wall name / agent mode)
-        #     for i in range(phi_from, phi_to + 1):
-        #         self.vis_field[i] = obj_name
-
-
-        # raycast to wall/agent for each discretized perception angle within FOV range
-        # fill in relevant identification information (wall name / agent mode)
+        # for each discretized perception angle within FOV range
         for i in range(self.vis_field_res):
 
             # look for intersections
-            for obj_name, v in proj_dict.items():
+            for obj_name, v in self.vis_field_wall_dict.items():
                 if v["angle_L"] <= self.phis[i] <= v["angle_R"]:
-                    # if dict_type == 'agents': obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
                     self.vis_field[i] = obj_name
             
             # no intersections bc one endpoint is behind back, iterate again
             if self.vis_field[i] == 0:
-                for obj_name, v in proj_dict.items():
-                    # if dict_type == 'agents': obj_name = 'agent_' + v["mode"] # uses agent_expl or agent_wand for vis_field value instead of "agent_[id]"
+                for obj_name, v in self.vis_field_wall_dict.items():
                     if v["angle_L"] > v["angle_R"]:
                         self.vis_field[i] = obj_name
-        
-        # print(self.vis_field)
+
+
+    def fill_vis_field_agents(self):
+        """
+        Mark projection field according to each agent
+        """
+        # for each discretized perception angle within FOV range
+        for i in range(self.vis_field_res):
+
+            # look for intersections + keep list of occluded surfaces
+            occ_objs = []
+            for obj_name, v in self.vis_field_agent_dict.items():
+                if v["angle_L"] <= self.phis[i] <= v["angle_R"]:
+                    occ_objs.append( (v["distance"], obj_name, v["mode"]) )
+
+            if occ_objs:
+                # use closest object to fill in field
+                occ_objs.sort()
+                # if len(occ_objs) > 1: print(self.id, occ_objs)
+                _, _, mode = occ_objs[0]
+
+                if mode == "exploit": 
+                    self.vis_field[i] = "agent_exploit"
+                else: # mode == "exploit": 
+                    self.vis_field[i] = "agent_explore"
 
     # @timer
-    def visual_sensing(self):
+    def visual_sensing(self, agents):
         """
         Accumulates visual sensory functions
         """
-        # Zero vis_field from previous step
+        # Zero from previous step
         self.vis_field = [0] * self.vis_field_res
+
         # Gather relevant info for self / boundary endpoints / walls
         self.gather_self_percep_info()
         self.gather_boundary_endpt_info()
         self.gather_boundary_wall_info()
+        if len(agents) > 1: self.gather_agent_info(agents)
 
-        # Fill in vis_field with identification info for each visual perception ray
-        self.fill_vis_field(self.vis_field_wall_dict, dict_type='walls')
+        # Fill in vis_field with id info (wall name / agent mode) for each visual perception ray
+        self.fill_vis_field_walls()
+        if len(agents) > 1: self.fill_vis_field_agents()
 
 ### -------------------------- MOVEMENT FUNCTIONS -------------------------- ###
 
@@ -486,11 +361,10 @@ class Agent(pygame.sprite.Sprite):
             if x == 'wall_north': field_onehot[0,i] = 1
             elif x == 'wall_south': field_onehot[1,i] = 1
             elif x == 'wall_east': field_onehot[2,i] = 1
-            else: # x == 'wall_west'
-                field_onehot[3,i] = 1
-            # elif x == 'agent_expl': field_onehot[i,4] = 1
-            # else: # x == 'agent_nonexpl
-            #     field_onehot[i,5] = 1
+            elif x == 'wall_west': field_onehot[3,i] = 1
+            elif x == 'agent_exploit': field_onehot[4,i] = 1
+            else: # x == 'agent_nonexplore
+                field_onehot[5,i] = 1
         return field_onehot
 
 
@@ -514,7 +388,7 @@ class Agent(pygame.sprite.Sprite):
 
         # update surface according to new orientation
         pygame.draw.circle(self.image, self.color, (self.radius, self.radius), self.radius)
-        pygame.draw.line(self.image, colors.BACKGROUND, (self.radius, self.radius),
+        pygame.draw.line(self.image, colors.WHITE, (self.radius, self.radius),
                          ((1 + np.cos(self.orientation)) * self.radius, (1 - np.sin(self.orientation)) * self.radius), 3)
         self.rect = self.image.get_rect(center = self.position + self.window_pad)
 

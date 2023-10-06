@@ -185,7 +185,7 @@ class Simulation:
                          [self.window_pad, self.window_pad + self.HEIGHT],
                          [self.window_pad + self.WIDTH, self.window_pad + self.HEIGHT])
 
-    def draw_framerate(self):
+    def draw_status(self):
         """Showing framerate, sim time and pause status on simulation windows"""
         status = [
             f"FPS: {self.framerate}, t = {self.t}/{self.T}",
@@ -214,68 +214,82 @@ class Simulation:
 
     def draw_visual_fields(self):
         """Visualizing range of vision as opaque circles around the agents""" 
+        vis_proj_distance = 30
+        vis_project_IDbubble_size = 2
+        
         for agent in self.agents:
             # Show visual range as circle if non-limiting FOV
             if self.agent_fov == 1:
-                pygame.draw.circle(self.screen, colors.GREY, agent.pt_eye + self.window_pad, agent.vision_range, width=1)
+                pygame.draw.circle(self.screen, colors.GREY, agent.pt_eye + self.window_pad, vis_proj_distance, width=1)
             else: # self.agent_fov < 1 --> show limits of FOV as radial lines with length of visual range
                 start_pos = agent.pt_eye + self.window_pad
                 angles = (agent.orientation + agent.phis[0], 
                           agent.orientation + agent.phis[-1])
                 for angle in angles: ### draws lines that don't quite meet borders
-                    end_pos = (start_pos[0] + np.cos(angle) * agent.vision_range,
-                               start_pos[1] - np.sin(angle) * agent.vision_range)
+                    end_pos = (start_pos[0] + np.cos(angle) * vis_proj_distance,
+                               start_pos[1] - np.sin(angle) * vis_proj_distance)
                     pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
 
-            # Show what it is seeing as discretized circles, color reflects identity
+            # for each visual field ray
             for phi, vis_name in zip(agent.phis, agent.vis_field):
 
-                end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * 1500,
-                            start_pos[1] - np.sin(agent.orientation - phi) * 1500)
-                pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
+                # # draw projections as gray lines
+                # end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * 1500,
+                #             start_pos[1] - np.sin(agent.orientation - phi) * 1500)
+                # pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
 
+                # draw bubbles reflecting perceived identities (wall/agents)
                 if vis_name == 'wall_north': # --> red
                     pygame.draw.circle(
                         self.screen, colors.TOMATO, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
                 elif vis_name == 'wall_south': # --> green
                     pygame.draw.circle(
                         self.screen, colors.LIME, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
                 elif vis_name == 'wall_east': # --> blue
                     pygame.draw.circle(
                         self.screen, colors.CORN, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
                 elif vis_name == 'wall_west': # --> yellow
                     pygame.draw.circle(
                         self.screen, colors.GOLD, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
-                # elif vis_name == 'exploit': ax.scatter(orient-phi, 600, s=20, c='k')
-                # else: # non-exploiting 
-                #     ax.scatter(orient-phi, 600, s=20, c='y')
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
+                elif vis_name == 'agent_exploit':
+                    pygame.draw.circle(
+                        self.screen, colors.VIOLET, 
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
+                else: # vis_name == 'agent_explore':
+                    pygame.draw.circle(
+                        self.screen, colors.BLACK, 
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
 
     # @timer
     def draw_frame(self):
         """Drawing environment, agents and every other visualization in each timestep"""
-        pygame.display.update()
-        self.screen.fill(colors.BACKGROUND)
+        pygame.display.flip()
+        self.screen.fill(colors.WHITE)
         self.walls.draw(self.screen)
         self.resources.draw(self.screen)
         self.agents.draw(self.screen)
         self.draw_walls()
-        self.draw_framerate()
+        self.draw_status()
         # self.draw_agent_stats()
 
         # vision range + projection field
-        if self.show_vision_range and self.WIDTH > self.vision_range: 
+        if self.show_vision_range: 
             self.draw_visual_fields()
     
 ### -------------------------- WALL FUNCTIONS -------------------------- ###
@@ -503,7 +517,7 @@ class Simulation:
             for wall in wall_list:
 
                 clip = agent.rect.clip(wall.rect)
-                pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+                if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
 
                 # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
 
@@ -526,7 +540,7 @@ class Simulation:
             for agentX in other_agents:
 
                 clip = agent1.rect.clip(agentX.rect)
-                pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+                if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
 
                 # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
 
@@ -608,24 +622,25 @@ class Simulation:
             if not self.is_paused:
 
                 # self.recorder.capture_frame(self.screen)
-
+                
                 ### ---- OBSERVATIONS ---- ###
 
                 # obs_start = time.time()
-                for agent in self.agents:
 
-                    # Update agent parameters
+                # Zero agent behavioral states
+                for agent in self.agents:
                     agent.on_resrc = 0
                     agent.collided_points = []
                     agent.mode = 'explore'
 
-                    # Update visual projections (vis_field)
-                    agent.visual_sensing()
-
-                # Update sprite collisions + flip agent modes for 'collide'/'exploit'
+                # Evaluate sprite collisions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
                 self.collide_agent_agent()
                 self.collide_agent_res()
+
+                # Update visual projections (vis_field)
+                for agent in self.agents:
+                    agent.visual_sensing(self.agents)
 
                 # obs_times[self.t] = time.time() - obs_start
 
@@ -634,6 +649,8 @@ class Simulation:
                 if self.with_visualization:
                     for agent in self.agents:
                         agent.draw_update() 
+                    for res in self.resources:
+                        res.draw_update() 
                     self.draw_frame()
 
                 ### ---- TRACKING ---- ### 
