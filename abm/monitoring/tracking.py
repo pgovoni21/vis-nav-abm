@@ -12,11 +12,11 @@ agents_dict = {}
 
 def mode_to_int(mode):
     """converts a string agent mode flag into an int"""
-    if mode == "explore":
+    if mode == 'explore':
         return int(0)
-    elif mode == "exploit":
+    elif mode == 'exploit':
         return int(1)
-    elif mode == "collide":
+    elif mode == 'collide':
         return int(2)
 
 
@@ -31,10 +31,10 @@ def save_agent_data_RAM(sim):
     for ag in sim.agents:
         if ag.id not in list(agents_dict.keys()): # setup subdict
             agents_dict[ag.id] = {}
-            agents_dict[ag.id][f"pos_x"] = []
-            agents_dict[ag.id][f"pos_y"] = []
-            agents_dict[ag.id][f"mode"] = []
-            agents_dict[ag.id][f"collected_r"] = []
+            agents_dict[ag.id][f'pos_x'] = []
+            agents_dict[ag.id][f'pos_y'] = []
+            agents_dict[ag.id][f'mode'] = []
+            agents_dict[ag.id][f'collected_r'] = []
 
         # convert positional coordinates
         x,y = ag.position
@@ -42,10 +42,10 @@ def save_agent_data_RAM(sim):
         pos_y = sim.y_max - y
 
         # input data of current time step
-        agents_dict[ag.id][f"pos_x"].append(pos_x)
-        agents_dict[ag.id][f"pos_y"].append(pos_y)
-        agents_dict[ag.id][f"mode"].append(mode_to_int(ag.mode))
-        agents_dict[ag.id][f"collected_r"].append(ag.collected_r)
+        agents_dict[ag.id][f'pos_x'].append(pos_x)
+        agents_dict[ag.id][f'pos_y'].append(pos_y)
+        agents_dict[ag.id][f'mode'].append(mode_to_int(ag.mode))
+        agents_dict[ag.id][f'collected_r'].append(ag.collected_r)
 
 
 def save_resource_data_RAM(sim):
@@ -64,12 +64,12 @@ def save_resource_data_RAM(sim):
             pos_y = sim.y_max - y
 
             resources_dict[res.id] = {}
-            resources_dict[res.id]["start_time"] = sim.t
-            resources_dict[res.id]["pos_x"] = pos_x
-            resources_dict[res.id]["pos_y"] = pos_y
-            resources_dict[res.id]["radius"] = res.radius
-            resources_dict[res.id]["resrc_left"] = []
-            resources_dict[res.id]["quality"] = []
+            resources_dict[res.id]['start_time'] = sim.t
+            resources_dict[res.id]['pos_x'] = pos_x
+            resources_dict[res.id]['pos_y'] = pos_y
+            resources_dict[res.id]['radius'] = res.radius
+            resources_dict[res.id]['resrc_left'] = []
+            resources_dict[res.id]['quality'] = []
 
         # input data of current time step
         resources_dict[res.id]["resrc_left"].append(res.resrc_left)
@@ -102,9 +102,9 @@ def save_zarr_file(sim_time, save_ext, print_enabled=False):
     num_ag = len(agents_dict)
     num_ag_data_entries = len(list(agents_dict[0]))
     save_data_ag_shape = (num_ag, sim_time, num_ag_data_entries)
-    if print_enabled: print(f"Saving agent data as {len(save_data_ag_shape)}-D zarr array of shape {save_data_ag_shape}")
+    if print_enabled: print(f'Saving agent data as {len(save_data_ag_shape)}-D zarr array of shape {save_data_ag_shape}')
 
-    ag_zarr = zarr.open(Path(save_dir, "ag.zarr"), mode='w', shape=save_data_ag_shape,
+    ag_zarr = zarr.open(Path(save_dir, 'ag.zarr'), mode='w', shape=save_data_ag_shape,
                             chunks=save_data_ag_shape, dtype='float')
 
     # populate zarr array from dict
@@ -118,9 +118,9 @@ def save_zarr_file(sim_time, save_ext, print_enabled=False):
     num_res = len(resources_dict)
     num_res_data_entries = len(list(resources_dict[0]))
     save_data_res_shape = (num_res, sim_time, num_res_data_entries)
-    if print_enabled: print(f"Saving resource data as {len(save_data_res_shape)}-D zarr array of shape {save_data_res_shape}")
+    if print_enabled: print(f'Saving resource data as {len(save_data_res_shape)}-D zarr array of shape {save_data_res_shape}')
 
-    res_zarr = zarr.open(Path(save_dir, "res.zarr"), mode='w', shape=save_data_res_shape,
+    res_zarr = zarr.open(Path(save_dir, 'res.zarr'), mode='w', shape=save_data_res_shape,
                             chunks=save_data_res_shape, dtype='float')
 
     # populate zarr array from dict
@@ -135,16 +135,8 @@ def save_zarr_file(sim_time, save_ext, print_enabled=False):
         res_zarr[res_id, start_time:end_time, 3] = resources_dict[res_id]['resrc_left']
         res_zarr[res_id, start_time:end_time, 4] = resources_dict[res_id]['quality']
 
-    clean_global_dicts()
-
-    return ag_zarr, res_zarr
-
-def clean_global_dicts():
     # clean global data structures
-    # - after loading instance info to file
-    # - for crashed simulations (without offloading to a file)
-
-    global agents_dict, resources_dict
-
     resources_dict = {}
     agents_dict = {}
+
+    return ag_zarr, res_zarr

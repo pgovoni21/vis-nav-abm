@@ -9,7 +9,7 @@ import numpy as np
 import cma
 import multiprocessing
 import pickle
-import zarr
+# import zarr
 
 class EvolAlgo():
     
@@ -27,8 +27,9 @@ class EvolAlgo():
         param_vec_size = sum(p.numel() for p in Model(arch,activ,RNN_type).parameters())
 
         print(f'EA Save Name: {EA_save_name}')
-        print(f'Model Architecture: {arch}')
+        print(f'Model Architecture: {arch}, {RNN_type}')
         print(f'Total #Params: {param_vec_size}')
+        print(f'# vCPUs: {os.cpu_count()}')
 
         # Evolution + Simulation parameters
         self.population_size = population_size

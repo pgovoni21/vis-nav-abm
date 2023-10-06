@@ -144,7 +144,7 @@ def arrows(axes, x, y, ahl=6, ahw=3):
 
     # set arrow spacing
     num_arrows = int(len(x) / 50)
-    aspace = r.sum() / (num_arrows + 1)
+    aspace = r.sum() / num_arrows
     
     # set inital arrow position at first space
     arrowPos = 0

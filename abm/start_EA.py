@@ -17,14 +17,10 @@ def start_EA(): # "EA-start" in terminal
     else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
     
     vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
-    contact_field_res    = int(envconf["CONTACT_FIELD_RESOLUTION"])
-    other_input_size     = int(envconf["RNN_INPUT_OTHER_SIZE"]) # last action + last velocity + on_resrc
-    
-    # assemble NN architecture
     CNN_input_size       = (num_class_elements, vis_field_res)
     CNN_depths           = list(map(int,envconf["CNN_DEPTHS"].split(',')))
     CNN_dims             = list(map(int,envconf["CNN_DIMS"].split(',')))
-    RNN_other_input_size = (contact_field_res, other_input_size)
+    RNN_other_input_size = int(envconf["RNN_OTHER_INPUT_SIZE"])
     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
     LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
 

@@ -126,7 +126,8 @@ class Simulation:
         if self.max_resrc_units < 0:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
-        self.res_id_counter = np.random.randint(2)
+        self.res_id_og = np.random.randint(2)
+        self.res_id_counter = self.res_id_og
 
         # Neural Network parameters
         self.model = NN
@@ -452,7 +453,8 @@ class Simulation:
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
 
-        resource = Resource(id, self.resrc_radius, (x, y), units, quality)
+        save_id = id - self.res_id_og # to start tracking matrix at zero
+        resource = Resource(save_id, self.resrc_radius, (x, y), units, quality)
         self.resources.add(resource)
 
         if not self.log_zarr_file: # save in sim instance
@@ -678,8 +680,9 @@ class Simulation:
                         self.consume(agent) 
                     # No food --> move via decided action (stationary if collided object in front)
                     else: 
-                        # agent.move(agent.action)
-                        agent.move(np.random.uniform(-0.1,0.1))
+                        agent.move(agent.action)
+                        # agent.move(0.1)
+                        # agent.move(np.random.uniform(-0.1,0.1))
 
                 # mod_times[self.t] = time.time() - mod_start
 

@@ -87,7 +87,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          )
         fitnesses, elapsed_time = sim.start()
 
-        print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}')
+        # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}')
 
     return save_ext, fitnesses, elapsed_time
 
