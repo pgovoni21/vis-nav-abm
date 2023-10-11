@@ -40,7 +40,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
             # envconf['INIT_FRAMERATE'] = 50
             envconf['WITH_VISUALIZATION'] = 0
             envconf['PLOT_TRAJECTORY'] = 1
-            envconf['LOG_ZARR_FILE'] = 1
+            envconf['LOG_ZARR_FILE'] = 0
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
@@ -101,15 +101,12 @@ def reconstruct_NN(envconf,pv):
     if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
     else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
     
-    vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
-    contact_field_res    = int(envconf["CONTACT_FIELD_RESOLUTION"])
-    other_input_size     = int(envconf["RNN_INPUT_OTHER_SIZE"]) # last action + last velocity + on_resrc
-    
     # assemble NN architecture
+    vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
     CNN_input_size       = (num_class_elements, vis_field_res)
     CNN_depths           = list(map(int,envconf["CNN_DEPTHS"].split(',')))
     CNN_dims             = list(map(int,envconf["CNN_DIMS"].split(',')))
-    RNN_other_input_size = (contact_field_res, other_input_size)
+    RNN_other_input_size = int(envconf["RNN_OTHER_INPUT_SIZE"])
     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
     LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
 
@@ -146,22 +143,29 @@ if __name__ == '__main__':
     # NN_ext = 'gen549/NN0_af8'
     # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep3'
     # NN_ext = 'gen999/NN0_af7'
-    exp_name = 'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
-    NN_ext = 'gen969/NN0_af7'
+    # exp_name = 'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
+    # NN_ext = 'gen969/NN0_af7'
 
-    # exp_name = 'test'
-    # NN_ext = 'gen0_NN0'
-    # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}.bin'
+    # exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep6'
+    # NN_ext = 'gen927'
+    exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep17'
+    # NN_ext = 'gen942'
+    NN_ext = 'gen955'
+    # NN_ext = 'gen998'
+    # exp_name = 'doublecorner_exp_CNN11_FNN2_rep9'
+    # NN_ext = 'gen892'
+    # exp_name = 'doublecorner_exp_CNN12_FNN1_rep2'
+    # NN_ext = 'gen909'
 
 
-    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
-    print(NN_pv_path)
+    # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
+    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}_NN0_pickle.bin'
     env_path = fr'{data_dir}/{exp_name}/.env'
 
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=6)
+    start(pv=pv, env_path=env_path, seed=3)
 
     # for s in [0,1,2]:
     # # for s in [0]:

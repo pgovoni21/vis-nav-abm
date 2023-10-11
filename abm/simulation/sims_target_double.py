@@ -75,6 +75,23 @@ class Simulation:
         self.x_min, self.x_max = 0, width
         self.y_min, self.y_max = 0, height
         self.boundary_info = (self.x_min, self.x_max, self.y_min, self.y_max)
+        self.boundary_info_spwn = (self.WIDTH*.37, self.WIDTH*.63, self.HEIGHT*.37, self.HEIGHT*.63)
+
+        self.boundary_endpts = [
+            np.array([ self.x_min, self.y_min ]),
+            np.array([ self.x_max, self.y_min ]),
+            np.array([ self.x_min, self.y_max ]),
+            np.array([ self.x_max, self.y_max ])
+        ]
+        self.boundary_endpts_wp = [endpt + self.window_pad for endpt in self.boundary_endpts]
+
+        self.spwn_endpts = [
+            np.array([ self.WIDTH*.37, self.HEIGHT*.37 ]),
+            np.array([ self.WIDTH*.63, self.HEIGHT*.37 ]),
+            np.array([ self.WIDTH*.37, self.HEIGHT*.63 ]),
+            np.array([ self.WIDTH*.63, self.HEIGHT*.63 ])
+        ]
+        self.spwn_endpts_wp = [endpt + self.window_pad for endpt in self.spwn_endpts]
 
         # Simulation parameters
         self.N = N
@@ -174,18 +191,17 @@ class Simulation:
 
     def draw_walls(self):
         """Drawing walls on the arena according to initialization"""
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.window_pad, self.window_pad],
-                         [self.window_pad, self.window_pad + self.HEIGHT])
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.window_pad, self.window_pad],
-                         [self.window_pad + self.WIDTH, self.window_pad])
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.window_pad + self.WIDTH, self.window_pad],
-                         [self.window_pad + self.WIDTH, self.window_pad + self.HEIGHT])
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.window_pad, self.window_pad + self.HEIGHT],
-                         [self.window_pad + self.WIDTH, self.window_pad + self.HEIGHT])
+        TL,TR,BL,BR = self.boundary_endpts_wp
+        pygame.draw.line(self.screen, colors.BLACK, TL, TR)
+        pygame.draw.line(self.screen, colors.BLACK, TR, BR)
+        pygame.draw.line(self.screen, colors.BLACK, BR, BL)
+        pygame.draw.line(self.screen, colors.BLACK, BL, TL)
+
+        TL,TR,BL,BR = self.spwn_endpts_wp
+        pygame.draw.line(self.screen, colors.GREY, TL, TR)
+        pygame.draw.line(self.screen, colors.GREY, TR, BR)
+        pygame.draw.line(self.screen, colors.GREY, BR, BL)
+        pygame.draw.line(self.screen, colors.GREY, BL, TL)
 
     def draw_status(self):
         """Showing framerate, sim time and pause status on simulation windows"""
@@ -324,13 +340,19 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
+        x_min, x_max, y_min, y_max = self.boundary_info_spwn
+
         if self.N == 1:
             colliding_resources = [0]
             retries = 0
             while len(colliding_resources) > 0:
 
-                x = np.random.randint(self.x_min + 2*self.agent_radii, self.x_max - 2*self.agent_radii)
-                y = np.random.randint(self.y_min + 2*self.agent_radii, self.y_max - 2*self.agent_radii)
+                # x = np.random.randint(self.x_min + 2*self.agent_radii, self.x_max - 2*self.agent_radii)
+                # y = np.random.randint(self.y_min + 2*self.agent_radii, self.y_max - 2*self.agent_radii)
+
+                x = np.random.randint(x_min, x_max)
+                y = np.random.randint(y_min, y_max)
+
                 # x,y = 981, 20
                 
                 orient = np.random.uniform(0, 2 * np.pi)
@@ -349,7 +371,7 @@ class Simulation:
                         model=self.model,
                         NN_activ = self.NN_activ,
                         RNN_type = self.RNN_type,
-                        boundary_info=self.boundary_info,
+                        boundary_endpts=self.boundary_endpts,
                         radius=self.agent_radii,
                         color=colors.BLUE,
                     )
@@ -388,7 +410,7 @@ class Simulation:
                             model=self.model,
                             NN_activ = self.NN_activ,
                             RNN_type = self.RNN_type,
-                            boundary_info=self.boundary_info,
+                            boundary_endpts=self.boundary_endpts,
                             radius=self.agent_radii,
                             color=colors.BLUE,
                         )
@@ -425,12 +447,12 @@ class Simulation:
 
         # top-left / bottom-right corners
         self.resrc_radius = self.WIDTH*.1 # 100 if width=1000
+        x_min, x_max, y_min, y_max = self.boundary_info_spwn
+
         if self.res_id_counter % 2 == 0: 
-            x = self.WIDTH*.37
-            y = self.HEIGHT*.37
+            x,y = x_min,y_min
         else:
-            x = self.WIDTH*.63
-            y = self.HEIGHT*.63
+            x,y = x_max,y_max
 
         # # top-left / bottom-right points, off-center / off-wall / asym (centers @ 140,450 - 450,140)
         # self.resrc_radius = 20
@@ -521,7 +543,7 @@ class Simulation:
 
                 # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
 
-                agent.collided_points.append(clip.center)
+                agent.collided_points.append(np.array(clip.center) - self.window_pad)
 
                 # hits = [edge for edge in ['bottom', 'top', 'left', 'right'] if getattr(clip, edge) == getattr(agent.rect, edge)]
                 # text = self.font.render(f'Collision at {", ".join(hits)}', True, pygame.Color('black'))
@@ -544,7 +566,7 @@ class Simulation:
 
                 # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
 
-                agent1.collided_points.append(clip.center)
+                agent1.collided_points.append(np.array(clip.center) - self.window_pad)
 
 ### -------------------------- HUMAN INTERACTION FUNCTIONS -------------------------- ###
 

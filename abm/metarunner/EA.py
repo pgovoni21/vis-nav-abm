@@ -139,8 +139,9 @@ class EvolAlgo():
                 for _, fitnesses, _ in results_list[NN_index : NN_index + self.episodes]:
                     fitness_ep.append(round(fitnesses[0],0))
 
-                avg_fitness = np.mean(fitness_ep)
-                fitness_gen.append(avg_fitness)
+                # fitness_rank = np.mean(fitness_ep)
+                fitness_rank = np.median(fitness_ep) # potentially better ranking statistics, ignores outliers
+                fitness_gen.append(fitness_rank)
 
             # # list all averaged fitnesses
             # print(f'Fitnesses: {fitness_gen}')

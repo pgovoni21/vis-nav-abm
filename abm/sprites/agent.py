@@ -18,7 +18,7 @@ class Agent(pygame.sprite.Sprite):
     # @timer
     def __init__(self, id, position, orientation, max_vel, 
                  FOV, vision_range, visual_exclusion, consumption, 
-                 arch, model, RNN_type, NN_activ, boundary_info, radius, color):
+                 arch, model, RNN_type, NN_activ, boundary_endpts, radius, color):
         """
         Initalization method of main agent class of the simulations
 
@@ -32,7 +32,7 @@ class Agent(pygame.sprite.Sprite):
         :param visual_exclusion: if True social cues can be visually excluded by non social cues
         :param consumption: (resource unit/time unit) consumption efficiency of agent
         :param NN: 
-        :param boundary_info: 
+        :param boundary_endpts: 
         :param radius: radius of the agent in pixels
         :param color: color of the agent as (R, G, B)
         """
@@ -97,14 +97,14 @@ class Agent(pygame.sprite.Sprite):
         self.action = 0
 
         # Environment related parameters
-        self.x_min, self.x_max, self.y_min, self.y_max = boundary_info
+        TL,TR,BL,BR = boundary_endpts
         self.window_pad = 30
         # define names for each endpoint (top/bottom + left/right)
         self.boundary_endpts = [
-            ('TL', np.array([ self.x_min, self.y_min ])),
-            ('TR', np.array([ self.x_max, self.y_min ])),
-            ('BL', np.array([ self.x_min, self.y_max ])),
-            ('BR', np.array([ self.x_max, self.y_max ]))
+            ('TL', TL),
+            ('TR', TR),
+            ('BL', BL),
+            ('BR', BR)
         ]
 
         # Visualization / human interaction parameters
@@ -318,7 +318,7 @@ class Agent(pygame.sprite.Sprite):
             for pt in self.collided_points:
 
                 # calc vector between collided point + agent center
-                vec_coll = pt - self.position - self.window_pad
+                vec_coll = pt - self.position
 
                 # calc orientation angle
                 distance = np.linalg.norm(vec_coll)

@@ -63,7 +63,7 @@ def plot_map(plot_data, x_max, y_max, cbt, w=4, h=4, save_name=None):
         arrows(axes, traj_explore[:,0], traj_explore[:,1])
 
         # add agent positional trajectory + mode via points (every 10 ts for explore, every ts for exploit/collisions)
-        axes.plot(traj_explore[::10,0], traj_explore[::10,1],'o', color='royalblue', ms=.5, zorder=2)
+        axes.plot(traj_explore[::8,0], traj_explore[::8,1],'o', color='royalblue', ms=.5, zorder=2)
         if traj_exploit.size: axes.plot(traj_exploit[:,0], traj_exploit[:,1],'o', color='green', ms=5, zorder=3)
         if traj_collide.size: axes.plot(traj_collide[:,0], traj_collide[:,1],'o', color='red', ms=5, zorder=3, clip_on=False)
 
@@ -84,51 +84,51 @@ def plot_map(plot_data, x_max, y_max, cbt, w=4, h=4, save_name=None):
         plt.show()
 
 
-def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None):
+# def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None):
 
-    from cycler import cycler
+#     from cycler import cycler
 
-    ag_data, res_data = plot_data
+#     ag_data, res_data = plot_data
 
-    fig, axes = plt.subplots() 
-    axes.set_xlim(0, x_max)
-    axes.set_ylim(0, y_max)
+#     fig, axes = plt.subplots() 
+#     axes.set_xlim(0, x_max)
+#     axes.set_ylim(0, y_max)
 
-    # rescale plotting area to square
-    l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
-    fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+#     # rescale plotting area to square
+#     l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+#     fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
 
-    # agent trajectories as arrows/points/events
-    cmap = plt.get_cmap('Blues')
-    timesteps = ag_data.shape[1]
-    axes.set_prop_cycle(cycler(color=[cmap(1-i/timesteps) for i in range(timesteps)])) # light to dark
+#     # agent trajectories as arrows/points/events
+#     cmap = plt.get_cmap('Blues')
+#     timesteps = ag_data.shape[1]
+#     axes.set_prop_cycle(cycler(color=[cmap(1-i/timesteps) for i in range(timesteps)])) # light to dark
 
-    N_ag = ag_data.shape[0]
-    for agent in range(N_ag):
+#     N_ag = ag_data.shape[0]
+#     for agent in range(N_ag):
 
-        # unpack data array
-        pos_x = ag_data[agent,:,0]
-        pos_y = ag_data[agent,:,1]
+#         # unpack data array
+#         pos_x = ag_data[agent,:,0]
+#         pos_y = ag_data[agent,:,1]
 
-        axes.plot(pos_x, pos_y, linewidth=.1, alpha=0.2, zorder=0)
-        # axes.plot(pos_x, pos_y, color='royalblue', linewidth=.1)
+#         axes.plot(pos_x, pos_y, linewidth=.1, alpha=0.2, zorder=0)
+#         # axes.plot(pos_x, pos_y, color='royalblue', linewidth=.1)
 
-    # resource patches via circles
-    N_res = res_data.shape[0]
-    for res in range(N_res):
+#     # resource patches via circles
+#     N_res = res_data.shape[0]
+#     for res in range(N_res):
         
-        # unpack data array
-        pos_x = res_data[res,0,0]
-        pos_y = res_data[res,0,1]
-        radius = res_data[res,0,2]
+#         # unpack data array
+#         pos_x = res_data[res,0,0]
+#         pos_y = res_data[res,0,1]
+#         radius = res_data[res,0,2]
 
-        axes.add_patch( plt.Circle((pos_x, pos_y), radius, edgecolor='k', fill=False, zorder=1) )
+#         axes.add_patch( plt.Circle((pos_x, pos_y), radius, edgecolor='k', fill=False, zorder=1) )
 
-    if save_name:
-        plt.savefig(fr'{save_name}.png')
-        plt.close()
-    else:
-        plt.show()
+#     if save_name:
+#         plt.savefig(fr'{save_name}.png')
+#         plt.close()
+#     else:
+#         plt.show()
 
 
 def arrows(axes, x, y, ahl=6, ahw=3):
@@ -143,7 +143,7 @@ def arrows(axes, x, y, ahl=6, ahw=3):
     r = np.array(r)
 
     # set arrow spacing
-    num_arrows = int(len(x) / 50)
+    num_arrows = int(len(x) / 40)
     aspace = r.sum() / num_arrows
     
     # set inital arrow position at first space
@@ -263,25 +263,26 @@ def plot_mult_EA_trends(names, save_name=None):
                         # label = f'avg {name} | t: {time} sec',
                         color=cmap(i/cmap_range), 
                         # linestyle='dotted'
+                        alpha=0.2
                         )
         lns.append(l1[0])
 
-        avg_trend_data = np.mean(trend_data, axis=1)
-        if run_data_exists:
-            l2 = ax1.plot(avg_trend_data, 
-                            # label = f'avg {name}',
-                            label = f'avg {name} | t: {int(time)} sec',
-                            color=cmap(i/cmap_range), 
-                            linestyle='dotted'
-                            )
-        else:
-            l2 = ax1.plot(avg_trend_data, 
-                            label = f'avg {name}',
-                            # label = f'avg {name} | t: {int(time)} sec',
-                            color=cmap(i/cmap_range), 
-                            linestyle='dotted'
-                            )
-        lns.append(l2[0])
+        # avg_trend_data = np.mean(trend_data, axis=1)
+        # if run_data_exists:
+        #     l2 = ax1.plot(avg_trend_data, 
+        #                     # label = f'avg {name}',
+        #                     label = f'avg {name} | t: {int(time)} sec',
+        #                     color=cmap(i/cmap_range), 
+        #                     linestyle='dotted'
+        #                     )
+        # else:
+        #     l2 = ax1.plot(avg_trend_data, 
+        #                     label = f'avg {name}',
+        #                     # label = f'avg {name} | t: {int(time)} sec',
+        #                     color=cmap(i/cmap_range), 
+        #                     linestyle='dotted'
+        #                     )
+        # lns.append(l2[0])
     
     ax1.set_xlabel('Generation')
 
@@ -295,7 +296,7 @@ def plot_mult_EA_trends(names, save_name=None):
     # ax1.set_ylim(1900,5000)
 
     ax1.set_ylabel('# Patches Found')
-    ax1.set_ylim(0,8)
+    ax1.set_ylim(0,3)
 
     # ax1.legend(*zip(*violin_labs), loc='upper left')
     # ax1.set_ylabel('Parameter')
@@ -454,10 +455,15 @@ if __name__ == '__main__':
     # plot_mult_EA_trends([f'doublepoint_CNN11110_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_11110')
     # plot_mult_EA_trends([f'doublepoint_CNN11112_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}' for x in range(5)], 'doublepoint_vis8_dirfit_GRU_11112')
 
-
-
     # plot_mult_EA_trends([f'symdoublepoint_CNN1128_GRU2_rep{x}' for x in range(100)], 'symdoublepoint_vis8_dirfit_GRU_other3')
     # plot_mult_EA_trends([f'symdoublepoint_CNN1128_FNN2_rep{x}' for x in range(67)], 'symdoublepoint_vis8_dirfit_FNN_other3')
+
+
+    plot_mult_EA_trends([f'doublecorner_exp_CNN18_FNN2_e10p25_rep{x}' for x in range(20)], 'doublecorner_exp_CNN18_FNN2_e10p25')
+    # plot_mult_EA_trends([f'doublecorner_exp_CNN18_FNN2_e15p25_rep{x}' for x in range(10)], 'doublecorner_exp_CNN18_FNN2_e15p25')
+    # plot_mult_EA_trends([f'doublecorner_exp_CNN11_FNN1_rep{x}' for x in range(100)], 'doublecorner_exp_CNN11_FNN1')
+    # plot_mult_EA_trends([f'doublecorner_exp_CNN11_FNN2_rep{x}' for x in range(100)], 'doublecorner_exp_CNN11_FNN2')
+    # plot_mult_EA_trends([f'doublecorner_exp_CNN12_FNN1_rep{x}' for x in range(11)], 'doublecorner_exp_CNN12_FNN1')
 
 
 ### ----------group pop runs----------- ###
@@ -487,10 +493,10 @@ if __name__ == '__main__':
     # # groups.append(('GRU_1',[f'doublepoint_CNN1128_GRU1_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}' for x in range(4)]))
     # plot_mult_EA_trends_groups(groups, 'doublepoint_vis8_dirfit_other0_groups')
 
-    groups = []
-    groups.append(('FNN_other0',[f'symdoublepoint_CNN1128_FNN2_other0_rep{x}' for x in range(20)]))
-    groups.append(('GRU_other0',[f'symdoublepoint_CNN1128_GRU2_other0_rep{x}' for x in range(20)]))
-    plot_mult_EA_trends_groups(groups, 'symdoublepoint_other0')
+    # groups = []
+    # groups.append(('FNN_other0',[f'symdoublepoint_CNN1128_FNN2_other0_rep{x}' for x in range(20)]))
+    # groups.append(('GRU_other0',[f'symdoublepoint_CNN1128_GRU2_other0_rep{x}' for x in range(20)]))
+    # plot_mult_EA_trends_groups(groups, 'symdoublepoint_other0')
 
 
 
