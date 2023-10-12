@@ -72,24 +72,25 @@ class Simulation:
         self.HEIGHT = height
         self.window_pad = window_pad
         self.coll_boundary_thickness = agent_radius
+
         self.x_min, self.x_max = 0, width
         self.y_min, self.y_max = 0, height
-        self.boundary_info = (self.x_min, self.x_max, self.y_min, self.y_max)
-        self.boundary_info_spwn = (self.WIDTH*.37, self.WIDTH*.63, self.HEIGHT*.37, self.HEIGHT*.63)
-
+        
+        self.boundary_info = (0, width, 0, height)
         self.boundary_endpts = [
-            np.array([ self.x_min, self.y_min ]),
-            np.array([ self.x_max, self.y_min ]),
-            np.array([ self.x_min, self.y_max ]),
-            np.array([ self.x_max, self.y_max ])
+            np.array([ 0, 0 ]),
+            np.array([ width, 0 ]),
+            np.array([ 0, height ]),
+            np.array([ width, height ])
         ]
         self.boundary_endpts_wp = [endpt + self.window_pad for endpt in self.boundary_endpts]
 
+        self.boundary_info_spwn = (width*.37, width*.63, height*.37, height*.63)
         self.spwn_endpts = [
-            np.array([ self.WIDTH*.37, self.HEIGHT*.37 ]),
-            np.array([ self.WIDTH*.63, self.HEIGHT*.37 ]),
-            np.array([ self.WIDTH*.37, self.HEIGHT*.63 ]),
-            np.array([ self.WIDTH*.63, self.HEIGHT*.63 ])
+            np.array([ width*.37, height*.37 ]),
+            np.array([ width*.63, height*.37 ]),
+            np.array([ width*.37, height*.63 ]),
+            np.array([ width*.63, height*.63 ])
         ]
         self.spwn_endpts_wp = [endpt + self.window_pad for endpt in self.spwn_endpts]
 
@@ -305,7 +306,7 @@ class Simulation:
         self.agents.draw(self.screen)
         self.draw_walls()
         self.draw_status()
-        self.draw_agent_stats()
+        # self.draw_agent_stats()
 
         # vision range + projection field
         if self.show_vision_range: 
@@ -348,12 +349,8 @@ class Simulation:
             retries = 0
             while len(colliding_resources) > 0:
 
-                # x = np.random.randint(self.x_min + 2*self.agent_radii, self.x_max - 2*self.agent_radii)
-                # y = np.random.randint(self.y_min + 2*self.agent_radii, self.y_max - 2*self.agent_radii)
-
                 x = np.random.randint(x_min, x_max)
                 y = np.random.randint(y_min, y_max)
-
                 # x,y = 981, 20
                 
                 orient = np.random.uniform(0, 2 * np.pi)
@@ -392,8 +389,8 @@ class Simulation:
                 retries = 0
                 while len(colliding_resources) > 0 or len(colliding_agents) > 0:
 
-                    x = np.random.randint(self.x_min + 2*self.agent_radii, self.x_max - 2*self.agent_radii)
-                    y = np.random.randint(self.y_min + 2*self.agent_radii, self.y_max - 2*self.agent_radii)
+                    x = np.random.randint(x_min, x_max)
+                    y = np.random.randint(y_min, y_max)
                     # x,y = 305+15*i, 305+15*i
                     
                     orient = np.random.uniform(0, 2 * np.pi)
@@ -596,8 +593,8 @@ class Simulation:
                     self.framerate = 1
             if event.type == pygame.KEYDOWN and event.key == pygame.K_f:
                 self.framerate += 1
-                if self.framerate > 50:
-                    self.framerate = 50
+                if self.framerate > 100:
+                    self.framerate = 100
             if event.type == pygame.KEYDOWN and event.key == pygame.K_d:
                 self.framerate = self.framerate_orig
 
@@ -657,6 +654,7 @@ class Simulation:
                     agent.mode = 'explore'
                     if agent.on_resrc > 0:
                         agent.on_resrc -= 0.2 # fades over 5 timesteps
+                        agent.on_resrc = round(agent.on_resrc,1)
 
                 # Evaluate sprite collisions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
