@@ -20,15 +20,24 @@ def set_env_var(key, val):
 
 def EA_runner():
 
-    set_env_var('EA_POPULATION_SIZE', 5)
-    set_env_var('EA_EPISODES', 25)
+    set_env_var('EA_POPULATION_SIZE', '25')
+    set_env_var('EA_EPISODES', '10')
 
-    set_env_var('CNN_DIMS', 8)
-    set_env_var('RNN_HIDDEN_SIZE', 1)
+    set_env_var('CNN_DEPTHS', '1,1')
+    set_env_var('CNN_DIMS', '2,4')
+    set_env_var('RNN_HIDDEN_SIZE', '2')
     set_env_var('RNN_TYPE', 'fnn')
 
+    set_env_var('MAXIMUM_VELOCITY', '5')
+
     for x in range(20):
-        set_env_var('EA_SAVE_NAME', f'doublecorner_exp_CNN18_FNN1_rep{x}')
+        set_env_var('EA_SAVE_NAME', f'doublecorner_exp_CNN1124_FNN2_p25e10_mean_rep{x}')
+        start_EA()
+
+
+    set_env_var('EA_EPISODES', '5')
+    for x in range(20):
+        set_env_var('EA_SAVE_NAME', f'doublecorner_exp_CNN1124_FNN2_p25e5_mean_rep{x}')
         start_EA()
 
 

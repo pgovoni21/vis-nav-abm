@@ -32,10 +32,10 @@ class EvolAlgo():
         print(f'# vCPUs: {os.cpu_count()}')
 
         # Evolution + Simulation parameters
-        self.population_size = population_size
-        self.init_sigma = init_sigma
         self.generations = generations
+        self.population_size = population_size
         self.episodes = episodes
+        self.init_sigma = init_sigma
         self.start_seed = start_seed
 
         # Initialize CMA-ES
@@ -49,7 +49,7 @@ class EvolAlgo():
         self.NN_param_vectors = self.es.ask()
 
         # Saving parameters
-        self.fitness_evol = []
+        self.fitness_evol = np.zeros([generations, population_size, episodes])
         self.num_top_nn_saved = num_top_nn_saved
         self.num_top_nn_plots = num_top_nn_plots
         self.EA_save_name = EA_save_name
@@ -131,37 +131,38 @@ class EvolAlgo():
             eval_time = time.time()
 
             # skip to start of each episode series/chunk
-            fitness_gen = []
-            for NN_index in range(0, len(results_list), self.episodes):
-
+            for p, NN_index in enumerate(range(0, len(results_list), self.episodes)):
                 # pull sim data for each episode
-                fitness_ep = []
-                for _, fitnesses, _ in results_list[NN_index : NN_index + self.episodes]:
-                    fitness_ep.append(round(fitnesses[0],0))
+                for e, (_,fitnesses,_) in enumerate(results_list[NN_index : NN_index + self.episodes]):
+                    self.fitness_evol[i,p,e] = int(fitnesses[0])
 
-                # fitness_rank = np.mean(fitness_ep)
-                fitness_rank = np.median(fitness_ep) # potentially better ranking statistics, ignores outliers
-                fitness_gen.append(fitness_rank)
+            fitness_rank = np.mean(self.fitness_evol[i,:,:], axis=1)
+            # fitness_rank = np.median(self.fitness_evol[i,:,:], axis=1) # potentially better ranking statistics, ignores outliers
 
             # # list all averaged fitnesses
-            # print(f'Fitnesses: {fitness_gen}')
+            # print(f'Fitnesses: {fitness_rank}')
             
             # Track top fitness per generation
-            top_fg = round(np.max(fitness_gen),1) # max : top
-            # top_fg = int(np.min(fitness_gen)) # min : top
-            avg_fg = round(np.mean(fitness_gen),2)
-            print(f'Highest Across Gen: {top_fg} | Avg Across Gen: {avg_fg} ---')
+            top_fg = round(np.max(fitness_rank),1) # max : top
+            # top_fg = int(np.min(fitness_rank)) # min : top
+            avg_fg = round(np.mean(fitness_rank),2)
+            med_fg = round(np.mean(fitness_rank),2)
+            print(f'Across Gen ---  Top: {top_fg} | Avg: {avg_fg} | Med: {med_fg} ---')
+
+            # update/pickle generational fitness data in parent directory
+            with open(fr'{self.EA_save_dir}/fitness_spread_per_generation.bin', 'wb') as f:
+                pickle.dump(self.fitness_evol, f)
 
 
             #### ---- Save/plot performance + NN from top performers  ---- ####
 
 
             # cycle through the top X performers
-            top_indices = np.argsort(fitness_gen)[ : -1-self.num_top_nn_saved : -1] # max : top
-            # top_indices = np.argsort(fitness_gen)[ : self.num_top_nn_saved] # min : top
+            top_indices = np.argsort(fitness_rank)[ : -1-self.num_top_nn_saved : -1] # max : top
+            # top_indices = np.argsort(fitness_rank)[ : self.num_top_nn_saved] # min : top
 
-            # # top_fitnesses = [int(fitness_gen[n_gen]) for n_gen in top_indices]
-            # top_fitnesses = [round(fitness_gen[n_gen],2) for n_gen in top_indices]
+            # # top_fitnesses = [int(fitness_rank[n_gen]) for n_gen in top_indices]
+            # top_fitnesses = [round(fitness_rank[n_gen],2) for n_gen in top_indices]
             # print(f'Saving performance for NNs with avg fitnesses: {top_fitnesses}')
 
             for n_top, n_gen in enumerate(top_indices):
@@ -181,18 +182,13 @@ class EvolAlgo():
 
                 #     plot_funcs.plot_map(plot_data, x_max=500, y_max=500, 
                 #                         save_name=f'{NN_save_dir}_ep{e}')
-            
-            # update/pickle generational fitness data in parent directory
-            self.fitness_evol.append(fitness_gen)
-            with open(fr'{self.EA_save_dir}/fitness_spread_per_generation.bin', 'wb') as f:
-                pickle.dump(self.fitness_evol, f)
 
 
             #### ---- Update optimizer + RNN instances ---- ####
 
             # Pass parameters + resulting fitness list to *minimizing* optimizer class
-            fitness_gen = [-f for f in fitness_gen] # flips sign (only applicable if max : top)
-            self.es.tell(self.NN_param_vectors, fitness_gen)
+            fitness_rank = [-f for f in fitness_rank] # flips sign (only applicable if max : top)
+            self.es.tell(self.NN_param_vectors, fitness_rank)
 
             # Save param_vec distribution
             self.mean_param_vec[i,:] = self.es.mean

@@ -34,13 +34,16 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
             NN, arch = reconstruct_NN(envconf, pv)
 
             # override original EA-written env dict
+            envconf['LOG_ZARR_FILE'] = 0
+
             # envconf['WITH_VISUALIZATION'] = 1
-            # envconf['PLOT_TRAJECTORY'] = 0
-            # envconf['LOG_ZARR_FILE'] = 0
-            # envconf['INIT_FRAMERATE'] = 50
+            envconf['PLOT_TRAJECTORY'] = 0
             envconf['WITH_VISUALIZATION'] = 0
             envconf['PLOT_TRAJECTORY'] = 1
-            envconf['LOG_ZARR_FILE'] = 0
+
+            # envconf['INIT_FRAMERATE'] = 10
+
+            # envconf['MAXIMUM_VELOCITY'] = 5
 
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
@@ -87,7 +90,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          )
         fitnesses, elapsed_time = sim.start()
 
-        # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {fitnesses[0]}')
+        # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {int(fitnesses[0])}')
 
     return save_ext, fitnesses, elapsed_time
 
@@ -149,13 +152,19 @@ if __name__ == '__main__':
     # exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep6'
     # NN_ext = 'gen927'
     exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep17'
-    # NN_ext = 'gen942'
-    NN_ext = 'gen955'
+    NN_ext = 'gen942'
+    # NN_ext = 'gen955'
     # NN_ext = 'gen998'
     # exp_name = 'doublecorner_exp_CNN11_FNN2_rep9'
     # NN_ext = 'gen892'
     # exp_name = 'doublecorner_exp_CNN12_FNN1_rep2'
     # NN_ext = 'gen909'
+    # exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep0'
+    # NN_ext = 'gen999'
+    exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep14'
+    NN_ext = 'gen882'
+    # exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep17'
+    # NN_ext = 'gen93'
 
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
@@ -165,7 +174,7 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=3)
+    start(pv=pv, env_path=env_path, seed=0)
 
     # for s in [0,1,2]:
     # # for s in [0]:
