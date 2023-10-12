@@ -44,6 +44,7 @@ def start_EA(): # "EA-start" in terminal
                   num_top_nn_plots          =int(envconf["EA_NUM_TOP_NN_PLOTS"]),
                   EA_save_name              =str(envconf["EA_SAVE_NAME"]),
                   start_seed                =int(envconf["EA_START_SEED"]),
+                  est_method                =str(envconf["EA_EST_METHOD"])
                   )
     EA.fit_parallel()
 

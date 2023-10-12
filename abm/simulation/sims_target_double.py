@@ -77,6 +77,9 @@ class Simulation:
         self.y_min, self.y_max = 0, height
         
         self.boundary_info = (0, width, 0, height)
+        self.boundary_info_coll = (agent_radius, width - agent_radius, agent_radius, height - agent_radius)
+        self.boundary_info_spwn = (width*.45, width*.55, height*.45, height*.55)
+
         self.boundary_endpts = [
             np.array([ 0, 0 ]),
             np.array([ width, 0 ]),
@@ -85,12 +88,11 @@ class Simulation:
         ]
         self.boundary_endpts_wp = [endpt + self.window_pad for endpt in self.boundary_endpts]
 
-        self.boundary_info_spwn = (width*.37, width*.63, height*.37, height*.63)
         self.spwn_endpts = [
-            np.array([ width*.37, height*.37 ]),
-            np.array([ width*.63, height*.37 ]),
-            np.array([ width*.37, height*.63 ]),
-            np.array([ width*.63, height*.63 ])
+            np.array([ width*.45, height*.45 ]),
+            np.array([ width*.55, height*.45 ]),
+            np.array([ width*.45, height*.55 ]),
+            np.array([ width*.55, height*.55 ])
         ]
         self.spwn_endpts_wp = [endpt + self.window_pad for endpt in self.spwn_endpts]
 
@@ -342,7 +344,7 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
-        x_min, x_max, y_min, y_max = self.boundary_info_spwn
+        x_min, x_max, y_min, y_max = self.boundary_info_coll
 
         if self.N == 1:
             colliding_resources = [0]
@@ -444,7 +446,6 @@ class Simulation:
         id = self.res_id_counter
 
         # top-left / bottom-right corners
-        self.resrc_radius = self.WIDTH*.1 # 100 if width=1000
         x_min, x_max, y_min, y_max = self.boundary_info_spwn
 
         if self.res_id_counter % 2 == 0: 

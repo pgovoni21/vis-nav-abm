@@ -15,7 +15,8 @@ class EvolAlgo():
     
     def __init__(self, arch=(50,128,2), activ='relu', RNN_type='fnn',
                  population_size=96, init_sigma=1, generations=500, episodes=5,
-                 num_top_nn_saved=3, num_top_nn_plots=5, EA_save_name=None, start_seed=1000):
+                 num_top_nn_saved=3, num_top_nn_plots=5, EA_save_name=None, start_seed=1000,
+                 est_method='mean'):
         
         # init_time = time.time()
         self.overall_time = time.time()
@@ -37,6 +38,7 @@ class EvolAlgo():
         self.episodes = episodes
         self.init_sigma = init_sigma
         self.start_seed = start_seed
+        self.est_method = est_method
 
         # Initialize CMA-ES
         self.es = cma.CMAEvolutionStrategy(
@@ -72,7 +74,7 @@ class EvolAlgo():
             )
         
         # end_init_time = time.time() - init_time
-        # print(f'Init Time: {round( end_init_time, 2)} sec')
+        # print(f'init time: {round( end_init_time, 2)} s')
 
 
     def fit_parallel(self):
@@ -81,7 +83,7 @@ class EvolAlgo():
 
             #### ---- Run sim + Save in running/nn/ep folder ---- ####
 
-            print(f'---------------- Generation {i} ----------------')
+            print(f'---------------- gen {i} ----------------')
 
             # determine PRNG seeds + reset for next generation
             # (circumventing multiprocessing bug where multiple children can have overlapping seeds)
@@ -114,7 +116,7 @@ class EvolAlgo():
                 pool.join()
 
             end_sim_time = time.time() - sim_time
-            print(f'Generational Sim Run Time: {round( end_sim_time, 2)} sec')
+            print(f'sim time: {round( end_sim_time, 2)} s')
 
             # convert results iterator to list
             results_list = results.get()
@@ -127,8 +129,8 @@ class EvolAlgo():
             #### ---- Find fitness averages across episodes ---- ####
 
 
-            # set non-sim timer
-            eval_time = time.time()
+            # # set non-sim timer
+            # eval_time = time.time()
 
             # skip to start of each episode series/chunk
             for p, NN_index in enumerate(range(0, len(results_list), self.episodes)):
@@ -136,8 +138,11 @@ class EvolAlgo():
                 for e, (_,fitnesses,_) in enumerate(results_list[NN_index : NN_index + self.episodes]):
                     self.fitness_evol[i,p,e] = int(fitnesses[0])
 
-            fitness_rank = np.mean(self.fitness_evol[i,:,:], axis=1)
-            # fitness_rank = np.median(self.fitness_evol[i,:,:], axis=1) # potentially better ranking statistics, ignores outliers
+            # estimate episodal fitnesses by mean or median
+            if self.est_method == 'mean':
+                fitness_rank = np.mean(self.fitness_evol[i,:,:], axis=1)
+            else:
+                fitness_rank = np.median(self.fitness_evol[i,:,:], axis=1) # potentially better ranking statistics, ignores outliers
 
             # # list all averaged fitnesses
             # print(f'Fitnesses: {fitness_rank}')
@@ -146,8 +151,8 @@ class EvolAlgo():
             top_fg = round(np.max(fitness_rank),1) # max : top
             # top_fg = int(np.min(fitness_rank)) # min : top
             avg_fg = round(np.mean(fitness_rank),2)
-            med_fg = round(np.mean(fitness_rank),2)
-            print(f'Across Gen ---  Top: {top_fg} | Avg: {avg_fg} | Med: {med_fg} ---')
+            med_fg = round(np.median(fitness_rank),2)
+            print(f'--- top: {top_fg} | avg: {avg_fg} | med: {med_fg} ---')
 
             # update/pickle generational fitness data in parent directory
             with open(fr'{self.EA_save_dir}/fitness_spread_per_generation.bin', 'wb') as f:
@@ -197,14 +202,14 @@ class EvolAlgo():
             # Generate new RNN parameters for next generation
             self.NN_param_vectors = self.es.ask()
 
-            end_eval_time = time.time() - eval_time
-            print(f'Performance Evaluation Time: {round( end_eval_time, 2)} sec')
+            # end_eval_time = time.time() - eval_time
+            # print(f'eval time: {round( end_eval_time, 2)} s')
             
 
         #### ---- Post-evolution tasks ---- ####
 
         end_overall_time = round(time.time() - self.overall_time, 2)
-        print(f'Overall EA run time: {end_overall_time} sec')
+        print(f'overall time: {end_overall_time} s')
 
         # save run data
         run_data = (
@@ -219,4 +224,4 @@ class EvolAlgo():
         shutil.rmtree(Path(self.EA_save_dir, 'running'))
 
         # plot violin plot for the EA trend
-        plot_funcs.plot_EA_trend_violin(self.fitness_evol, self.EA_save_dir)
+        plot_funcs.plot_EA_trend_violin(self.fitness_evol, self.est_method, self.EA_save_dir)

@@ -84,53 +84,6 @@ def plot_map(plot_data, x_max, y_max, cbt, w=4, h=4, save_name=None):
         plt.show()
 
 
-# def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None):
-
-#     from cycler import cycler
-
-#     ag_data, res_data = plot_data
-
-#     fig, axes = plt.subplots() 
-#     axes.set_xlim(0, x_max)
-#     axes.set_ylim(0, y_max)
-
-#     # rescale plotting area to square
-#     l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
-#     fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
-
-#     # agent trajectories as arrows/points/events
-#     cmap = plt.get_cmap('Blues')
-#     timesteps = ag_data.shape[1]
-#     axes.set_prop_cycle(cycler(color=[cmap(1-i/timesteps) for i in range(timesteps)])) # light to dark
-
-#     N_ag = ag_data.shape[0]
-#     for agent in range(N_ag):
-
-#         # unpack data array
-#         pos_x = ag_data[agent,:,0]
-#         pos_y = ag_data[agent,:,1]
-
-#         axes.plot(pos_x, pos_y, linewidth=.1, alpha=0.2, zorder=0)
-#         # axes.plot(pos_x, pos_y, color='royalblue', linewidth=.1)
-
-#     # resource patches via circles
-#     N_res = res_data.shape[0]
-#     for res in range(N_res):
-        
-#         # unpack data array
-#         pos_x = res_data[res,0,0]
-#         pos_y = res_data[res,0,1]
-#         radius = res_data[res,0,2]
-
-#         axes.add_patch( plt.Circle((pos_x, pos_y), radius, edgecolor='k', fill=False, zorder=1) )
-
-#     if save_name:
-#         plt.savefig(fr'{save_name}.png')
-#         plt.close()
-#     else:
-#         plt.show()
-
-
 def arrows(axes, x, y, ahl=6, ahw=3):
     # from here: https://stackoverflow.com/questions/8247973/how-do-i-specify-an-arrow-like-linestyle-in-matplotlib
 
@@ -185,19 +138,68 @@ def arrows(axes, x, y, ahl=6, ahw=3):
 
         axes.annotate('', xy=(dx0, dy0), xytext=(dx1, dy1),
                 arrowprops=dict( headwidth=ahw, headlength=ahl, ec='royalblue', fc='royalblue', zorder=1))
+
+
+def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None):
+
+    from cycler import cycler
+
+    ag_data, res_data = plot_data
+
+    fig, axes = plt.subplots() 
+    axes.set_xlim(0, x_max)
+    axes.set_ylim(0, y_max)
+
+    # rescale plotting area to square
+    l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+    fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+    # agent trajectories as arrows/points/events
+    cmap = plt.get_cmap('Blues')
+    timesteps = ag_data.shape[1]
+    axes.set_prop_cycle(cycler(color=[cmap(1-i/timesteps) for i in range(timesteps)])) # light to dark
+
+    N_ag = ag_data.shape[0]
+    for agent in range(N_ag):
+
+        # unpack data array
+        pos_x = ag_data[agent,:,0]
+        pos_y = ag_data[agent,:,1]
+
+        axes.plot(pos_x, pos_y, linewidth=.1, alpha=0.2, zorder=0)
+        # axes.plot(pos_x, pos_y, color='royalblue', linewidth=.1)
+
+    # resource patches via circles
+    N_res = res_data.shape[0]
+    for res in range(N_res):
         
+        # unpack data array
+        pos_x = res_data[res,0,0]
+        pos_y = res_data[res,0,1]
+        radius = res_data[res,0,2]
 
-def plot_EA_trend_violin(trend_data, save_dir=False):
+        axes.add_patch( plt.Circle((pos_x, pos_y), radius, edgecolor='k', fill=False, zorder=1) )
 
-    # convert to array
-    trend_data = np.array(trend_data)
+    if save_name:
+        plt.savefig(fr'{save_name}.png')
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_EA_trend_violin(data, est_method='mean', save_dir=False):
+
+    if est_method == 'mean':
+        data_genxpop = np.mean(data, axis=2)
+    else:
+        data_genxpop = np.median(data, axis=2)
 
     # transpose from shape: (number of generations, population size)
     #             to shape: (population size, number of generations)
-    data_per_gen_tp = trend_data.transpose()
+    data_popxgen = data_genxpop.transpose()
 
     # plot population distributions + means of fitnesses for each generation
-    plt.violinplot(data_per_gen_tp, widths=1, showmeans=True, showextrema=False)
+    plt.violinplot(data_popxgen, widths=1, showmeans=True, showextrema=False)
 
     if save_dir: 
         plt.savefig(fr'{save_dir}/fitness_spread_violin.png')
@@ -296,7 +298,7 @@ def plot_mult_EA_trends(names, save_name=None):
     # ax1.set_ylim(1900,5000)
 
     ax1.set_ylabel('# Patches Found')
-    ax1.set_ylim(0,3)
+    ax1.set_ylim(0,8)
 
     # ax1.legend(*zip(*violin_labs), loc='upper left')
     # ax1.set_ylabel('Parameter')
@@ -306,6 +308,112 @@ def plot_mult_EA_trends(names, save_name=None):
         plt.savefig(fr'{data_dir}/{save_name}.png')
     plt.show()
 
+
+def plot_mult_EA_trends_np(names, mean=True, save_name=None):
+
+    # establish load directory
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+
+    # # init plot details
+    fig, ax1 = plt.subplots(figsize=(15,10)) 
+    # # ax2 = ax1.twinx()
+    cmap = plt.get_cmap('hsv')
+    cmap_range = len(names)
+    lns = []
+    violin_labs = []
+    
+    # iterate over each file
+    for i, name in enumerate(names):
+
+        run_data_exists = False
+        if Path(fr'{data_dir}/{name}/run_data.bin').is_file():
+            run_data_exists = True
+            with open(fr'{data_dir}/{name}/run_data.bin','rb') as f:
+                mean_pv, std_pv, time = pickle.load(f)
+            print(f'{name}, time taken: {time}')
+
+            # trend_data = std_pv.transpose()
+            # # trend_data = mean_pv.transpose()
+
+            # l0 = ax1.violinplot(trend_data, 
+            #                widths=1, 
+            #                showmeans=True, 
+            #                showextrema=True,
+            #                )
+            # color = l0["bodies"][0].get_facecolor().flatten()
+            # violin_labs.append((mpatches.Patch(color=color), name))
+
+
+        with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+            data = pickle.load(f)
+        
+        
+        if mean == True:
+            data_genxpop = np.mean(data, axis=2)
+        else:
+            data_genxpop = np.median(data, axis=2)
+
+        # top_data = np.min(data_genxpop, axis=1) # min : top
+        top_data = np.max(data_genxpop, axis=1) # max : top
+        
+        # for i,t in enumerate(top_trend_data):
+        #     print(f'{i}: {t}')
+
+        # top_5_ind = np.argsort(top_data)[:5] # min : top
+        top_5_ind = np.argsort(top_data)[-1:-6:-1] # max : top
+        top_5_fit = [top_data[i] for i in top_5_ind]
+        for g,f in zip(top_5_ind, top_5_fit):
+            print(f'gen {g}: fit {f}')
+
+        l1 = ax1.plot(top_data, 
+                        # label = f'top {name}',
+                        label = f'top {name} | t: {time} sec',
+                        color=cmap(i/cmap_range), 
+                        # linestyle='dotted',
+                        # alpha=0.2
+                        )
+        lns.append(l1[0])
+
+        # avg_trend_data = np.mean(data_genxpop, axis=1)
+        # l2 = ax1.plot(avg_trend_data, 
+        #                 label = f'avg {name}',
+        #                 # label = f'avg {name} | t: {int(time)} sec',
+        #                 color=cmap(i/cmap_range), 
+        #                 linestyle='dotted'
+        #                 )
+        # lns.append(l2[0])
+
+        # med_trend_data = np.median(data_genxpop, axis=1)
+        # l3 = ax1.plot(med_trend_data, 
+        #                 label = f'med {name}',
+        #                 # label = f'med {name} | t: {int(time)} sec',
+        #                 color=cmap(i/cmap_range), 
+        #                 linestyle='dashed'
+        #                 )
+        # lns.append(l3[0])
+    
+    ax1.set_xlabel('Generation')
+
+    labs = [l.get_label() for l in lns]
+    # ax1.legend(lns, labs, loc='upper right')
+    # ax1.legend(lns, labs, loc='lower left')
+    ax1.legend(lns, labs, loc='upper left')
+
+    # ax1.set_ylabel('Time to Find Patch')
+    # # ax1.set_ylim(-20,1020)
+    # ax1.set_ylim(1900,5000)
+
+    ax1.set_ylabel('# Patches Found')
+    ax1.set_ylim(0,8)
+
+    # ax1.legend(*zip(*violin_labs), loc='upper left')
+    # ax1.set_ylabel('Parameter')
+    # # ax1.set_ylim(-1.25,1.25)
+
+    if save_name: 
+        plt.savefig(fr'{data_dir}/{save_name}.png')
+    plt.show()
 
 
 def plot_mult_EA_trends_groups(groups, save_name=None):
@@ -459,11 +567,15 @@ if __name__ == '__main__':
     # plot_mult_EA_trends([f'symdoublepoint_CNN1128_FNN2_rep{x}' for x in range(67)], 'symdoublepoint_vis8_dirfit_FNN_other3')
 
 
-    plot_mult_EA_trends([f'doublecorner_exp_CNN18_FNN2_e10p25_rep{x}' for x in range(20)], 'doublecorner_exp_CNN18_FNN2_e10p25')
+    # plot_mult_EA_trends([f'doublecorner_exp_CNN18_FNN2_e10p25_rep{x}' for x in range(20)], 'doublecorner_exp_CNN18_FNN2_e10p25')
     # plot_mult_EA_trends([f'doublecorner_exp_CNN18_FNN2_e15p25_rep{x}' for x in range(10)], 'doublecorner_exp_CNN18_FNN2_e15p25')
     # plot_mult_EA_trends([f'doublecorner_exp_CNN11_FNN1_rep{x}' for x in range(100)], 'doublecorner_exp_CNN11_FNN1')
     # plot_mult_EA_trends([f'doublecorner_exp_CNN11_FNN2_rep{x}' for x in range(100)], 'doublecorner_exp_CNN11_FNN2')
     # plot_mult_EA_trends([f'doublecorner_exp_CNN12_FNN1_rep{x}' for x in range(11)], 'doublecorner_exp_CNN12_FNN1')
+    # plot_mult_EA_trends([f'doublecorner_exp_CNN18_FNN1_p25e5_rep{x}' for x in range(9)], 'doublecorner_exp_CNN18_FNN1_p25e5')
+    # plot_mult_EA_trends([f'doublecorner_exp_CNN1128_FNN1_p25e5_rep{x}' for x in range(20)], 'doublecorner_exp_CNN1128_FNN1_p25e5')
+
+    # plot_mult_EA_trends_np([f'doublecorner_exp_CNN1124_FNN2_p25e10_mean_rep{x}' for x in range(1)], 'doublecorner_exp_CNN1124_FNN2_p25e10')
 
 
 ### ----------group pop runs----------- ###
@@ -642,3 +754,14 @@ if __name__ == '__main__':
     # name = 'stationarycorner_CNN12_FNN1_p25e5g100_sig0p1_other0'
     # name = 'stationarycorner_CNN12_FNN4_p25e5g100_sig0p1_other0'
     # plot_mult_EA_trends([name], fr'{name}/violin_mean')
+
+    
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+    name = 'doublecorner_exp_CNN1124_FNN2_p25e10_mean_rep0'
+
+    with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+        data = pickle.load(f)
+
+    # plot_EA_trend_violin(data, mean=True)
+    plot_EA_trend_violin(data, mean=True, save_dir=fr'{data_dir}/{name}')
