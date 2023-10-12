@@ -206,7 +206,7 @@ class Simulation:
     def draw_status(self):
         """Showing framerate, sim time and pause status on simulation windows"""
         status = [
-            f"FPS: {self.framerate}, t = {self.t}/{self.T}",
+            f"FPS: {self.framerate}  |  t = {self.t}/{self.T}",
         ]
         if self.is_paused:
             status.append("-Paused-")
@@ -214,21 +214,22 @@ class Simulation:
             text = self.font.render(stat_i, True, colors.BLACK)
             self.screen.blit(text, (self.window_pad, 0))
 
-    # def draw_agent_stats(self, font_size=15, spacing=0):
-    #     """Showing agent information when paused"""
-    #     font = pygame.font.Font(None, font_size)
-    #     for agent in self.agents:
-    #         if agent.is_moved_with_cursor or agent.show_stats:
-    #             status = [
-    #                 f"ID: {agent.id}",
-    #                 f"res.: {agent.collected_r:.2f}",
-    #                 f"ori.: {agent.orientation:.2f}",
-    #                 f"w: {agent.w:.2f}"
-    #             ]
-    #             for i, stat_i in enumerate(status):
-    #                 text = font.render(stat_i, True, colors.BLACK)
-    #                 self.screen.blit(text, (agent.position[0] + 2 * agent.radius,
-    #                                         agent.position[1] + 2 * agent.radius + i * (font_size + spacing)))
+    def draw_agent_stats(self, font_size=15, spacing=0):
+        """Showing agent information"""
+        font = pygame.font.Font(None, font_size)
+        for agent in self.agents:
+            status = [
+                f'ID: {agent.id}',
+                f'res: {agent.collected_r}',
+                f'ori: {agent.orientation*180/np.pi:.2f} deg',
+                f'NNout: {agent.action:.2f}',
+                f'turn: {agent.action*180/np.pi:.2f} deg',
+                f'vel: {agent.velocity:.2f} / {self.max_vel}',
+            ]
+            for i, stat_i in enumerate(status):
+                text = font.render(stat_i, True, colors.BLACK)
+                self.screen.blit(text, (agent.position[0] + 8*agent.radius,
+                                        agent.position[1] - 1*agent.radius + i * (font_size + spacing)))
 
     def draw_visual_fields(self):
         """Visualizing range of vision as opaque circles around the agents""" 
@@ -304,7 +305,7 @@ class Simulation:
         self.agents.draw(self.screen)
         self.draw_walls()
         self.draw_status()
-        # self.draw_agent_stats()
+        self.draw_agent_stats()
 
         # vision range + projection field
         if self.show_vision_range: 
@@ -649,11 +650,13 @@ class Simulation:
 
                 # obs_start = time.time()
 
-                # Zero agent behavioral states
+                # Refresh agent behavioral states
                 for agent in self.agents:
-                    agent.on_resrc = 0
+                    
                     agent.collided_points = []
                     agent.mode = 'explore'
+                    if agent.on_resrc > 0:
+                        agent.on_resrc -= 0.2 # fades over 5 timesteps
 
                 # Evaluate sprite collisions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
