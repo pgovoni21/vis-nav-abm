@@ -306,7 +306,7 @@ class Simulation:
         self.agents.draw(self.screen)
         self.draw_walls()
         self.draw_status()
-        # self.draw_agent_stats()
+        self.draw_agent_stats()
 
         # vision range + projection field
         if self.show_vision_range: 
@@ -342,8 +342,8 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
-        x_min, x_max, y_min, y_max = self.boundary_info_spwn_ag
-        # x_min, x_max, y_min, y_max = self.boundary_info_coll
+        # x_min, x_max, y_min, y_max = self.boundary_info_spwn_ag
+        x_min, x_max, y_min, y_max = self.boundary_info_coll
 
         if self.N == 1:
             colliding_resources = [0]
@@ -448,6 +448,7 @@ class Simulation:
         ##--> 'singlecorner' : top-left corner of center area
         x_min, x_max, y_min, y_max = self.boundary_info_spwn_res
         x,y = x_min,y_min
+        # x,y = 0,0
 
         # ##--> 'stationarypoint' : top-left off-center off-wall
         # self.resrc_radius = 10
@@ -772,7 +773,8 @@ class Simulation:
         if self.plot_trajectory:
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
-        # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+        # extract total fitnesses + save into sim instance (pulled for EA)
+        dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.resources.sprites()[0].position)
+        self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
 
         return self.fitnesses, self.elapsed_time
