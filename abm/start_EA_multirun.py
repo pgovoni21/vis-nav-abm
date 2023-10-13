@@ -21,22 +21,18 @@ def set_env_var(key, val):
 def EA_runner():
 
     set_env_var('EA_POPULATION_SIZE', '25')
-    set_env_var('EA_EPISODES', '10')
-    set_env_var('EA_EST_METHOD', 'median')
+    set_env_var('EA_EPISODES', '5')
+    set_env_var('EA_EST_METHOD', 'mean')
 
     set_env_var('CNN_DEPTHS', '1,1')
-    set_env_var('CNN_DIMS', '2,8')
+    set_env_var('CNN_DIMS', '2,4')
     set_env_var('RNN_HIDDEN_SIZE', '2')
     set_env_var('RNN_TYPE', 'fnn')
-
-    for x in range(20):
-        set_env_var('EA_SAVE_NAME', f'doublecorner_exp_CNN1128_FNN2_p25e10_median_rep{x}')
-        start_EA()
 
 
     set_env_var('EA_EPISODES', '5')
     for x in range(20):
-        set_env_var('EA_SAVE_NAME', f'doublecorner_exp_CNN1128_FNN2_p25e5_median_rep{x}')
+        set_env_var('EA_SAVE_NAME', f'doublecorner_exp_CNN1124_FNN2_p25e5_mean_resTRspwn_rep{x}')
         start_EA()
 
 

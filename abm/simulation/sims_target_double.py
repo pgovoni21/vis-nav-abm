@@ -147,8 +147,9 @@ class Simulation:
         if self.max_resrc_units < 0:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
-        self.res_id_og = np.random.randint(2)
-        self.res_id_counter = self.res_id_og
+        # self.res_id_og = np.random.randint(2)
+        # self.res_id_counter = self.res_id_og
+        self.res_id_counter = 0
 
         # Neural Network parameters
         self.model = NN
@@ -355,6 +356,8 @@ class Simulation:
                 x = np.random.randint(x_min, x_max)
                 y = np.random.randint(y_min, y_max)
                 # x,y = 981, 20
+                # x,y = 100,900
+                # x,y = self.WIDTH*.1,self.HEIGHT*.1
                 
                 orient = np.random.uniform(0, 2 * np.pi)
                 # orient = .5
@@ -475,8 +478,9 @@ class Simulation:
         units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
         quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
 
-        save_id = id - self.res_id_og # to start tracking matrix at zero
-        resource = Resource(save_id, self.resrc_radius, (x, y), units, quality)
+        # save_id = id - self.res_id_og # to start tracking matrix at zero
+        # resource = Resource(save_id, self.resrc_radius, (x, y), units, quality)
+        resource = Resource(id, self.resrc_radius, (x, y), units, quality)
         self.resources.add(resource)
 
         if not self.log_zarr_file: # save in sim instance
