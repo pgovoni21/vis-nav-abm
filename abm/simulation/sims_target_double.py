@@ -77,7 +77,7 @@ class Simulation:
         self.y_min, self.y_max = 0, height
         
         self.boundary_info = (0, width, 0, height)
-        self.boundary_info_coll = (agent_radius, width - agent_radius, agent_radius, height - agent_radius)
+        self.boundary_info_coll = (agent_radius*2, width - agent_radius*2, agent_radius*2, height - agent_radius*2)
         self.boundary_info_spwn_ag = (width*.3, width*.7, height*.3, height*.7)
         self.boundary_info_spwn_res = (width*.4, width*.6, height*.4, height*.6)
 
@@ -182,7 +182,6 @@ class Simulation:
             self.font = pygame.font.Font(None, int(self.window_pad/2))
             # self.recorder = ScreenRecorder(self.x_min + self.x_max, self.y_min + self.y_max, framerate, out_file='sim.mp4')
         else:
-            # pass
             pygame.display.init()
             pygame.display.set_mode([1,1])
 

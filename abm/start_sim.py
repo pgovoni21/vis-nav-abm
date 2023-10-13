@@ -1,6 +1,6 @@
 # from abm.simulation.sims import Simulation
-# from abm.simulation.sims_target import Simulation
-from abm.simulation.sims_target_double import Simulation
+from abm.simulation.sims_target import Simulation
+# from abm.simulation.sims_target_double import Simulation
 # from abm.simulation.sims_target_cross import Simulation
 
 from contextlib import ExitStack
@@ -20,6 +20,9 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
     if pv is None: # if called from abm-start
         envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
         NN = None
+
+        envconf['WITH_VISUALIZATION'] = 1
+
     else:
         if env_path is None: # if called from EA
             envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
@@ -29,19 +32,21 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
             envconf['WITH_VISUALIZATION'] = 0
             envconf['PLOT_TRAJECTORY'] = 0
         
-        else: # if called directly with pickled NN
+        else: # if called from pickled NN
             envconf = de.dotenv_values(env_path)
             NN, arch = reconstruct_NN(envconf, pv)
 
             # override original EA-written env dict
             envconf['LOG_ZARR_FILE'] = 0
 
-            # envconf['WITH_VISUALIZATION'] = 1
+            envconf['WITH_VISUALIZATION'] = 1
             envconf['PLOT_TRAJECTORY'] = 0
-            envconf['WITH_VISUALIZATION'] = 0
-            envconf['PLOT_TRAJECTORY'] = 1
+            # envconf['WITH_VISUALIZATION'] = 0
+            # envconf['PLOT_TRAJECTORY'] = 1
 
             # envconf['INIT_FRAMERATE'] = 10
+            envconf['T'] = 10000
+            envconf['RADIUS_RESOURCE'] = 100
 
             # envconf['MAXIMUM_VELOCITY'] = 5
 
@@ -138,33 +143,25 @@ if __name__ == '__main__':
     data_dir = Path(__file__).parent / r'data/simulation_data/'
 
 
-    # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
-    # NN_ext = 'gen997/NN0_af7'
-    # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep1'
-    # NN_ext = 'gen977/NN0_af6'
-    # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep2'
-    # NN_ext = 'gen549/NN0_af8'
-    # exp_name = 'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep3'
-    # NN_ext = 'gen999/NN0_af7'
-    # exp_name = 'doublepoint_CNN1122_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep0'
-    # NN_ext = 'gen969/NN0_af7'
-
     # exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep6'
     # NN_ext = 'gen927'
-    exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep17'
-    NN_ext = 'gen942'
-    # NN_ext = 'gen955'
-    # NN_ext = 'gen998'
-    # exp_name = 'doublecorner_exp_CNN11_FNN2_rep9'
-    # NN_ext = 'gen892'
-    # exp_name = 'doublecorner_exp_CNN12_FNN1_rep2'
-    # NN_ext = 'gen909'
+    # exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep17'
+    # NN_ext = 'gen942'
+    # exp_name = 'doublecorner_exp_CNN18_FNN2_e15p25_rep7'
+    # NN_ext = 'gen950'
     # exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep0'
     # NN_ext = 'gen999'
-    exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep14'
-    NN_ext = 'gen882'
-    # exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep17'
-    # NN_ext = 'gen93'
+    # exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep14'
+    # NN_ext = 'gen882'
+
+    # exp_name = 'doublecorner_exp_CNN1124_FNN2_p25e10_mean_rep0'
+    # NN_ext = 'gen730'
+    # exp_name = 'doublecorner_exp_CNN1124_FNN2_p25e5_mean_rep0'
+    # NN_ext = 'gen31'
+    
+    exp_name = 'doublecorner_exp_CNN1124_FNN2_p25e5_mean_resTRspwn_rep0'
+    NN_ext = 'gen465'
+    # NN_ext = 'gen999'
 
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'

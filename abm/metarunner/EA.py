@@ -148,8 +148,8 @@ class EvolAlgo():
             # print(f'Fitnesses: {fitness_rank}')
             
             # Track top fitness per generation
-            top_fg = round(np.max(fitness_rank),1) # max : top
-            # top_fg = int(np.min(fitness_rank)) # min : top
+            # top_fg = round(np.max(fitness_rank),1) # max : top
+            top_fg = int(np.min(fitness_rank)) # min : top
             avg_fg = round(np.mean(fitness_rank),2)
             med_fg = round(np.median(fitness_rank),2)
             print(f'--- top: {top_fg} | avg: {avg_fg} | med: {med_fg} ---')
@@ -163,8 +163,8 @@ class EvolAlgo():
 
 
             # cycle through the top X performers
-            top_indices = np.argsort(fitness_rank)[ : -1-self.num_top_nn_saved : -1] # max : top
-            # top_indices = np.argsort(fitness_rank)[ : self.num_top_nn_saved] # min : top
+            # top_indices = np.argsort(fitness_rank)[ : -1-self.num_top_nn_saved : -1] # max : top
+            top_indices = np.argsort(fitness_rank)[ : self.num_top_nn_saved] # min : top
 
             # # top_fitnesses = [int(fitness_rank[n_gen]) for n_gen in top_indices]
             # top_fitnesses = [round(fitness_rank[n_gen],2) for n_gen in top_indices]
@@ -192,7 +192,7 @@ class EvolAlgo():
             #### ---- Update optimizer + RNN instances ---- ####
 
             # Pass parameters + resulting fitness list to *minimizing* optimizer class
-            fitness_rank = [-f for f in fitness_rank] # flips sign (only applicable if max : top)
+            # fitness_rank = [-f for f in fitness_rank] # flips sign (only applicable if max : top)
             self.es.tell(self.NN_param_vectors, fitness_rank)
 
             # Save param_vec distribution

@@ -32,7 +32,7 @@ def EA_runner():
 
     set_env_var('EA_EPISODES', '5')
     for x in range(20):
-        set_env_var('EA_SAVE_NAME', f'doublecorner_exp_CNN1124_FNN2_p25e5_mean_resTRspwn_rep{x}')
+        set_env_var('EA_SAVE_NAME', f'singlecorner_exp_CNN1124_FNN2_p25e5_mean_rep{x}')
         start_EA()
 
 

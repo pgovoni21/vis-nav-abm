@@ -6,24 +6,26 @@ import numpy as np
 import sys
 import time
 
-from abm.agent import supcalc
-from abm.agent.agent import Agent
-from abm.environment.resource import Resource
-from abm.contrib import colors
+from abm import colors
+from abm.sprites import supcalc
+from abm.sprites.agent import Agent
+from abm.sprites.resource import Resource
+from abm.sprites.wall import Wall
 from abm.monitoring import tracking, plot_funcs
+# from abm.monitoring.screen_recorder import ScreenRecorder
+# from abm.helpers import timer
 
 class Simulation:
-    def __init__(self, width=600, height=480, window_pad=30, 
+    # @timer
+    def __init__(self, width=600, height=480, window_pad=30,
                  N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, 
                  plot_trajectory=False, log_zarr_file=False, save_ext="",
-                 agent_radius=10, max_vel=5, collision_slowdown=0.5, 
-                 vis_field_res=8, contact_field_res=4, collide_agents=True, 
-                 vision_range=150, agent_fov=1.0, visual_exclusion=False, 
-                 show_vision_range=False, agent_consumption=1, 
+                 agent_radius=10, max_vel=5, vis_field_res=8, vision_range=150, agent_fov=1.0, 
+                 visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
                  N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
                  min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
-                 NN=None, RNN_input_other_size=3, CNN_depths=[1,], CNN_dims=[4,], 
-                 RNN_hidden_size=128, LCL_output_size=1, NN_activ='relu', RNN_type='fnn',
+                 NN=None, RNN_other_input_size=1, CNN_depths=[1,], CNN_dims=[4,], RNN_hidden_size=128, LCL_output_size=1, 
+                 NN_activ='relu', RNN_type='fnn',
                  ):
         """
         Initializing the main simulation instance
@@ -41,10 +43,7 @@ class Simulation:
         :param save_ext:
         :param agent_radius: radius of the agents
         :param max_vel:
-        :param collision_slowdown:
         :param vis_field_res: projection field (visual + proximity) resolution in pixels
-        :param contact_field_res:
-        :param collide_agents: boolean switch agents can overlap if false
         :param vision_range: range (in px) of agents' vision
         :param agent_fov (float): the field of view of the agent as percentage. e.g. if 0.5, the the field of view is
                                 between -pi/2 and pi/2
@@ -72,9 +71,31 @@ class Simulation:
         self.WIDTH = width
         self.HEIGHT = height
         self.window_pad = window_pad
-        self.x_min, self.x_max = window_pad, window_pad + width # [30, 430]
-        self.y_min, self.y_max = window_pad, window_pad + height # [30, 430]
-        self.boundary_info = (self.x_min, self.x_max, self.y_min, self.y_max)
+        self.coll_boundary_thickness = agent_radius
+
+        self.x_min, self.x_max = 0, width
+        self.y_min, self.y_max = 0, height
+        
+        self.boundary_info = (0, width, 0, height)
+        self.boundary_info_coll = (agent_radius*2, width - agent_radius*2, agent_radius*2, height - agent_radius*2)
+        self.boundary_info_spwn_ag = (width*.3, width*.7, height*.3, height*.7)
+        self.boundary_info_spwn_res = (width*.4, width*.6, height*.4, height*.6)
+
+        self.boundary_endpts = [
+            np.array([ 0, 0 ]),
+            np.array([ width, 0 ]),
+            np.array([ 0, height ]),
+            np.array([ width, height ])
+        ]
+        self.boundary_endpts_wp = [endpt + self.window_pad for endpt in self.boundary_endpts]
+
+        self.spwn_endpts = [
+            np.array([ width*.4, height*.4 ]),
+            np.array([ width*.6, height*.4 ]),
+            np.array([ width*.4, height*.6 ]),
+            np.array([ width*.6, height*.6 ])
+        ]
+        self.spwn_endpts_wp = [endpt + self.window_pad for endpt in self.spwn_endpts]
 
         # Simulation parameters
         self.N = N
@@ -84,7 +105,7 @@ class Simulation:
         if self.with_visualization:
             self.framerate_orig = framerate
         else:
-            # this is more than what is possible withy pygame so it will use the maximal framerate
+            # this is more than what is possible with pygame so it will use the maximal framerate
             self.framerate_orig = 2000
         self.framerate = self.framerate_orig # distinguished for varying in-game framerate
         self.is_paused = False
@@ -94,9 +115,9 @@ class Simulation:
         # Tracking parameters
         self.log_zarr_file = log_zarr_file
 
-        # if not self.log_zarr_file: # set up agent/resource data logging
-        #     self.data_agent = np.zeros( (self.N, self.T, 4) ) # (pos_x, pos_y, mode, coll_res)
-        #     self.data_res = []
+        if not self.log_zarr_file: # set up agent/resource data logging
+            self.data_agent = np.zeros( (self.N, self.T, 4) ) # (pos_x, pos_y, mode, coll_res)
+            self.data_res = []
 
         self.elapsed_time = 0
         self.fitnesses = []
@@ -105,10 +126,7 @@ class Simulation:
         # Agent parameters
         self.agent_radii = agent_radius
         self.max_vel = max_vel
-        self.collision_slowdown = collision_slowdown
         self.vis_field_res = vis_field_res
-        self.contact_field_res = contact_field_res
-        self.collide_agents = collide_agents
         self.vision_range = vision_range
         self.agent_fov = agent_fov
         self.visual_exclusion = visual_exclusion
@@ -129,7 +147,6 @@ class Simulation:
         if self.max_resrc_units < 0:
             self.max_resrc_units = self.min_resrc_units + 1
         self.regenerate_resources = regenerate_patches
-        self.res_id_counter = 0
 
         # Neural Network parameters
         self.model = NN
@@ -138,17 +155,11 @@ class Simulation:
         else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
         
         CNN_input_size = (self.num_class_elements, vis_field_res)
-        CNN_depths = CNN_depths
-        CNN_dims = CNN_dims # last is num vis features fed to RNN
-        RNN_nonvis_input_size = (contact_field_res, RNN_input_other_size) # other: on_resrc + (velocity + orientation)
-        RNN_hidden_size = RNN_hidden_size
-        LCL_output_size = LCL_output_size # dvel + dtheta
-
         self.architecture = (
             CNN_input_size, 
             CNN_depths, 
             CNN_dims, 
-            RNN_nonvis_input_size, 
+            RNN_other_input_size, 
             RNN_hidden_size, 
             LCL_output_size
             )
@@ -164,12 +175,15 @@ class Simulation:
         # Initializing pygame
         if self.with_visualization:
             pygame.init()
-            self.screen = pygame.display.set_mode([self.x_min + self.x_max, self.y_min + self.y_max])
+            self.screen = pygame.display.set_mode([self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2])
+            self.font = pygame.font.Font(None, int(self.window_pad/2))
+            # self.recorder = ScreenRecorder(self.x_min + self.x_max, self.y_min + self.y_max, framerate, out_file='sim.mp4')
         else:
             pygame.display.init()
             pygame.display.set_mode([1,1])
 
         # pygame related class attributes
+        self.walls = pygame.sprite.Group()
         self.agents = pygame.sprite.Group()
         self.resources = pygame.sprite.Group()
         self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
@@ -178,111 +192,149 @@ class Simulation:
 
     def draw_walls(self):
         """Drawing walls on the arena according to initialization"""
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_min, self.y_min],
-                         [self.x_min, self.y_max])
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_min, self.y_min],
-                         [self.x_max, self.y_min])
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_max, self.y_min],
-                         [self.x_max, self.y_max])
-        pygame.draw.line(self.screen, colors.BLACK,
-                         [self.x_min, self.y_max],
-                         [self.x_max, self.y_max])
+        TL,TR,BL,BR = self.boundary_endpts_wp
+        pygame.draw.line(self.screen, colors.BLACK, TL, TR)
+        pygame.draw.line(self.screen, colors.BLACK, TR, BR)
+        pygame.draw.line(self.screen, colors.BLACK, BR, BL)
+        pygame.draw.line(self.screen, colors.BLACK, BL, TL)
 
-    def draw_framerate(self):
+        TL,TR,BL,BR = self.spwn_endpts_wp
+        pygame.draw.line(self.screen, colors.GREY, TL, TR)
+        pygame.draw.line(self.screen, colors.GREY, TR, BR)
+        pygame.draw.line(self.screen, colors.GREY, BR, BL)
+        pygame.draw.line(self.screen, colors.GREY, BL, TL)
+
+    def draw_status(self):
         """Showing framerate, sim time and pause status on simulation windows"""
-        tab_size = self.window_pad
-        line_height = int(self.window_pad / 2)
-        font = pygame.font.Font(None, line_height)
         status = [
-            f"FPS: {self.framerate}, t = {self.t}/{self.T}",
+            f"FPS: {self.framerate}  |  t = {self.t}/{self.T}",
         ]
         if self.is_paused:
             status.append("-Paused-")
         for i, stat_i in enumerate(status):
-            text = font.render(stat_i, True, colors.BLACK)
-            self.screen.blit(text, (tab_size, i * line_height))
+            text = self.font.render(stat_i, True, colors.BLACK)
+            self.screen.blit(text, (self.window_pad, 0))
 
     def draw_agent_stats(self, font_size=15, spacing=0):
-        """Showing agent information when paused"""
+        """Showing agent information"""
         font = pygame.font.Font(None, font_size)
         for agent in self.agents:
-            if agent.is_moved_with_cursor or agent.show_stats:
-                status = [
-                    f"ID: {agent.id}",
-                    f"res.: {agent.collected_r:.2f}",
-                    f"ori.: {agent.orientation:.2f}",
-                    f"w: {agent.w:.2f}"
-                ]
-                for i, stat_i in enumerate(status):
-                    text = font.render(stat_i, True, colors.BLACK)
-                    self.screen.blit(text, (agent.position[0] + 2 * agent.radius,
-                                            agent.position[1] + 2 * agent.radius + i * (font_size + spacing)))
+            status = [
+                f'ID: {agent.id}',
+                f'res: {agent.collected_r}',
+                f'ori: {agent.orientation*180/np.pi:.2f} deg',
+                f'NNout: {agent.action:.2f}',
+                f'turn: {agent.action*180/np.pi:.2f} deg',
+                f'vel: {agent.velocity:.2f} / {self.max_vel}',
+            ]
+            for i, stat_i in enumerate(status):
+                text = font.render(stat_i, True, colors.BLACK)
+                self.screen.blit(text, (agent.position[0] + 8*agent.radius,
+                                        agent.position[1] - 1*agent.radius + i * (font_size + spacing)))
 
     def draw_visual_fields(self):
         """Visualizing range of vision as opaque circles around the agents""" 
+        vis_proj_distance = 30
+        vis_project_IDbubble_size = 2
+        
         for agent in self.agents:
             # Show visual range as circle if non-limiting FOV
             if self.agent_fov == 1:
-                pygame.draw.circle(self.screen, colors.GREY, agent.pt_eye, agent.vision_range, width=1)
+                pygame.draw.circle(self.screen, colors.GREY, agent.pt_eye + self.window_pad, vis_proj_distance, width=1)
             else: # self.agent_fov < 1 --> show limits of FOV as radial lines with length of visual range
-                start_pos = agent.pt_eye
+                start_pos = agent.pt_eye + self.window_pad
                 angles = (agent.orientation + agent.phis[0], 
                           agent.orientation + agent.phis[-1])
                 for angle in angles: ### draws lines that don't quite meet borders
-                    end_pos = (start_pos[0] + np.cos(angle) * agent.vision_range,
-                               start_pos[1] - np.sin(angle) * agent.vision_range)
+                    end_pos = (start_pos[0] + np.cos(angle) * vis_proj_distance,
+                               start_pos[1] - np.sin(angle) * vis_proj_distance)
                     pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
 
-            # Show what it is seeing as discretized circles, color reflects identity
+            # for each visual field ray
             for phi, vis_name in zip(agent.phis, agent.vis_field):
 
+                # # draw projections as gray lines
+                # end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * 1500,
+                #             start_pos[1] - np.sin(agent.orientation - phi) * 1500)
+                # pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
+
+                # draw bubbles reflecting perceived identities (wall/agents)
                 if vis_name == 'wall_north': # --> red
                     pygame.draw.circle(
                         self.screen, colors.TOMATO, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
                 elif vis_name == 'wall_south': # --> green
                     pygame.draw.circle(
                         self.screen, colors.LIME, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
                 elif vis_name == 'wall_east': # --> blue
                     pygame.draw.circle(
                         self.screen, colors.CORN, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
                 elif vis_name == 'wall_west': # --> yellow
                     pygame.draw.circle(
                         self.screen, colors.GOLD, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * agent.vision_range,
-                         start_pos[1] - np.sin(agent.orientation - phi) * agent.vision_range),
-                        radius=3)
-                # elif vis_name == 'exploit': ax.scatter(orient-phi, 600, s=20, c='k')
-                # else: # non-exploiting 
-                #     ax.scatter(orient-phi, 600, s=20, c='y')
-    
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
+                elif vis_name == 'agent_exploit':
+                    pygame.draw.circle(
+                        self.screen, colors.VIOLET, 
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
+                else: # vis_name == 'agent_explore':
+                    pygame.draw.circle(
+                        self.screen, colors.BLACK, 
+                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                        radius = vis_project_IDbubble_size)
+
+    # @timer
     def draw_frame(self):
         """Drawing environment, agents and every other visualization in each timestep"""
         pygame.display.flip()
-        self.screen.fill(colors.BACKGROUND)
+        self.screen.fill(colors.WHITE)
+        self.walls.draw(self.screen)
         self.resources.draw(self.screen)
         self.agents.draw(self.screen)
         self.draw_walls()
-        self.draw_framerate()
-        self.draw_agent_stats()
+        self.draw_status()
+        # self.draw_agent_stats()
 
         # vision range + projection field
-        if self.show_vision_range and self.x_max > self.vision_range: 
+        if self.show_vision_range: 
             self.draw_visual_fields()
+    
+### -------------------------- WALL FUNCTIONS -------------------------- ###
+    
+    def create_walls(self):
+
+        walls = [
+            ('wall_north', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_min ])),
+            ('wall_south', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_max - self.coll_boundary_thickness ])),
+            ('wall_east', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_max - self.coll_boundary_thickness, self.y_min ])),
+            ('wall_west', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_min, self.y_min ]))
+        ]
+
+        for id, size, position in walls:
+            wall = Wall(
+                id=id,
+                size=size,
+                position=position,
+                window_pad=self.window_pad
+            )
+            self.walls.add(wall)
 
 ### -------------------------- AGENT FUNCTIONS -------------------------- ###
 
+    # @timer
     def create_agents(self):
         """
         Instantiates agent objects according to simulation parameters
@@ -290,23 +342,27 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
-        for i in range(self.N):
+        x_min, x_max, y_min, y_max = self.boundary_info_spwn_ag
+        # x_min, x_max, y_min, y_max = self.boundary_info_coll
 
+        if self.N == 1:
             colliding_resources = [0]
-
             retries = 0
             while len(colliding_resources) > 0:
 
-                x = np.random.randint(self.x_min - self.agent_radii, self.x_max - self.agent_radii)
-                y = np.random.randint(self.y_min - self.agent_radii, self.y_max - self.agent_radii)
+                x = np.random.randint(x_min, x_max)
+                y = np.random.randint(y_min, y_max)
+                # x,y = 981, 20
+                # x,y = x_min, y_min
+                
                 orient = np.random.uniform(0, 2 * np.pi)
+                # orient = .5
 
                 agent = Agent(
-                        id=i,
+                        id=0,
                         position=(x, y),
                         orientation=orient,
                         max_vel=self.max_vel,
-                        collision_slowdown=self.collision_slowdown,
                         FOV=self.agent_fov,
                         vision_range=self.vision_range,
                         visual_exclusion=self.visual_exclusion,
@@ -315,24 +371,63 @@ class Simulation:
                         model=self.model,
                         NN_activ = self.NN_activ,
                         RNN_type = self.RNN_type,
-                        boundary_info=self.boundary_info,
+                        boundary_endpts=self.boundary_endpts,
                         radius=self.agent_radii,
                         color=colors.BLUE,
                     )
                 
                 colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+
                 retries += 1
-
-                if retries > 10:
-                    print(f'Retries > 10')
-
+                if retries > 10: print(f'Retries > 10')
             self.agents.add(agent)
 
+        else: # N > 1
+            for i in range(self.N):
+
+                colliding_resources = [0]
+                colliding_agents = [0]
+
+                retries = 0
+                while len(colliding_resources) > 0 or len(colliding_agents) > 0:
+
+                    x = np.random.randint(x_min, x_max)
+                    y = np.random.randint(y_min, y_max)
+                    # x,y = 305+15*i, 305+15*i
+                    
+                    orient = np.random.uniform(0, 2 * np.pi)
+
+                    agent = Agent(
+                            id=i,
+                            position=(x, y),
+                            orientation=orient,
+                            max_vel=self.max_vel,
+                            FOV=self.agent_fov,
+                            vision_range=self.vision_range,
+                            visual_exclusion=self.visual_exclusion,
+                            consumption=self.agent_consumption,
+                            arch=self.architecture,
+                            model=self.model,
+                            NN_activ = self.NN_activ,
+                            RNN_type = self.RNN_type,
+                            boundary_endpts=self.boundary_endpts,
+                            radius=self.agent_radii,
+                            color=colors.BLUE,
+                        )
+                    
+                    colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+                    colliding_agents = pygame.sprite.spritecollide(agent, self.agents, False, supcalc.within_group_collision)
+
+                    retries += 1
+                    if retries > 10: print(f'Retries > 10')
+                self.agents.add(agent)
+
+    # @timer
     def save_data_agent(self):
         """Tracks key variables (position, mode, resources collected) via array for current timestep"""
         for agent in self.agents:
-            x, y = agent.pt_center
-            pos_x = x - self.window_pad
+            x, y = agent.position
+            pos_x = x
             pos_y = self.y_max - y
 
             if agent.mode == 'explore': mode_num = 0
@@ -344,15 +439,15 @@ class Simulation:
 
 ### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
 
+    # @timer
     def create_resources(self):
-        
+
         # creates single resource patch
         id = 0
 
-        ##--> 'stationarycorner' : top-left corner
-        self.resrc_radius = 100
-        x = self.x_min - 50
-        y = self.y_min - 50
+        ##--> 'singlecorner' : top-left corner of center area
+        x_min, x_max, y_min, y_max = self.boundary_info_spwn_res
+        x,y = x_min,y_min
 
         # ##--> 'stationarypoint' : top-left off-center off-wall
         # self.resrc_radius = 10
@@ -365,11 +460,11 @@ class Simulation:
         resource = Resource(id, self.resrc_radius, (x, y), units, quality)
         self.resources.add(resource)
 
-        # if not self.log_zarr_file: # save in sim instance
-        #     x,y = resource.pt_center
-        #     pos_x = x - self.window_pad
-        #     pos_y = self.y_max - y
-        #     self.data_res.append([pos_x, pos_y, self.resrc_radius])
+        if not self.log_zarr_file: # save in sim instance
+            x,y = resource.position
+            pos_x = x
+            pos_y = self.y_max - y
+            self.data_res.append([pos_x, pos_y, self.resrc_radius])
 
     # def consume(self, agent):
     #     """Carry out agent-resource interactions (depletion, destroying, notifying)"""
@@ -393,39 +488,65 @@ class Simulation:
     #             # self.add_new_resource_patch_random()
     #             self.add_new_resource_patch_stationary_single()
 
-### -------------------------- MULTIAGENT INTERACTION FUNCTIONS -------------------------- ###
+### -------------------------- COLLISION FUNCTIONS -------------------------- ###
 
+    # @timer
     def collide_agent_res(self):
 
         # Create dict of every agent that has collided : [colliding resources]
-        collision_group_ar = pygame.sprite.groupcollide(self.agents, self.resources, False, False,
-                                                        pygame.sprite.collide_circle)
+        collision_group_ar = pygame.sprite.groupcollide(self.agents, self.resources, False, False, pygame.sprite.collide_circle)
 
         # Switch on all agents currently on a resource 
         for agent, resource_list in collision_group_ar.items():
             for resource in resource_list:
                 # Flip bool variable if agent is within patch boundary
-                if supcalc.distance(agent.pt_center, resource.pt_center) <= resource.radius:
+                if supcalc.distance(agent.position, resource.position) <= resource.radius:
+                    agent.mode = 'exploit'
                     agent.on_resrc = 1
                     agent.res_to_be_consumed = resource
                     break
 
-    # def collide_agent_agent(self):
+    def collide_agent_wall(self):
+        
+        # Create dict of every agent that has collided : [colliding walls]
+        collision_group_aw = pygame.sprite.groupcollide(self.agents, self.walls, False, False)
 
-        # # Create dict of every agent that has collided : [colliding agents]
-        # collision_group_aa = pygame.sprite.groupcollide(self.agents, self.agents, False, False,
-        #     itra.within_group_collision)
+        # Change agent mode + note points of contact (carry out velocity-stopping check later in agent.move())
+        for agent, wall_list in collision_group_aw.items():
+
+            agent.mode = 'collide'
+
+            for wall in wall_list:
+
+                clip = agent.rect.clip(wall.rect)
+                if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+
+                # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
+
+                agent.collided_points.append(np.array(clip.center) - self.window_pad)
+
+                # hits = [edge for edge in ['bottom', 'top', 'left', 'right'] if getattr(clip, edge) == getattr(agent.rect, edge)]
+                # text = self.font.render(f'Collision at {", ".join(hits)}', True, pygame.Color('black'))
+                # self.screen.blit(text, (self.window_pad, int(self.window_pad/2)))
+
+    def collide_agent_agent(self):
+
+        # Create dict of every agent that has collided : [colliding agents]
+        collision_group_aa = pygame.sprite.groupcollide(self.agents, self.agents, False, False, supcalc.within_group_collision)
         
-        # # Carry out agent-agent collisions + generate list of non-exploiting collided agents
-        # for agent1, other_agents in collision_group_aa.items():
-        #     collided_agents_instance = self.agent_agent_collision_proximity(agent1, other_agents)
-        #     collided_agents.append(collided_agents_instance)
-        # collided_agents = [agent for sublist in collided_agents for agent in sublist]
-        
-        # # Turn off collision mode when over
-        # for agent in self.agents:
-        #     if agent not in collided_agents and agent.get_mode() == "collide":
-        #         agent.set_mode("explore")
+        # Carry out agent-agent collisions + generate list of collided agents
+        for agent1, other_agents in collision_group_aa.items():
+
+            agent1.mode = 'collide'
+
+            for agentX in other_agents:
+
+                clip = agent1.rect.clip(agentX.rect)
+                if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+
+                # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
+
+                agent1.collided_points.append(np.array(clip.center) - self.window_pad)
 
 ### -------------------------- HUMAN INTERACTION FUNCTIONS -------------------------- ###
 
@@ -436,12 +557,12 @@ class Simulation:
             if event.type == pygame.QUIT:
                 sys.exit()
 
-            # Change orientation with mouse wheel
-            if event.type == pygame.MOUSEWHEEL:
-                if event.y == -1:
-                    event.y = 0
-                for ag in self.agents:
-                    ag.move_with_mouse(pygame.mouse.get_pos(), event.y, 1 - event.y)
+            # # Change orientation with mouse wheel
+            # if event.type == pygame.MOUSEWHEEL:
+            #     if event.y == -1:
+            #         event.y = 0
+            #     for ag in self.agents:
+            #         ag.move_with_mouse(pygame.mouse.get_pos(), event.y, 1 - event.y)
 
             # Pause on Space
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
@@ -454,28 +575,28 @@ class Simulation:
                     self.framerate = 1
             if event.type == pygame.KEYDOWN and event.key == pygame.K_f:
                 self.framerate += 1
-                if self.framerate > 50:
-                    self.framerate = 50
+                if self.framerate > 100:
+                    self.framerate = 100
             if event.type == pygame.KEYDOWN and event.key == pygame.K_d:
                 self.framerate = self.framerate_orig
 
-            # Continuous mouse events (move with cursor)
-            if pygame.mouse.get_pressed()[0]:
-                try:
-                    for ag in self.agents:
-                        ag.move_with_mouse(event.pos, 0, 0)
-                    for res in self.resources:
-                        res.update_clicked_status(event.pos)
-                except AttributeError:
-                    for ag in self.agents:
-                        ag.move_with_mouse(pygame.mouse.get_pos(), 0, 0)
-            else:
-                for ag in self.agents:
-                    ag.is_moved_with_cursor = False
-                    ag.draw_update()
-                for res in self.resources:
-                    res.is_clicked = False
-                    res.draw_update()
+            # # Continuous mouse events (move with cursor)
+            # if pygame.mouse.get_pressed()[0]:
+            #     try:
+            #         for ag in self.agents:
+            #             ag.move_with_mouse(event.pos, 0, 0)
+            #         for res in self.resources:
+            #             res.update_clicked_status(event.pos)
+            #     except AttributeError:
+            #         for ag in self.agents:
+            #             ag.move_with_mouse(pygame.mouse.get_pos(), 0, 0)
+            # else:
+            #     for ag in self.agents:
+            #         ag.is_moved_with_cursor = False
+            #         ag.draw_update()
+            #     for res in self.resources:
+            #         res.is_clicked = False
+            #         res.draw_update()
 
 
 ##################################################################################
@@ -487,6 +608,7 @@ class Simulation:
         ### ---- INITIALIZATION ---- ###
 
         start_time = time.time()
+        self.create_walls()
         self.create_resources()
         self.create_agents()
 
@@ -501,41 +623,43 @@ class Simulation:
 
             if not self.is_paused:
 
+                # self.recorder.capture_frame(self.screen)
+                
                 ### ---- OBSERVATIONS ---- ###
 
                 # obs_start = time.time()
+
+                # Refresh agent behavioral states
                 for agent in self.agents:
-
-                    # Update agent parameters
-                    agent.on_resrc = 0
-                    agent.rect.x, agent.rect.y = agent.position
-
-                    if self.with_visualization:
-                        agent.draw_update() 
-
-                    # Update visual projections (vis_field)
-                    crash = agent.visual_sensing()
                     
-                    # if crash: # position = nan : RNN weight explosion due to spinning
-                    #     pygame.quit() # stop simulation
-                    #     tracking.clean_global_dicts() # clean global data structures
-                    #     return np.array([0.]), 0, True # as fitnesses, elapsed_time, crash_bool
+                    agent.collided_points = []
+                    agent.mode = 'explore'
+                    if agent.on_resrc > 0:
+                        agent.on_resrc -= 0.2 # fades over 5 timesteps
+                        agent.on_resrc = round(agent.on_resrc,1)
 
-                    # Update collisions with walls (contact_field)
-                    agent.wall_contact_sensing() 
-
-                # Update collisions with resources (on_resrc)
+                # Evaluate sprite collisions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
+                self.collide_agent_wall()
+                self.collide_agent_agent()
                 self.collide_agent_res()
-                    
-                # # Update collisions amongst agents (contact_field)
-                # if self.collide_agents:
-                #     self.collide_agent_agent()
+
+                # Update visual projections (vis_field)
+                for agent in self.agents:
+                    agent.visual_sensing(self.agents)
+
                 # obs_times[self.t] = time.time() - obs_start
 
                 ### ---- VISUALIZATION ---- ###
 
                 if self.with_visualization:
+                    for agent in self.agents:
+                        agent.draw_update() 
+                    for res in self.resources:
+                        res.draw_update() 
                     self.draw_frame()
+                else: # still have to update rect for wall collisions
+                    for agent in self.agents:
+                        agent.rect = agent.image.get_rect(center = agent.position + self.window_pad)
 
                 ### ---- TRACKING ---- ### 
 
@@ -543,8 +667,8 @@ class Simulation:
                 if self.log_zarr_file:
                     tracking.save_agent_data_RAM(self)
                     tracking.save_resource_data_RAM(self)
-                # else:
-                #     self.save_data_agent()
+                else:
+                    self.save_data_agent()
                 # sav_times[self.t] = time.time() - sav_start
 
                 ### ---- MODEL + ACTIONS ---- ###
@@ -552,12 +676,12 @@ class Simulation:
                 # mod_start = time.time()
                 for agent in self.agents:
 
-                    # Pass observables through NN to calculate actions (dvel + dtheta) & advance agent's hidden state
-                    vis_input, other_input = agent.assemble_NN_inputs()
-                    agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
+                    # Pass observables through NN to calculate action & advance agent's hidden state
+                    vis_input = agent.encode_one_hot(agent.vis_field)
+                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_resrc]), agent.hidden)
 
-                    # Food present --> consume + set mode to exploit (if food is still available)
-                    if agent.on_resrc == 1:
+                    # Food present --> consume (if food is still available)
+                    if agent.mode == 'exploit':
                     # if agent.on_resrc == 1 and agent.velocity == 0: 
                         # self.consume(agent) 
 
@@ -573,20 +697,31 @@ class Simulation:
                             # conclude agent/resource tracking
                             # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
                             ag_zarr, res_zarr = tracking.save_zarr_file(self.t+1, self.save_ext, self.print_enabled)
+                            plot_data = ag_zarr, res_zarr
+                        else: # use ag/res tracking from self instance
+                            # convert list to 3D array similar to zarr file
+                            data_res_array = np.zeros( (len(self.data_res), 1, 3 ))
+                            for id, (pos_x, pos_y, radius) in enumerate(self.data_res):
+                                data_res_array[id, 0, 0] = pos_x
+                                data_res_array[id, 0, 1] = pos_y
+                                data_res_array[id, 0, 2] = radius
 
-                            # display static map of simulation
-                            if self.plot_trajectory:
-                                plot_data = ag_zarr, res_zarr
-                                plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
+                            # assign plot data as numpy arrays
+                            plot_data = self.data_agent, data_res_array
+                        # display static map of simulation
+                        if self.plot_trajectory:
+                            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
                         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-                        # self.fitnesses = ag_zarr[:,-1,-1]
                         self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
 
                         return self.fitnesses, self.elapsed_time
 
                     # No food --> move via decided action(s) + set mode to collide if collided
-                    else: agent.move(agent.action) 
+                    else: 
+                        agent.move(agent.action)
+                        # agent.move(0.1)
+                        # agent.move(np.random.uniform(-0.1,0.1))
 
                 # mod_times[self.t] = time.time() - mod_start
 
@@ -610,6 +745,7 @@ class Simulation:
 
         ### ---- END OF SIMULATION ---- ###
 
+        # self.recorder.end_recording()
         pygame.quit()
 
         # compute simulation time in seconds
@@ -621,14 +757,22 @@ class Simulation:
             # conclude agent/resource tracking
             # convert tracking agent/resource dicts to N-dimensional zarr arrays + save to offline file
             ag_zarr, res_zarr = tracking.save_zarr_file(self.T, self.save_ext, self.print_enabled)
+            plot_data = ag_zarr, res_zarr
+        else: # use ag/res tracking from self instance
+            # convert list to 3D array similar to zarr file
+            data_res_array = np.zeros( (len(self.data_res), 1, 3 ))
+            for id, (pos_x, pos_y, radius) in enumerate(self.data_res):
+                data_res_array[id, 0, 0] = pos_x
+                data_res_array[id, 0, 1] = pos_y
+                data_res_array[id, 0, 2] = radius
 
+            # assign plot data as numpy arrays
+            plot_data = self.data_agent, data_res_array
         # display static map of simulation
         if self.plot_trajectory:
-            plot_data = ag_zarr, res_zarr
-            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT)
+            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-        # self.fitnesses = ag_zarr[:,-1,-1]
         self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
 
         return self.fitnesses, self.elapsed_time
