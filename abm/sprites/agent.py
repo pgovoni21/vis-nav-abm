@@ -106,6 +106,7 @@ class Agent(pygame.sprite.Sprite):
             ('BL', BL),
             ('BR', BR)
         ]
+        self.extra_coll_block = 3 * np.pi / 180 # extra collision degrees where agent vel = 0 (since clip collision is slow 1 timestep)
 
         # Visualization / human interaction parameters
         self.radius = radius
@@ -326,16 +327,20 @@ class Agent(pygame.sprite.Sprite):
                 # print(np.round(angle_coll,3), np.round(self.orientation,3))
 
                 # check if collision angle is within 180d of current orientation + wrapping constraints
-                if angle_coll + np.pi/2 > 2*np.pi:
-                    if (angle_coll-np.pi/2) < self.orientation or (angle_coll+np.pi/2-2*np.pi) > self.orientation:
+                L_limit = angle_coll - np.pi/2 - self.extra_coll_block
+                R_limit = angle_coll + np.pi/2 + self.extra_coll_block
+                # print(np.round(L_limit,3), np.round(R_limit,3))
+
+                if R_limit > 2*np.pi:
+                    if L_limit < self.orientation or (R_limit - 2*np.pi) > self.orientation:
                         self.velocity = 0
                         # print('block wrap +')
-                elif angle_coll - np.pi/2 < 0:
-                    if (angle_coll+np.pi/2) > self.orientation or (angle_coll-np.pi/2+2*np.pi) < self.orientation:
+                elif L_limit < 0:
+                    if R_limit > self.orientation or (L_limit + 2*np.pi) < self.orientation:
                         self.velocity = 0
                         # print('block wrap -')
                 else:
-                    if (angle_coll-np.pi/2) < self.orientation < (angle_coll+np.pi/2):
+                    if L_limit < self.orientation < R_limit:
                         self.velocity = 0
                         # print('block')
 
