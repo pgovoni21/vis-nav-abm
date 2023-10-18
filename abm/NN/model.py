@@ -94,14 +94,17 @@ class WorldModel(nn.Module):
 
         # pass through visual module
         vis_features = self.cnn(vis_input)
+        # vis_features += torch.randn(vis_features.shape) * 0.05 # self.std_noise_in
 
         # concatenate + pass through memory module
         RNN_in = torch.cat((vis_features, other_input), dim=1)
-
         RNN_out, hidden = self.rnn(RNN_in, hidden)
+        # LCL_in = RNN_in + RNN_out # skip connection
 
-        action = self.lcl(RNN_out)
-        action = torch.tanh(action) # scale to [-1:1]
+        # pass through final layer
+        LCL_out = self.lcl(RNN_out)
+        # action = LCL_in + LCL_out # skip connection
+        action = torch.tanh(LCL_out) # scale to [-1:1]
 
         # action = action.detach().numpy()[0] # --> NN_output.size > 1
         action = action.detach().numpy()[0][0] # --> NN_output.size = 1
@@ -116,10 +119,10 @@ if __name__ == '__main__':
     from abm.NN.vision import LayerNorm,GRN
 
     CNN_input_size = (4,8) # number elements, visual resolution
-    CNN_depths = [1]
-    CNN_dims = [4]
-    RNN_other_input_size = (4,3) # contact size, other size
-    RNN_hidden_size = 8
+    CNN_depths = [1,1]
+    CNN_dims = [2,4]
+    RNN_input_other_size = 1
+    RNN_hidden_size = 2
     LCL_output_size = 1
     RNN_type = 'fnn'
 
@@ -127,7 +130,7 @@ if __name__ == '__main__':
         CNN_input_size, 
         CNN_depths, 
         CNN_dims, 
-        RNN_other_input_size, 
+        RNN_input_other_size, 
         RNN_hidden_size, 
         LCL_output_size,
         )

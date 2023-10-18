@@ -140,7 +140,7 @@ if __name__ == '__main__':
     model = ConvNeXt(
         in_dims=4,
         depths=[1,1], 
-        dims=[2,8],
+        dims=[2,4],
         activ='relu'
         )
     

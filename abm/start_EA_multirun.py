@@ -4,15 +4,6 @@ from pathlib import Path
 import dotenv as de
 
 
-# def generate_env_file(env_data, file_name, save_dir):
-#     """Generating a single env file under save_folder with file_name including env_data as env format"""
-#     Path(save_dir).mkdir()
-#     file_path = Path(save_dir, file_name)
-#     with open(file_path, "a") as file:
-#         for k, v in env_data.items():
-#             file.write(f"{k}={v}\n")
-
-
 def set_env_var(key, val):
     env_path = Path(__file__).parent.parent / ".env"
     de.set_key(env_path, str(key), str(val))
@@ -21,7 +12,7 @@ def set_env_var(key, val):
 def EA_runner():
 
     set_env_var('EA_POPULATION_SIZE', '50')
-    set_env_var('EA_EPISODES', '10')
+    set_env_var('EA_EPISODES', '20')
     set_env_var('EA_EST_METHOD', 'mean')
 
     set_env_var('CNN_DEPTHS', '1,1')
@@ -31,7 +22,7 @@ def EA_runner():
 
     set_env_var('VISUAL_FIELD_RESOLUTION', '8')
     for x in range(20):
-        set_env_var('EA_SAVE_NAME', f'singlecorner_exp_CNN1124_FNN2_p50e10_vis8_rep{x}')
+        set_env_var('EA_SAVE_NAME', f'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_nodist_rep{x}')
         start_EA()
 
 

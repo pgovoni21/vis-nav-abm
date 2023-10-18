@@ -39,14 +39,14 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
             # override original EA-written env dict
             envconf['LOG_ZARR_FILE'] = 0
 
-            envconf['WITH_VISUALIZATION'] = 1
-            envconf['PLOT_TRAJECTORY'] = 0
+            # envconf['WITH_VISUALIZATION'] = 1
+            # envconf['PLOT_TRAJECTORY'] = 0
             # envconf['WITH_VISUALIZATION'] = 0
-            # envconf['PLOT_TRAJECTORY'] = 1
+            envconf['PLOT_TRAJECTORY'] = 1
 
-            # envconf['INIT_FRAMERATE'] = 10
-            envconf['T'] = 10000
-            envconf['RADIUS_RESOURCE'] = 100
+            envconf['INIT_FRAMERATE'] = 10
+            envconf['T'] = 5000
+            envconf['RADIUS_RESOURCE'] = 50
 
             # envconf['MAXIMUM_VELOCITY'] = 5
 
@@ -143,29 +143,31 @@ if __name__ == '__main__':
     data_dir = Path(__file__).parent / r'data/simulation_data/'
 
 
-    # exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep6'
-    # NN_ext = 'gen927'
-    # exp_name = 'doublecorner_exp_CNN18_FNN2_e10p25_rep17'
-    # NN_ext = 'gen942'
-    # exp_name = 'doublecorner_exp_CNN18_FNN2_e15p25_rep7'
-    # NN_ext = 'gen950'
-    # exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep0'
-    # NN_ext = 'gen999'
-    # exp_name = 'doublecorner_exp_CNN1128_FNN1_p25e5_rep14'
-    # NN_ext = 'gen882'
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep0'
+    # gen_ext = 'gen961' # 388
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep1'
+    # gen_ext = 'gen661' # 284
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep2'
+    # gen_ext = 'gen666' # 286
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep3'
+    # gen_ext = 'gen908' # 298
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep4'
+    # gen_ext = 'gen837' # 292
 
-    # exp_name = 'doublecorner_exp_CNN1124_FNN2_p25e10_mean_rep0'
-    # NN_ext = 'gen730'
-    # exp_name = 'doublecorner_exp_CNN1124_FNN2_p25e5_mean_rep0'
-    # NN_ext = 'gen31'
-    
-    exp_name = 'doublecorner_exp_CNN1124_FNN2_p25e5_mean_resTRspwn_rep0'
-    NN_ext = 'gen465'
-    # NN_ext = 'gen999'
+
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep0'
+    # gen_ext = 'gen956' # 291
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep1'
+    # gen_ext = 'gen857' # 279
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep2'
+    # gen_ext = 'gen804' # 284
+
+    exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_nodist_rep0'
+    gen_ext = 'gen295' 
 
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
-    NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}_NN0_pickle.bin'
+    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     env_path = fr'{data_dir}/{exp_name}/.env'
 
     with open(NN_pv_path,'rb') as f:

@@ -78,7 +78,7 @@ class Simulation:
         
         self.boundary_info = (0, width, 0, height)
         self.boundary_info_coll = (agent_radius*2, width - agent_radius*2, agent_radius*2, height - agent_radius*2)
-        self.boundary_info_spwn_ag = (width*.3, width*.7, height*.3, height*.7)
+        # self.boundary_info_spwn_ag = (width*.3, width*.7, height*.3, height*.7)
         self.boundary_info_spwn_res = (width*.4, width*.6, height*.4, height*.6)
 
         self.boundary_endpts = [
@@ -352,11 +352,11 @@ class Simulation:
 
                 x = np.random.randint(x_min, x_max)
                 y = np.random.randint(y_min, y_max)
-                # x,y = 981, 20
+                # x,y = 950,950
                 # x,y = x_min, y_min
                 
                 orient = np.random.uniform(0, 2 * np.pi)
-                # orient = .5
+                # orient = 0
 
                 agent = Agent(
                         id=0,
@@ -774,7 +774,8 @@ class Simulation:
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
         # extract total fitnesses + save into sim instance (pulled for EA)
-        dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.resources.sprites()[0].position)
-        self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
+        # dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.resources.sprites()[0].position)
+        # self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
+        self.fitnesses = np.array([self.T]) # --> max time + proximity as extra error signal
 
         return self.fitnesses, self.elapsed_time
