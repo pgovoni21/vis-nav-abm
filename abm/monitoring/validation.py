@@ -15,14 +15,14 @@ def rerun_topNNs(name, num_NNs=5, num_seeds=3):
     env_path = fr'{exp_path}/.env'
 
     with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
-        trend_data = pickle.load(f)
-    trend_data = np.array(trend_data)
+        data = pickle.load(f)
+    data_genxpop = np.mean(data, axis=2)
 
-    # top_trend_data = np.min(trend_data, axis=1) # min : top
-    top_trend_data = np.max(trend_data, axis=1) # max : top
-    # top_ind = np.argsort(top_trend_data)[:num_NNs] # min : top
-    top_ind = np.argsort(top_trend_data)[-1:-num_NNs-1:-1] # max : top
-    top_fit = [top_trend_data[i] for i in top_ind]
+    top_data = np.min(data_genxpop, axis=1) # min : top
+    # top_data = np.max(data_genxpop, axis=1) # max : top
+    top_ind = np.argsort(top_data)[:num_NNs] # min : top
+    # top_ind = np.argsort(top_data)[-1:-num_NNs-1:-1] # max : top
+    top_fit = [top_data[i] for i in top_ind]
 
     val_matrix = np.zeros((num_NNs,
                             num_seeds))
@@ -32,7 +32,7 @@ def rerun_topNNs(name, num_NNs=5, num_seeds=3):
     mp_inputs = []
     for g,f in zip(top_ind, top_fit):
 
-        NN_pv_path = fr'{data_dir}/{name}/gen{g}/NN0_af{int(f)}/NN_pickle.bin'
+        NN_pv_path = fr'{data_dir}/{name}/gen{g}_NN0_pickle.bin'
         with open(NN_pv_path,'rb') as f:
             pv = pickle.load(f)
 
@@ -61,39 +61,27 @@ def rerun_topNNs(name, num_NNs=5, num_seeds=3):
     # take avg + print results
     avg_per_NN = np.average(val_matrix, axis=1).round(1)
     for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
-        print(f'gen: {i} | EA_fit: {ef} | val_fit: {vf}')
+        print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)}')
 
     # writing txt file
     with open(fr'{exp_path}/val_results.txt', 'w') as f:
         f.write(f'Validation matrix shape (num_NNs, num_seeds): {val_matrix.shape}\n')
         for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
-            f.write(str(f'gen: {i} | EA_fit: {ef} | val_fit: {vf}\n'))
+            f.write(str(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)}\n'))
 
 
 if __name__ == '__main__':
 
     names = []
 
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}') 
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_rep{x}')
+    # names = [f'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep{x}' for x in range(5)]
+    # for name in names:
+    #     rerun_topNNs(name, num_NNs=20, num_seeds=100)
+    
+    # names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep{x}' for x in range(3)]
+    # for name in names:
+    #     rerun_topNNs(name, num_NNs=20, num_seeds=100)
 
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-    # for x in range(6):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_simp_rep{x}')
-
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_FNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_CTRNN2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-    # for x in range(4):
-    #     names.append(f'doublepoint_CNN1128_GRU2_p25e5g1000_sig0p1_vis8_dirfit_other0_rep{x}')
-
+    names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep3']
     for name in names:
-        rerun_topNNs(name, num_NNs=25, num_seeds=100)
+        rerun_topNNs(name, num_NNs=20, num_seeds=100)
