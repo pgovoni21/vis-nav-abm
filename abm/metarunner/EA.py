@@ -13,10 +13,10 @@ import pickle
 
 class EvolAlgo():
     
-    def __init__(self, arch=(50,128,2), activ='relu', RNN_type='fnn',
-                 population_size=96, init_sigma=1, generations=500, episodes=5,
-                 num_top_nn_saved=3, num_top_nn_plots=5, EA_save_name=None, start_seed=1000,
-                 est_method='mean'):
+    def __init__(self, arch, activ, RNN_type,
+                 generations, population_size, episodes, init_sigma,
+                 num_top_nn_saved, num_top_nn_plots, EA_save_name, start_seed,
+                 est_method):
         
         # init_time = time.time()
         self.overall_time = time.time()

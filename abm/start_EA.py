@@ -22,7 +22,8 @@ def start_EA(): # "EA-start" in terminal
     CNN_dims             = list(map(int,envconf["CNN_DIMS"].split(',')))
     RNN_other_input_size = int(envconf["RNN_OTHER_INPUT_SIZE"])
     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
-    LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
+    LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"])
+    sensory_noise_std    = float(envconf["SENSORY_NOISE_STD"])
 
     architecture = (
         CNN_input_size, 
@@ -30,7 +31,8 @@ def start_EA(): # "EA-start" in terminal
         CNN_dims, 
         RNN_other_input_size, 
         RNN_hidden_size, 
-        LCL_output_size
+        LCL_output_size,
+        sensory_noise_std,
         )
 
     EA = EvolAlgo(arch                      =architecture, 

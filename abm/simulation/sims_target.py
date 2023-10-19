@@ -17,15 +17,11 @@ from abm.monitoring import tracking, plot_funcs
 
 class Simulation:
     # @timer
-    def __init__(self, width=600, height=480, window_pad=30,
-                 N=1, T=1000, with_visualization=True, framerate=25, print_enabled=False, 
-                 plot_trajectory=False, log_zarr_file=False, save_ext="",
-                 agent_radius=10, max_vel=5, vis_field_res=8, vision_range=150, agent_fov=1.0, 
-                 visual_exclusion=False, show_vision_range=False, agent_consumption=1, 
-                 N_resrc=10, patch_radius=30, min_resrc_perpatch=200, max_resrc_perpatch=1000, 
-                 min_resrc_quality=0.1, max_resrc_quality=1, regenerate_patches=True, 
-                 NN=None, RNN_other_input_size=1, CNN_depths=[1,], CNN_dims=[4,], RNN_hidden_size=128, LCL_output_size=1, 
-                 NN_activ='relu', RNN_type='fnn',
+    def __init__(self, width, height, window_pad,
+                 N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
+                 agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
+                 N_res, patch_radius, min_res_perpatch, max_res_perpatch, min_res_quality, max_res_quality, regenerate_patches, 
+                 NN, 
                  ):
         """
         Initializing the main simulation instance
@@ -47,25 +43,19 @@ class Simulation:
         :param vision_range: range (in px) of agents' vision
         :param agent_fov (float): the field of view of the agent as percentage. e.g. if 0.5, the the field of view is
                                 between -pi/2 and pi/2
-        :param visual_exclusion: when true agents can visually exclude socially relevant visual cues from other agents'
-                                projection field
         :param show_vision_range: bool to switch visualization of visual range for agents. If true the limit of far
                                 and near field visual field will be drawn around the agents
         :param agent_consumption: agent consumption (exploitation speed) in res. units / time units
-        :param N_resrc: number of resource patches in the environment
-        :param patch_radius: radius of resrcaurce patches
-        :param min_resrc_perpatch: minimum resource unit per patch
-        :param max_resrc_perpatch: maximum resource units per patch
-        :param min_resrc_quality: minimum resource quality in unit/timesteps that is allowed for each agent on a patch
+        :param N_res: number of resource patches in the environment
+        :param patch_radius: radius of resource patches
+        :param min_res_perpatch: minimum resource unit per patch
+        :param max_res_perpatch: maximum resource units per patch
+        :param min_res_quality: minimum resource quality in unit/timesteps that is allowed for each agent on a patch
             to exploit from the patch
-        : param max_resrc_quality: maximum resource quality in unit/timesteps that is allowed for each agent on a patch
+        : param max_res_quality: maximum resource quality in unit/timesteps that is allowed for each agent on a patch
             to exploit from the patch
         :param regenerate_patches: bool to decide if patches shall be regenerated after depletion
         :param NN:
-        :param NN_input_other_size:
-        :param NN_hidden_size:
-        :param NN_output_size:
-        :param NN_activ:
         """
         # Arena parameters
         self.WIDTH = width
@@ -129,23 +119,22 @@ class Simulation:
         self.vis_field_res = vis_field_res
         self.vision_range = vision_range
         self.agent_fov = agent_fov
-        self.visual_exclusion = visual_exclusion
         self.show_vision_range = show_vision_range
         self.agent_consumption = agent_consumption
 
         # Resource parameters
-        self.N_resrc = N_resrc
-        self.resrc_radius = patch_radius
-        self.min_resrc_units = min_resrc_perpatch
-        self.max_resrc_units = max_resrc_perpatch
-        self.min_resrc_quality = min_resrc_quality
-        self.max_resrc_quality = max_resrc_quality
+        self.N_res = N_res
+        self.res_radius = patch_radius
+        self.min_res_units = min_res_perpatch
+        self.max_res_units = max_res_perpatch
+        self.min_res_quality = min_res_quality
+        self.max_res_quality = max_res_quality
         # possibility to provide single values instead of value ranges
         # if maximum values are negative for both quality and contained units
-        if self.max_resrc_quality < 0:
-            self.max_resrc_quality = self.min_resrc_quality
-        if self.max_resrc_units < 0:
-            self.max_resrc_units = self.min_resrc_units + 1
+        if self.max_res_quality < 0:
+            self.max_res_quality = self.min_res_quality
+        if self.max_res_units < 0:
+            self.max_res_units = self.min_res_units + 1
         self.regenerate_resources = regenerate_patches
 
         # Neural Network parameters
@@ -153,24 +142,6 @@ class Simulation:
 
         if N == 1:  self.num_class_elements = 4 # single-agent --> perception of 4 walls
         else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
-        
-        CNN_input_size = (self.num_class_elements, vis_field_res)
-        self.architecture = (
-            CNN_input_size, 
-            CNN_depths, 
-            CNN_dims, 
-            RNN_other_input_size, 
-            RNN_hidden_size, 
-            LCL_output_size
-            )
-        self.NN_activ = NN_activ
-        self.RNN_type = RNN_type
-
-        # if print_enabled: 
-        #     print(f"NN inputs = {self.vis_size} (vis_size) + {self.contact_size} (contact_size)",end="")
-        #     print(f" + {self.other_size} (velocity + orientation) = {self.NN_input_size}")
-        #     print(f"Agent NN architecture = {(self.NN_input_size, NN_hidden_size, self.NN_output_size)}")
-        #     print(f"NN_activ: {NN_activ}")
 
         # Initializing pygame
         if self.with_visualization:
@@ -365,13 +336,12 @@ class Simulation:
                         max_vel=self.max_vel,
                         FOV=self.agent_fov,
                         vision_range=self.vision_range,
-                        visual_exclusion=self.visual_exclusion,
+                        num_class_elements=self.num_class_elements,
+                        vis_field_res=self.vis_field_res,
                         consumption=self.agent_consumption,
-                        arch=self.architecture,
                         model=self.model,
-                        NN_activ = self.NN_activ,
-                        RNN_type = self.RNN_type,
                         boundary_endpts=self.boundary_endpts,
+                        window_pad=self.window_pad,
                         radius=self.agent_radii,
                         color=colors.BLUE,
                     )
@@ -398,19 +368,18 @@ class Simulation:
                     orient = np.random.uniform(0, 2 * np.pi)
 
                     agent = Agent(
-                            id=i,
+                            id=0,
                             position=(x, y),
                             orientation=orient,
                             max_vel=self.max_vel,
                             FOV=self.agent_fov,
                             vision_range=self.vision_range,
-                            visual_exclusion=self.visual_exclusion,
+                            num_class_elements=self.num_class_elements,
+                            vis_field_res=self.vis_field_res,
                             consumption=self.agent_consumption,
-                            arch=self.architecture,
                             model=self.model,
-                            NN_activ = self.NN_activ,
-                            RNN_type = self.RNN_type,
                             boundary_endpts=self.boundary_endpts,
+                            window_pad=self.window_pad,
                             radius=self.agent_radii,
                             color=colors.BLUE,
                         )
@@ -451,21 +420,21 @@ class Simulation:
         # x,y = 0,0
 
         # ##--> 'stationarypoint' : top-left off-center off-wall
-        # self.resrc_radius = 10
+        # self.res_radius = 10
         # x = self.x_min + 120
         # y = self.y_min + 30
 
-        units = np.random.randint(self.min_resrc_units, self.max_resrc_units)
-        quality = np.random.uniform(self.min_resrc_quality, self.max_resrc_quality)
+        units = np.random.randint(self.min_res_units, self.max_res_units)
+        quality = np.random.uniform(self.min_res_quality, self.max_res_quality)
 
-        resource = Resource(id, self.resrc_radius, (x, y), units, quality)
+        resource = Resource(id, self.res_radius, (x, y), units, quality)
         self.resources.add(resource)
 
         if not self.log_zarr_file: # save in sim instance
             x,y = resource.position
             pos_x = x
             pos_y = self.y_max - y
-            self.data_res.append([pos_x, pos_y, self.resrc_radius])
+            self.data_res.append([pos_x, pos_y, self.res_radius])
 
     # def consume(self, agent):
     #     """Carry out agent-resource interactions (depletion, destroying, notifying)"""
@@ -473,7 +442,7 @@ class Simulation:
     #     resource = agent.res_to_be_consumed
 
     #     # Increment remaining resource quantity
-    #     depl_units, destroy_resrc = resource.deplete(agent.consumption)
+    #     depl_units, destroy_res = resource.deplete(agent.consumption)
 
     #     # Update agent info
     #     if depl_units > 0:
@@ -483,7 +452,7 @@ class Simulation:
     #         agent.mode = 'explore'
 
     #     # Kill + regenerate patch when fully depleted
-    #     if destroy_resrc:
+    #     if destroy_res:
     #         resource.kill()
     #         if self.regenerate_resources:
     #             # self.add_new_resource_patch_random()
@@ -503,8 +472,8 @@ class Simulation:
                 # Flip bool variable if agent is within patch boundary
                 if supcalc.distance(agent.position, resource.position) <= resource.radius:
                     agent.mode = 'exploit'
-                    agent.on_resrc = 1
-                    agent.on_resrc_last_step = 1
+                    agent.on_res = 1
+                    agent.on_res_last_step = 1
                     agent.res_to_be_consumed = resource
                     break
 
@@ -636,17 +605,17 @@ class Simulation:
                     
                     agent.collided_points = []
                     agent.mode = 'explore'
-                    if agent.on_resrc_last_step > 0: # 1 timestep memory
-                        agent.on_resrc_last_step = 0
-                    elif agent.on_resrc > 0:
-                        agent.on_resrc = 0
+                    if agent.on_res_last_step > 0: # 1 timestep memory
+                        agent.on_res_last_step = 0
+                    elif agent.on_res > 0:
+                        agent.on_res = 0
 
-                # Evaluate sprite collisions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
+                # Evaluate sprite interactions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
                 self.collide_agent_agent()
                 self.collide_agent_res()
 
-                # Update visual projections (vis_field)
+                # Update visual projections
                 for agent in self.agents:
                     agent.visual_sensing(self.agents)
 
@@ -660,7 +629,7 @@ class Simulation:
                     for res in self.resources:
                         res.draw_update() 
                     self.draw_frame()
-                else: # still have to update rect for wall collisions
+                else: # still have to update rect for collisions
                     for agent in self.agents:
                         agent.rect = agent.image.get_rect(center = agent.position + self.window_pad)
 
@@ -680,9 +649,9 @@ class Simulation:
                 for agent in self.agents:
 
                     # Observe + encode sensory inputs
-                    vis_input = agent.encode_one_hot(agent.vis_field)
-                    if agent.mode == 'collide': other_input = np.array([agent.on_resrc, 1])
-                    else:                       other_input = np.array([agent.on_resrc, 0])
+                    vis_input = agent.encode_one_hot()
+                    if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
+                    else:                       other_input = np.array([agent.on_res, 0])
 
                     # Calculate action 
                     agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
@@ -731,7 +700,7 @@ class Simulation:
 
             ### ---- BACKGROUND PROCESSES ---- ###
         
-                # Step simulation time forward
+                # Step sim time forward
                 self.t += 1
 
                 # Step clock time to calculate fps

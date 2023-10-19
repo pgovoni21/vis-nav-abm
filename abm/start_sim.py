@@ -19,7 +19,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
 
     if pv is None: # if called from abm-start
         envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
-        NN = None
+        NN = Model()
 
         envconf['WITH_VISUALIZATION'] = 1
 
@@ -37,16 +37,14 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
             NN, arch = reconstruct_NN(envconf, pv)
 
             # override original EA-written env dict
-            envconf['LOG_ZARR_FILE'] = 0
+            # envconf['LOG_ZARR_FILE'] = 0
 
             # envconf['WITH_VISUALIZATION'] = 1
-            # envconf['PLOT_TRAJECTORY'] = 0
-            # envconf['WITH_VISUALIZATION'] = 0
-            envconf['PLOT_TRAJECTORY'] = 1
+            # envconf['PLOT_TRAJECTORY'] = 1
 
-            envconf['INIT_FRAMERATE'] = 10
-            envconf['T'] = 5000
-            envconf['RADIUS_RESOURCE'] = 50
+            # envconf['INIT_FRAMERATE'] = 10
+            # envconf['T'] = 5000
+            # envconf['RADIUS_RESOURCE'] = 50
 
             # envconf['MAXIMUM_VELOCITY'] = 5
 
@@ -74,24 +72,16 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
                          vision_range           =int(envconf["VISION_RANGE"]),
                          agent_fov              =float(envconf['AGENT_FOV']),
-                         visual_exclusion       =bool(int(envconf["VISUAL_EXCLUSION"])),
                          show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
                          agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
-                         N_resrc                =int(envconf["N_RESOURCES"]),
+                         N_res                  =int(envconf["N_RESOURCES"]),
                          patch_radius           =float(envconf["RADIUS_RESOURCE"]),
-                         min_resrc_perpatch     =int(envconf["MIN_RESOURCE_PER_PATCH"]),
-                         max_resrc_perpatch     =int(envconf["MAX_RESOURCE_PER_PATCH"]),
-                         min_resrc_quality      =float(envconf["MIN_RESOURCE_QUALITY"]),
-                         max_resrc_quality      =float(envconf["MAX_RESOURCE_QUALITY"]),
+                         min_res_perpatch       =int(envconf["MIN_RESOURCE_PER_PATCH"]),
+                         max_res_perpatch       =int(envconf["MAX_RESOURCE_PER_PATCH"]),
+                         min_res_quality        =float(envconf["MIN_RESOURCE_QUALITY"]),
+                         max_res_quality        =float(envconf["MAX_RESOURCE_QUALITY"]),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                          NN                     =NN,
-                         CNN_depths             =list(map(int,envconf["CNN_DEPTHS"].split(','))),
-                         CNN_dims               =list(map(int,envconf["CNN_DIMS"].split(','))),
-                         RNN_other_input_size   =int(envconf["RNN_OTHER_INPUT_SIZE"]),
-                         RNN_hidden_size        =int(envconf["RNN_HIDDEN_SIZE"]),
-                         LCL_output_size        =int(envconf["LCL_OUTPUT_SIZE"]),
-                         NN_activ               =str(envconf["NN_ACTIVATION_FUNCTION"]),
-                         RNN_type               =str(envconf["RNN_TYPE"]),
                          )
         fitnesses, elapsed_time = sim.start()
 
@@ -116,7 +106,8 @@ def reconstruct_NN(envconf,pv):
     CNN_dims             = list(map(int,envconf["CNN_DIMS"].split(',')))
     RNN_other_input_size = int(envconf["RNN_OTHER_INPUT_SIZE"])
     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
-    LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"]) # dvel + dtheta
+    LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"])
+    sensory_noise_std    = float(envconf["SENSORY_NOISE_STD"])
 
     arch = (
         CNN_input_size, 
@@ -124,7 +115,8 @@ def reconstruct_NN(envconf,pv):
         CNN_dims, 
         RNN_other_input_size, 
         RNN_hidden_size, 
-        LCL_output_size
+        LCL_output_size,
+        sensory_noise_std
         )
 
     activ                     =str(envconf["NN_ACTIVATION_FUNCTION"])
@@ -162,8 +154,17 @@ if __name__ == '__main__':
     # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep2'
     # gen_ext = 'gen804' # 284
 
-    exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_nodist_rep0'
-    gen_ext = 'gen295' 
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_nodist_rep0'
+    # gen_ext = 'gen295' 
+
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep0'
+    # gen_ext = 'gen975' # 148
+    exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep1'
+    gen_ext = 'gen809' # 231
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep2'
+    # gen_ext = 'gen352' # 185
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep3'
+    # gen_ext = 'gen966' # 167
 
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'

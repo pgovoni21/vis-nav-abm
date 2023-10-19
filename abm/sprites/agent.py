@@ -17,8 +17,8 @@ class Agent(pygame.sprite.Sprite):
     """
     # @timer
     def __init__(self, id, position, orientation, max_vel, 
-                 FOV, vision_range, visual_exclusion, consumption, 
-                 arch, model, RNN_type, NN_activ, boundary_endpts, radius, color):
+                 FOV, vision_range, num_class_elements, vis_field_res, consumption,
+                 model, boundary_endpts, window_pad, radius, color):
         """
         Initalization method of main agent class of the simulations
 
@@ -29,7 +29,6 @@ class Agent(pygame.sprite.Sprite):
         :param vis_field_res: resolution of the visual projection field of the agent in pixels
         :param FOV: visual field as a tuple of min max visible angles e.g. (-np.pi, np.pi)
         :param vision_range: in px the range/radius in which the agent is able to see other agents
-        :param visual_exclusion: if True social cues can be visually excluded by non social cues
         :param consumption: (resource unit/time unit) consumption efficiency of agent
         :param NN: 
         :param boundary_endpts: 
@@ -55,51 +54,28 @@ class Agent(pygame.sprite.Sprite):
         self.max_vel = max_vel
         self.collided_points = []
 
-        # Neural network initialization / parameters
-        (   CNN_input_size, 
-            CNN_depths, 
-            CNN_dims,               # last is num vis features fed to RNN
-            RNN_other_input_size, 
-            RNN_hidden_size, 
-            LCL_output_size,        # dvel + dthetay
-        ) = arch
-
-        self.num_class_elements, vis_field_res = CNN_input_size
-
-        # use given NNs to control agent or initialize new NNs
-        if model: 
-            self.model = model
-        else: 
-            from abm.NN.model import WorldModel
-            # from abm.NN.model_simp import WorldModel
-            self.model = WorldModel(arch=arch, activ=NN_activ, RNN_type=RNN_type)
-
-            # print(f'Model Architecture: {arch}')
-            param_vec_size = sum(p.numel() for p in self.model.parameters())
-            print(f'Total #Params: {param_vec_size}')
-        
         # Visual field parameters
         self.vis_field_res = vis_field_res
         self.FOV = FOV
-        # constructs array of each visually perceivable angle (- : left / + : right)
-        self.phis = np.linspace(-FOV*np.pi, FOV*np.pi, vis_field_res)
+        self.phis = np.linspace(-FOV*np.pi, FOV*np.pi, vis_field_res) # array of raycasts (- : left / + : right)
         self.vision_range = vision_range
-        self.visual_exclusion = visual_exclusion
         self.vis_field = [0] * vis_field_res
+        self.field_onehot = np.zeros((num_class_elements, vis_field_res))
 
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
-        self.on_resrc = 0 # binary : whether agent is currently on top of a resource patch or not
-        self.on_resrc_last_step = 0 # allows on_resrc to stay on 1 timestep (for agent to use this info next timestep)
+        self.on_res = 0 # binary : whether agent is currently on top of a resource patch or not
+        self.on_res_last_step = 0 # allows on_res to stay on 1 timestep (for agent to use this info next timestep)
         self.consumption = consumption
 
-        # init placeholders for hidden activity + action for each sim timestep
+        # Neural network init
+        self.model = model
         self.hidden = None
         self.action = 0
 
         # Environment related parameters
         TL,TR,BL,BR = boundary_endpts
-        self.window_pad = 30
+        self.window_pad = window_pad
         # define names for each endpoint (top/bottom + left/right)
         self.boundary_endpts = [
             ('TL', TL),
@@ -354,23 +330,21 @@ class Agent(pygame.sprite.Sprite):
 
 ### -------------------------- NEURAL NETWORK FUNCTIONS -------------------------- ###
 
-    def encode_one_hot(self, field):
+    def encode_one_hot(self):
         """
         one hot encode the visual field according to class indices:
             single-agent: (wall_east, wall_north, wall_west, wall_south)
             multi-agent: (wall_east, wall_north, wall_west, wall_south, agent_expl, agent_nonexpl)
         """
-        field_onehot = np.zeros((self.num_class_elements, len(field)))
-
-        for i,x in enumerate(field):
-            if x == 'wall_north': field_onehot[0,i] = 1
-            elif x == 'wall_south': field_onehot[1,i] = 1
-            elif x == 'wall_east': field_onehot[2,i] = 1
-            elif x == 'wall_west': field_onehot[3,i] = 1
-            elif x == 'agent_exploit': field_onehot[4,i] = 1
+        for i,x in enumerate(self.vis_field):
+            if x == 'wall_north': self.field_onehot[0,i] = 1
+            elif x == 'wall_south': self.field_onehot[1,i] = 1
+            elif x == 'wall_east': self.field_onehot[2,i] = 1
+            elif x == 'wall_west': self.field_onehot[3,i] = 1
+            elif x == 'agent_exploit': self.field_onehot[4,i] = 1
             else: # x == 'agent_explore
-                field_onehot[5,i] = 1
-        return field_onehot
+                self.field_onehot[5,i] = 1
+        return self.field_onehot
 
 
 ### -------------------------- VISUALIZATION / HUMAN INTERACTION FUNCTIONS -------------------------- ###
