@@ -504,6 +504,7 @@ class Simulation:
                 if supcalc.distance(agent.position, resource.position) <= resource.radius:
                     agent.mode = 'exploit'
                     agent.on_resrc = 1
+                    agent.on_resrc_last_step = 1
                     agent.res_to_be_consumed = resource
                     break
 
@@ -635,9 +636,10 @@ class Simulation:
                     
                     agent.collided_points = []
                     agent.mode = 'explore'
-                    if agent.on_resrc > 0:
-                        agent.on_resrc -= 0.2 # fades over 5 timesteps
-                        agent.on_resrc = round(agent.on_resrc,1)
+                    if agent.on_resrc_last_step > 0: # 1 timestep memory
+                        agent.on_resrc_last_step = 0
+                    elif agent.on_resrc > 0:
+                        agent.on_resrc = 0
 
                 # Evaluate sprite collisions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
@@ -677,14 +679,16 @@ class Simulation:
                 # mod_start = time.time()
                 for agent in self.agents:
 
-                    # Pass observables through NN to calculate action & advance agent's hidden state
+                    # Observe + encode sensory inputs
                     vis_input = agent.encode_one_hot(agent.vis_field)
-                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_resrc]), agent.hidden)
+                    if agent.mode == 'collide': other_input = np.array([agent.on_resrc, 1])
+                    else:                       other_input = np.array([agent.on_resrc, 0])
+
+                    # Calculate action 
+                    agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':
-                    # if agent.on_resrc == 1 and agent.velocity == 0: 
-                        # self.consume(agent) 
 
                         ### ---- END OF SIMULATION (found food - premature termination) ---- ###
 
@@ -718,8 +722,7 @@ class Simulation:
 
                         return self.fitnesses, self.elapsed_time
 
-                    # No food --> move via decided action(s) + set mode to collide if collided
-                    else: 
+                    else: # No food --> move (stay stationary if collided object in front)
                         agent.move(agent.action)
                         # agent.move(0.1)
                         # agent.move(np.random.uniform(-0.1,0.1))
@@ -774,8 +777,8 @@ class Simulation:
             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
         # extract total fitnesses + save into sim instance (pulled for EA)
-        # dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.resources.sprites()[0].position)
-        # self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
-        self.fitnesses = np.array([self.T]) # --> max time + proximity as extra error signal
+        dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.resources.sprites()[0].position)
+        self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
+        # self.fitnesses = np.array([self.T]) # --> max time + proximity as extra error signal
 
         return self.fitnesses, self.elapsed_time

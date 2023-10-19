@@ -90,6 +90,7 @@ class Agent(pygame.sprite.Sprite):
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
         self.on_resrc = 0 # binary : whether agent is currently on top of a resource patch or not
+        self.on_resrc_last_step = 0 # allows on_resrc to stay on 1 timestep (for agent to use this info next timestep)
         self.consumption = consumption
 
         # init placeholders for hidden activity + action for each sim timestep

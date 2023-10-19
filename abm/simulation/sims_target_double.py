@@ -357,10 +357,10 @@ class Simulation:
                 y = np.random.randint(y_min, y_max)
                 # x,y = 400, 600
                 # x,y = 900,900
-                # x,y = self.WIDTH*.1,self.HEIGHT*.1
+                # x,y = self.WIDTH*.05,self.HEIGHT*.05
                 
                 orient = np.random.uniform(0, 2 * np.pi)
-                # orient = 1
+                # orient = 5
 
                 agent = Agent(
                         id=0,
@@ -527,6 +527,7 @@ class Simulation:
                 if supcalc.distance(agent.position, resource.position) <= resource.radius:
                     agent.mode = 'exploit'
                     agent.on_resrc = 1
+                    agent.on_resrc_last_step = 1
                     agent.res_to_be_consumed = resource
                     break
 
@@ -658,11 +659,12 @@ class Simulation:
                     
                     agent.collided_points = []
                     agent.mode = 'explore'
-                    if agent.on_resrc > 0:
-                        agent.on_resrc -= 0.2 # fades over 5 timesteps
-                        agent.on_resrc = round(agent.on_resrc,1)
+                    if agent.on_resrc_last_step > 0: # 1 timestep memory
+                        agent.on_resrc_last_step = 0
+                    elif agent.on_resrc > 0:
+                        agent.on_resrc = 0
 
-                # Evaluate sprite collisions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
+                # Evaluate sprite interactions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
                 self.collide_agent_agent()
                 self.collide_agent_res()
@@ -681,7 +683,7 @@ class Simulation:
                     for res in self.resources:
                         res.draw_update() 
                     self.draw_frame()
-                else: # still have to update rect for wall collisions
+                else: # still have to update rect for collisions
                     for agent in self.agents:
                         agent.rect = agent.image.get_rect(center = agent.position + self.window_pad)
 
@@ -700,15 +702,19 @@ class Simulation:
                 # mod_start = time.time()
                 for agent in self.agents:
 
-                    # Pass observables through NN to calculate action & advance agent's hidden state
+                    # Observe + encode sensory inputs
                     vis_input = agent.encode_one_hot(agent.vis_field)
-                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_resrc]), agent.hidden)
+                    if agent.mode == 'collide': other_input = np.array([agent.on_resrc, 1])
+                    else:                       other_input = np.array([agent.on_resrc, 0])
+
+                    # Calculate action 
+                    agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':
                         self.consume(agent) 
-                    # No food --> move via decided action (stationary if collided object in front)
-                    else: 
+
+                    else: # No food --> move (stay stationary if collided object in front)
                         agent.move(agent.action)
                         # agent.move(0.1)
                         # agent.move(np.random.uniform(-0.1,0.1))
@@ -717,7 +723,7 @@ class Simulation:
 
             ### ---- BACKGROUND PROCESSES ---- ###
         
-                # Step simulation time forward
+                # Step sim time forward
                 self.t += 1
 
                 # Step clock time to calculate fps
