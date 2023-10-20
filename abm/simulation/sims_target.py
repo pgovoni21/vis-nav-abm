@@ -649,7 +649,7 @@ class Simulation:
                 for agent in self.agents:
 
                     # Observe + encode sensory inputs
-                    vis_input = agent.encode_one_hot()
+                    vis_input = agent.encode_one_hot(agent.vis_field)
                     # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
                     # else:                       other_input = np.array([agent.on_res, 0])
 
