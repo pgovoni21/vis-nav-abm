@@ -60,7 +60,7 @@ class Agent(pygame.sprite.Sprite):
         self.phis = np.linspace(-FOV*np.pi, FOV*np.pi, vis_field_res) # array of raycasts (- : left / + : right)
         self.vision_range = vision_range
         self.vis_field = [0] * vis_field_res
-        self.field_onehot = np.zeros((num_class_elements, vis_field_res))
+        self.num_class_elements = num_class_elements
 
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
@@ -330,21 +330,23 @@ class Agent(pygame.sprite.Sprite):
 
 ### -------------------------- NEURAL NETWORK FUNCTIONS -------------------------- ###
 
-    def encode_one_hot(self):
+    def encode_one_hot(self, field):
         """
         one hot encode the visual field according to class indices:
             single-agent: (wall_east, wall_north, wall_west, wall_south)
             multi-agent: (wall_east, wall_north, wall_west, wall_south, agent_expl, agent_nonexpl)
         """
-        for i,x in enumerate(self.vis_field):
-            if x == 'wall_north': self.field_onehot[0,i] = 1
-            elif x == 'wall_south': self.field_onehot[1,i] = 1
-            elif x == 'wall_east': self.field_onehot[2,i] = 1
-            elif x == 'wall_west': self.field_onehot[3,i] = 1
-            elif x == 'agent_exploit': self.field_onehot[4,i] = 1
+        field_onehot = np.zeros((self.num_class_elements, len(field)))
+
+        for i,x in enumerate(field):
+            if x == 'wall_north': field_onehot[0,i] = 1
+            elif x == 'wall_south': field_onehot[1,i] = 1
+            elif x == 'wall_east': field_onehot[2,i] = 1
+            elif x == 'wall_west': field_onehot[3,i] = 1
+            elif x == 'agent_exploit': field_onehot[4,i] = 1
             else: # x == 'agent_explore
-                self.field_onehot[5,i] = 1
-        return self.field_onehot
+                field_onehot[5,i] = 1
+        return field_onehot
 
 
 ### -------------------------- VISUALIZATION / HUMAN INTERACTION FUNCTIONS -------------------------- ###

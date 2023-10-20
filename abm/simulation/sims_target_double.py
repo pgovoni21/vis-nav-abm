@@ -426,24 +426,6 @@ class Simulation:
         else:
             x,y = x_max,y_max
 
-        # # top-left / bottom-right points, off-center / off-wall / asym (centers @ 140,450 - 450,140)
-        # self.res_radius = 20
-        # if self.res_id_counter % 2 == 0:
-        #     x = self.x_min + 120
-        #     y = self.y_min + 30
-        # else:
-        #     x = self.x_max - self.res_radius/2 - self.window_pad - 30
-        #     y = self.y_max - self.res_radius/2 - self.window_pad - 120
-
-        # # top-left / bottom-right points, off-center / off-wall / sym (centers @ 140,450 - 360,50)
-        # self.res_radius = 20
-        # if self.res_id_counter % 2 == 0:
-        #     x = self.x_min + 120
-        #     y = self.y_min + 30
-        # else:
-        #     x = self.x_max - self.res_radius/2 - self.window_pad - 120
-        #     y = self.y_max - self.res_radius/2 - self.window_pad - 30
-
         units = np.random.randint(self.min_res_units, self.max_res_units)
         quality = np.random.uniform(self.min_res_quality, self.max_res_quality)
 
@@ -672,7 +654,7 @@ class Simulation:
                 for agent in self.agents:
 
                     # Observe + encode sensory inputs
-                    vis_input = agent.encode_one_hot()
+                    vis_input = agent.encode_one_hot(agent.vis_field)
                     # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
                     # else:                       other_input = np.array([agent.on_res, 0])
 
