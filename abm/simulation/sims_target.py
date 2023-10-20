@@ -605,10 +605,10 @@ class Simulation:
                     
                     agent.collided_points = []
                     agent.mode = 'explore'
-                    if agent.on_res_last_step > 0: # 1 timestep memory
-                        agent.on_res_last_step = 0
-                    elif agent.on_res > 0:
-                        agent.on_res = 0
+                    # if agent.on_res_last_step > 0: # 1 timestep memory
+                    #     agent.on_res_last_step = 0
+                    # elif agent.on_res > 0:
+                    #     agent.on_res = 0
 
                 # Evaluate sprite interactions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
@@ -650,11 +650,12 @@ class Simulation:
 
                     # Observe + encode sensory inputs
                     vis_input = agent.encode_one_hot()
-                    if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
-                    else:                       other_input = np.array([agent.on_res, 0])
+                    # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
+                    # else:                       other_input = np.array([agent.on_res, 0])
 
                     # Calculate action 
-                    agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
+                    # agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
+                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res]), agent.hidden)
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':

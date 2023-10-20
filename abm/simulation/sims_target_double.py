@@ -673,11 +673,12 @@ class Simulation:
 
                     # Observe + encode sensory inputs
                     vis_input = agent.encode_one_hot()
-                    if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
-                    else:                       other_input = np.array([agent.on_res, 0])
+                    # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
+                    # else:                       other_input = np.array([agent.on_res, 0])
 
                     # Calculate action 
-                    agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
+                    # agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
+                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res]), agent.hidden)
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':
