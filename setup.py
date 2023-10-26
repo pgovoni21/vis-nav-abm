@@ -3,29 +3,21 @@ from distutils.core import setup
 from setuptools import find_packages
 
 setup(
-    name='P34 ABM',
-    description='Agent based model framework to simulate collectively foraging agents relying on their private and social'
-                'visual cues. Written in pygame and python 3.7+',
-    version='1.2.0',
-    url='https://github.com/scioip34/ABM',
-    maintainer='David Mezey and Dominik Deffner @ SCIoI',
+    name='abm',
+    description='Agent based model to simulate forage agents relying on spatial + social visual cues',
+    url='https://github.com/pgovoni21/DavidMezey-PyGame-ABM',
+    maintainer='Patrick Govoni @ HU ITB, Collective Information Processing',
     packages=find_packages(exclude=['tests']),
-    package_data={'p34abm': ['*.txt']},
+    package_data={'abm': ['*.txt']},
     python_requires=">=3.7",
     install_requires=[
         'pygame',
-        # 'pygame-widgets',
-        'numpy',
-        # 'scipy',
-        'matplotlib',
         'python-dotenv',
-        # 'pandas',
-        # 'influxdb<5.3.0',
-        # 'opencv-python',
-        # 'xvfbwrapper',
+        'numpy',
         'zarr',
         'torch',
-        'cma'
+        'matplotlib',
+        'cma',
     ],
     # extras_require={
     #     'test': [
@@ -39,16 +31,16 @@ setup(
         'console_scripts': [
             'abm=abm.start_sim:start',
             'EA=abm.start_EA:start_EA',
-            'multi=abm.start_EA:start_EA_multirun',
+            'multi=abm.start_EA:EA_runner',
         ]
     },
-    classifiers=[
-        'Development Status :: 2 - Pre-Alpha',
-        'Intended Audience :: Science/Research',
-        'Topic :: Scientific/Engineering :: Artificial Intelligence',
-        'Operating System :: Other OS',
-        'Programming Language :: Python :: 3.8'
-    ],
-    test_suite='tests',
-    zip_safe=False
+    # classifiers=[
+    #     'Development Status :: 2 - Pre-Alpha',
+    #     'Intended Audience :: Science/Research',
+    #     'Topic :: Scientific/Engineering :: Artificial Intelligence',
+    #     'Operating System :: Other OS',
+    #     'Programming Language :: Python :: 3.8'
+    # ],
+    # test_suite='tests',
+    # zip_safe=False
 )
