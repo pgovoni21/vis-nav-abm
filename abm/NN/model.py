@@ -9,7 +9,7 @@ from abm.NN.vision import LayerNorm, GRN
 class WorldModel(nn.Module):
     # @timer
     def __init__(self,
-                 arch=((4,8),[1],[4],2,2,1,0),
+                 arch=((4,8),[1],[4],1,2,1,0.),
                  activ='relu',
                  RNN_type='fnn',
                  param_vector=None,
@@ -97,13 +97,18 @@ class WorldModel(nn.Module):
         vis_input = torch.from_numpy(vis_input).float().unsqueeze(0)
         other_input = torch.from_numpy(other_input).float().unsqueeze(0)
 
+        # add sensory noise - b4CNN
+        # if self.sensory_noise_std > 0:
+        #     vis_input += torch.randn(vis_input.shape) * self.sensory_noise_std
+        #     other_input += torch.randn(other_input.shape) * self.sensory_noise_std
+
         # pass through visual module
         vis_features = self.cnn(vis_input)
 
-        # add sensory noise
-        if self.sensory_noise_std > 0:
-            vis_features += torch.randn(vis_features.shape) * self.sensory_noise_std
-            other_input += torch.randn(other_input.shape) * self.sensory_noise_std
+        # # add sensory noise - afCNN
+        # if self.sensory_noise_std > 0:
+        #     vis_features += torch.randn(vis_features.shape) * self.sensory_noise_std
+        #     other_input += torch.randn(other_input.shape) * self.sensory_noise_std
 
         # concatenate + pass through memory module
         RNN_in = torch.cat((vis_features, other_input), dim=1)
