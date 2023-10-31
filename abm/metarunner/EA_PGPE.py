@@ -6,7 +6,7 @@ from abm.monitoring import plot_funcs
 from pathlib import Path
 import shutil, os, warnings, time
 import numpy as np
-import cma
+from pgpelib import PGPE
 import multiprocessing
 import pickle
 # import zarr
@@ -40,12 +40,23 @@ class EvolAlgo():
         self.start_seed = start_seed
         self.est_method = est_method
 
-        # Initialize CMA-ES
-        self.es = cma.CMAEvolutionStrategy(
-            param_vec_size * [0], 
-            self.init_sigma, 
-            {'popsize': self.population_size,}
-            )
+        # Initialize ES optimizer
+        self.es = PGPE(
+            solution_length = param_vec_size,
+            popsize = population_size,
+            stdev_init = init_sigma,
+
+            optimizer = 'clipup',
+            optimizer_config = {'max_speed': 0.15},
+
+            # center_learning_rate=0.15,
+            # stdev_learning_rate=0.1,
+            # stdev_max_change=0.2,
+            # solution_ranking=True,
+
+            # popsize_max = population_size * 5,
+            # num_interactions = generations * population_size * episodes * 1000 # final parameter = sim_time
+        )
         
         # Generate initial RNN parameters
         self.NN_param_vectors = self.es.ask()
@@ -60,8 +71,8 @@ class EvolAlgo():
         
         self.mean_param_vec = np.zeros([generations, param_vec_size])
         self.std_param_vec = np.zeros([generations, param_vec_size])
-        self.mean_param_vec[0,:] = self.es.mean
-        self.std_param_vec[0,:] = self.es.stds
+        self.mean_param_vec[0,:] = self.es.center
+        self.std_param_vec[0,:] = self.es.stdev
 
         # Create save directory + copy .env file over
         if os.path.isdir(self.EA_save_dir):
@@ -189,17 +200,21 @@ class EvolAlgo():
 
                 #     plot_funcs.plot_map(plot_data, x_max=500, y_max=500, 
                 #                         save_name=f'{NN_save_dir}_ep{e}')
+            
+            # save center sim params
+            with open(fr'{self.EA_save_dir}/gen{i}_NNcen_pickle.bin', 'wb') as f:
+                pickle.dump(self.es.center.copy(), f)
 
 
             #### ---- Update optimizer + RNN instances ---- ####
 
-            # Pass parameters + resulting fitness list to *minimizing* optimizer class
-            # fitness_rank = [-f for f in fitness_rank] # flips sign (only applicable if max : top)
-            self.es.tell(self.NN_param_vectors, fitness_rank)
+            # Pass parameters + resulting fitness list to *maximizing* optimizer class
+            fitness_rank = [-f for f in fitness_rank] # flips sign (only applicable if min : top)
+            self.es.tell(fitness_rank)
 
             # Save param_vec distribution
-            self.mean_param_vec[i,:] = self.es.mean
-            self.std_param_vec[i,:] = self.es.stds
+            self.mean_param_vec[i,:] = self.es.center
+            self.std_param_vec[i,:] = self.es.stdev
             
             # Generate new RNN parameters for next generation
             self.NN_param_vectors = self.es.ask()
