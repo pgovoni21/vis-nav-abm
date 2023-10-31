@@ -14,7 +14,8 @@ import pickle
 class EvolAlgo():
     
     def __init__(self, arch, activ, RNN_type,
-                 generations, population_size, episodes, init_sigma,
+                 generations, population_size, episodes, 
+                 init_sigma, stepsize, 
                  num_top_nn_saved, num_top_nn_plots, EA_save_name, start_seed,
                  est_method):
         
@@ -44,16 +45,20 @@ class EvolAlgo():
         self.es = PGPE(
             solution_length = param_vec_size,
             popsize = population_size,
-            stdev_init = init_sigma,
+
+            stdev_init = init_sigma, # clipup paper suggests init_sigma = sqrt(radius^2 / n) ; where radius ~ 15*max_speed = 15*0.15 = 2.25 ; tf init_sigma = sqrt(2.25^2 / 300) = 0.13
+            center_learning_rate = stepsize,
+            stdev_learning_rate=0.1,
+            stdev_max_change=0.2,
+            solution_ranking=True,
 
             optimizer = 'clipup',
-            optimizer_config = {'max_speed': 0.15},
+            optimizer_config = {
+                'momentum' : 0.9,
+                'max_speed': stepsize*2, # clipup paper suggests pinning max_speed to twice stepsize
+                },
 
-            # center_learning_rate=0.15,
-            # stdev_learning_rate=0.1,
-            # stdev_max_change=0.2,
-            # solution_ranking=True,
-
+            # --- for adaptive pop sizes --- 
             # popsize_max = population_size * 5,
             # num_interactions = generations * population_size * episodes * 1000 # final parameter = sim_time
         )

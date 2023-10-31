@@ -1,4 +1,5 @@
-from abm.metarunner.EA import EvolAlgo
+# from abm.metarunner.EA import EvolAlgo
+from abm.metarunner.EA_PGPE import EvolAlgo
 
 from pathlib import Path
 from dotenv import dotenv_values
@@ -40,6 +41,7 @@ def start_EA(): # "EA-start" in terminal
                   RNN_type                  =str(envconf["RNN_TYPE"]),
                   population_size           =int(envconf["EA_POPULATION_SIZE"]), 
                   init_sigma                =float(envconf["EA_INIT_SIGMA"]),
+                  stepsize                  =float(envconf["EA_STEPSIZE"]),
                   generations               =int(envconf["EA_GENERATIONS"]), 
                   episodes                  =int(envconf["EA_EPISODES"]), 
                   num_top_nn_saved          =int(envconf["EA_NUM_TOP_NN_SAVED"]),
