@@ -15,9 +15,10 @@ setup(
         'python-dotenv',
         'numpy',
         'zarr',
-        'torch',
         'matplotlib',
         'cma',
+        # 'pip install git+https://github.com/nnaisense/pgpelib.git#egg=pgpelib' # doesn't work with setup
+        # 'pip install torch --index-url https://download.pytorch.org/whl/cpu' # doesn't work with setup
     ],
     # extras_require={
     #     'test': [
@@ -31,7 +32,7 @@ setup(
         'console_scripts': [
             'abm=abm.start_sim:start',
             'EA=abm.start_EA:start_EA',
-            'multi=abm.start_EA:EA_runner',
+            'multi=abm.start_EA_multirun:EA_runner',
         ]
     },
     # classifiers=[
