@@ -253,5 +253,5 @@ abm/data/
 ...start.bat
 ..data.lnk
 outcmaes/*
-sim.gif
-sim.mp4
+*.gif
+*.mp4

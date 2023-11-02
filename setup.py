@@ -17,6 +17,7 @@ setup(
         'zarr',
         'matplotlib',
         'cma',
+        'opencv-python', # screenrecorder
         # 'pip install git+https://github.com/nnaisense/pgpelib.git#egg=pgpelib' # doesn't work with setup
         # 'pip install torch --index-url https://download.pytorch.org/whl/cpu' # doesn't work with setup
     ],

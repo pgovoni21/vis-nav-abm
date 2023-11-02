@@ -19,7 +19,7 @@ class ScreenRecorder:
         print(f'Output of the screen recording saved to {out_file}.')
 
         # define the codec and create a video writer object
-        four_cc = cv2.VideoWriter_fourcc(*'XVID')
+        four_cc = cv2.VideoWriter_fourcc('m','p','4','v')
         self.video = cv2.VideoWriter(out_file, four_cc, float(fps), (width, height))
 
     def capture_frame(self, surf):

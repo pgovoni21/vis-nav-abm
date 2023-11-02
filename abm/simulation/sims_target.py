@@ -142,13 +142,14 @@ class Simulation:
 
         if N == 1:  self.num_class_elements = 4 # single-agent --> perception of 4 walls
         else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+        # self.num_class_elements = 4
 
         # Initializing pygame
         if self.with_visualization:
             pygame.init()
             self.screen = pygame.display.set_mode([self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2])
             self.font = pygame.font.Font(None, int(self.window_pad/2))
-            # self.recorder = ScreenRecorder(self.x_min + self.x_max, self.y_min + self.y_max, framerate, out_file='sim.mp4')
+            # self.recorder = ScreenRecorder(self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2, framerate, out_file='sim.mp4')
         else:
             pygame.display.init()
             pygame.display.set_mode([1,1])
@@ -318,16 +319,26 @@ class Simulation:
 
         if self.N == 1:
             colliding_resources = [0]
-            retries = 0
+            retries = 0 
             while len(colliding_resources) > 0:
 
                 x = np.random.randint(x_min, x_max)
                 y = np.random.randint(y_min, y_max)
-                # x,y = 950,950
                 # x,y = x_min, y_min
                 
                 orient = np.random.uniform(0, 2 * np.pi)
-                # orient = 0
+
+                # x,y = 800,500
+                # orient = 1.5
+
+                # x,y = 850,50
+                # orient = 1.5
+
+                # x,y = 950,50
+                # orient = 4.5
+
+                # x,y = 950,950
+                # orient = 3
 
                 agent = Agent(
                         id=0,
@@ -353,6 +364,27 @@ class Simulation:
             self.agents.add(agent)
 
         else: # N > 1
+
+            # edges = np.array([
+            #     (100, 100, 5.33),
+            #     (100, 300, 0),
+            #     (100, 500, 0),
+            #     (100, 700, 0),
+            #     (100, 900, 0.66),
+            #     (300, 100, 4.5),
+            #     (500, 100, 4.5),
+            #     (700, 100, 4.5),
+            #     (900, 100, 3.66),
+            #     (900, 300, 3),
+            #     (900, 500, 3),
+            #     (900, 700, 3),
+            #     (900, 900, 2.33),
+            #     (300, 900, 1.5),
+            #     (500, 900, 1.5),
+            #     (700, 900, 1.5),
+            # ])
+
+
             for i in range(self.N):
 
                 colliding_resources = [0]
@@ -363,9 +395,15 @@ class Simulation:
 
                     x = np.random.randint(x_min, x_max)
                     y = np.random.randint(y_min, y_max)
-                    # x,y = 305+15*i, 305+15*i
+
+                    # x = 950
+                    # y = 50 + 100*i
                     
                     orient = np.random.uniform(0, 2 * np.pi)
+
+                    # orient = 3
+
+                    # x,y,orient = edges[i,:]
 
                     agent = Agent(
                             id=0,
