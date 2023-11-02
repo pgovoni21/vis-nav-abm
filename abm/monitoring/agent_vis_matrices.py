@@ -56,9 +56,7 @@ def agent_Nact_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
     return Nact
 
 
-def build_Nact_matrix_parallel(name, space_step, orient_step):
-
-    exp_name, gen_ext = name
+def build_Nact_matrix_parallel(exp_name, gen_ext, space_step, orient_step):
 
     # pull pv + envconf from save folders
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -130,9 +128,7 @@ def build_Nact_matrix_parallel(name, space_step, orient_step):
     return Nact_matrix
 
 
-def plot_Nact_imshow(name, space_step, orient_step):
-
-    exp_name, gen_ext = name
+def plot_Nact_imshow(exp_name, gen_ext, space_step, orient_step):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
@@ -163,9 +159,7 @@ def plot_Nact_imshow(name, space_step, orient_step):
     plt.close()
 
 
-def anim_Nact(name, space_step, orient_step):
-
-    exp_name, gen_ext = name
+def anim_Nact(exp_name, gen_ext, space_step, orient_step):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
@@ -226,9 +220,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps):
     return traj
 
 
-def build_agent_trajs_parallel(name, space_step, orient_step, timesteps):
-
-    exp_name, gen_ext = name
+def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps):
 
     # pull pv + envconf from save folders
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -288,12 +280,12 @@ def build_agent_trajs_parallel(name, space_step, orient_step, timesteps):
 
     # build resource coord matrix
     ag_data = np.zeros((1,1,3)) # 1 patch
-    ag_data = np.zeros((2,1,3)) # 2 patches
+    # ag_data = np.zeros((2,1,3)) # 2 patches
     res_radius = int(envconf["RADIUS_RESOURCE"])
     x,y = width*.4, height*.4
 
     ag_data[0,0,:] = np.array((x, y_max - y, res_radius))
-    # ag_data[1,0,:] = np.array((x, y, res_radius))
+    # ag_data[1,0,:] = np.array((x, y_max - y, res_radius))
 
     # pack + save
     plot_data = traj_matrix, ag_data
@@ -302,11 +294,9 @@ def build_agent_trajs_parallel(name, space_step, orient_step, timesteps):
         pickle.dump(plot_data, f)
 
 
-def plot_agent_trajs(name, space_step, orient_step, timesteps):
+def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps):
 
     from abm.monitoring.plot_funcs import plot_map_iterative_traj
-
-    exp_name, gen_ext = name
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     env_path = fr'{data_dir}/{exp_name}/.env'
@@ -357,9 +347,7 @@ def agent_visfield_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
     return field_int
 
 
-def build_agent_visfield_parallel(name, space_step, orient_step):
-
-    exp_name, gen_ext = name
+def build_agent_visfield_parallel(exp_name, gen_ext, space_step, orient_step):
 
     # pull pv + envconf from save folders
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -423,9 +411,7 @@ def build_agent_visfield_parallel(name, space_step, orient_step):
         pickle.dump(visfield_matrix, f)
 
 
-def plot_visfield_imshow(name, space_step, orient_step):
-
-    exp_name, gen_ext = name
+def plot_visfield_imshow(exp_name, gen_ext, space_step, orient_step):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     with open(fr'{data_dir}/visfield_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
@@ -460,9 +446,7 @@ def plot_visfield_imshow(name, space_step, orient_step):
     plt.close()
 
 
-def anim_visfield(name, space_step, orient_step):
-
-    exp_name, gen_ext = name
+def anim_visfield(exp_name, gen_ext, space_step, orient_step):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     with open(fr'{data_dir}/visfield_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
@@ -488,6 +472,213 @@ def anim_visfield(name, space_step, orient_step):
     plt.close()
 
 
+
+# -------------------------- traj + Nact + vis -------------------------- #
+
+def agent_trajall_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, vis_field_res, Nact_size):
+
+    agent = Agent(
+            id=0,
+            position=(x,y),
+            orientation=orient,
+            max_vel=2,
+            FOV=0.4,
+            vis_field_res=vis_field_res,
+            vision_range=2000,
+            num_class_elements=4,
+            consumption=1,
+            model=NN,
+            boundary_endpts=boundary_endpts,
+            window_pad=30,
+            radius=10,
+            color=(0,0,0),
+        )
+    
+    # from null initial activity (+ constant zero food presence sense)
+    hidden = torch.zeros(int(envconf["RNN_HIDDEN_SIZE"])).unsqueeze(0)
+    other_input = torch.zeros( int(envconf["RNN_OTHER_INPUT_SIZE"]) ).unsqueeze(0)
+
+    # initialize data storing matrix + step through trajectory
+    data_vector_size = 3 + vis_field_res + Nact_size # first 3 are for (x,y,o)
+    traj_data = np.zeros((timesteps, data_vector_size)) 
+    for t in range(timesteps):
+
+        # store current positional info
+        x,y = agent.position
+        traj_data[t,:3] = np.array((x,y,agent.orientation))
+
+        # gather visual input
+        agent.visual_sensing([])
+        vis_field_onehot = agent.encode_one_hot(agent.vis_field)
+
+        # translate to vector + store
+        vis_field = np.zeros(vis_field_res)
+        for n,i in enumerate(agent.vis_field):
+            if i == 'wall_north': vis_field[n] = 0
+            elif i == 'wall_east': vis_field[n] = 1
+            elif i == 'wall_south': vis_field[n] = 2
+            else: # i == 'wall_west': 
+                vis_field[n] = 3
+        traj_data[t,3:3+vis_field_res] = vis_field
+
+        # pass through model.forward
+        vis_input = torch.from_numpy(vis_field_onehot).float().unsqueeze(0)
+        vis_features = agent.model.cnn(vis_input)
+        RNN_in = torch.cat((vis_features, other_input), dim=1)
+        RNN_out, hidden = agent.model.rnn(RNN_in, hidden)
+        action = agent.model.lcl(RNN_out)
+        action = torch.tanh(action)
+        action = action
+
+        # align neural activities + store
+        Nact = np.concatenate((vis_features, RNN_out, action), axis=None)
+        traj_data[t,-Nact_size:] = Nact
+
+        # move agent
+        agent.move(action.detach().numpy()[0][0])
+
+    return traj_data
+
+def build_agent_trajalls_parallel(exp_name, gen_ext, space_step, orient_step, timesteps):
+
+    # pull pv + envconf from save folders
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
+    with open(NN_pv_path,'rb') as f:
+        pv = pickle.load(f)
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    # reconstruct model
+    NN, arch = reconstruct_NN(envconf, pv)
+
+    # construct boundary endpts
+    width=int(envconf["ENV_WIDTH"])
+    height=int(envconf["ENV_HEIGHT"])
+    x_min, x_max = 0, width
+    y_min, y_max = 0, height
+    boundary_endpts = [
+            np.array([ x_min, y_min ]),
+            np.array([ x_max, y_min ]),
+            np.array([ x_min, y_max ]),
+            np.array([ x_max, y_max ])
+            ]
+
+    # every grid position/direction
+    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
+    x_range = np.arange(x_min + coll_boundary_thickness, x_max - coll_boundary_thickness + 1, space_step)
+    y_range = np.arange(y_min + coll_boundary_thickness, y_max - coll_boundary_thickness + 1, space_step)
+    orient_range = np.arange(0, 2*np.pi, orient_step)
+
+    # calculate data vector size
+    vis_field_res = int(envconf["VISUAL_FIELD_RESOLUTION"])
+    encoded_vis_size = list(map(int,envconf["CNN_DIMS"].split(',')))[-1]
+    rnn_hidden_size = int(envconf["RNN_HIDDEN_SIZE"])
+    lcl_output_size = int(envconf["LCL_OUTPUT_SIZE"])
+    Nact_size = encoded_vis_size + rnn_hidden_size + lcl_output_size
+    data_vector_size = 3 + vis_field_res + Nact_size # first 3 are for (x,y,o)
+    
+    # construct matrix of each traj for each grid pos/dir
+    num_inits = len(x_range) * len(y_range) * len(orient_range)
+    data_matrix = np.zeros( (num_inits, timesteps, data_vector_size) ) 
+    print(f'traj matrix shape (initializations, timesteps, stored values): {data_matrix.shape}')
+    
+    # pack inputs for multiprocessing map
+    mp_inputs = []
+    for x in x_range:
+        for y in y_range:
+            for orient in orient_range:
+                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, vis_field_res, Nact_size) )
+    
+    # run agent NNs in parallel
+    with mp.Pool() as pool:
+        results = pool.starmap_async( agent_trajall_from_xyo, mp_inputs )
+        pool.close()
+        pool.join()
+
+    # unpack results into matrix
+    results_list = results.get()
+    for t, traj_data in enumerate(results_list):
+        data_matrix[t,:,:] = traj_data
+    
+    # transform data to plotting coords
+    # traj_matrix[:,:,0] = traj_matrix[:,:,0] # pos_x = pos_x
+    data_matrix[:,:,1] = y_max - data_matrix[:,:,1]
+
+    # build resource coord matrix
+    ag_data = np.zeros((1,1,3)) # 1 patch
+    # ag_data = np.zeros((2,1,3)) # 2 patches
+    res_radius = int(envconf["RADIUS_RESOURCE"])
+    x,y = width*.4, height*.4
+
+    ag_data[0,0,:] = np.array((x, y_max - y, res_radius))
+    # ag_data[1,0,:] = np.array((x, y_max - y, res_radius))
+
+    # pack + save
+    plot_data = data_matrix, ag_data
+    Path(fr'{data_dir}/trajall_matrices').mkdir(parents=True, exist_ok=True)
+    with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}.bin', 'wb') as f:
+        pickle.dump(plot_data, f)
+    
+
+def plot_agent_trajalls(exp_name, gen_ext, space_step, orient_step, timesteps):
+
+    from abm.monitoring.plot_funcs import plot_map_iterative_trajall
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    width=int(envconf["ENV_WIDTH"])
+    height=int(envconf["ENV_HEIGHT"])
+
+    with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}.bin', 'rb') as f:
+        traj_plot_data = pickle.load(f)
+
+    save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_vischange'
+    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=True)
+    save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_visflat'
+    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=False)
+
+    # loop over encoded vis (CNN output)
+    vis_field_res = int(envconf["VISUAL_FIELD_RESOLUTION"])
+    encoded_vis_size = list(map(int,envconf["CNN_DIMS"].split(',')))[-1]
+    for i in range(encoded_vis_size):
+        var_pos = 3 + vis_field_res + i
+        save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_NactCNN{i}'
+        plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=var_pos)
+
+    save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_action'
+    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=-1)
+    save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_action_inv'
+    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=-1, inv=True)
+
+
+# -------------------------- misc -------------------------- #
+
+def find_top_val_gen(exp_name):
+
+    # parse val results text file
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/{exp_name}/val_results.txt') as f:
+    # with open(fr'{data_dir}/{exp_name}/val_results_cen.txt') as f:
+        lines = f.readlines()
+
+        val_data = np.zeros((len(lines)-1, 3))
+        for i, line in enumerate(lines[1:]):
+            data = [item.strip() for item in line.split(' ')]
+            val_data[i,0] = data[1] # generation
+            val_data[i,1] = data[4] # train fitness
+            val_data[i,2] = data[7] # val fitness
+
+        # sort according to val fitness
+        top_ind = np.argsort(val_data[:,2])[0] 
+        top_gen = int(val_data[top_ind,0])
+        top_valfit = int(val_data[top_ind,2])
+        # print(f'gen {top_gen}: fit {top_valfit}')
+    return f'gen{top_gen}', top_valfit
+
+
 if __name__ == '__main__':
 
     # space_step = 5
@@ -496,136 +687,33 @@ if __name__ == '__main__':
     space_step = 25
     orient_step = np.pi/8
 
+    # space_step = 500
+    # orient_step = np.pi/2
+
     timesteps = 500
 
-    names = []
-
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep0'
-    # gen_ext = 'gen961' # 388
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep1'
-    # gen_ext = 'gen661' # 284
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep2'
-    # gen_ext = 'gen666' # 286
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep3'
-    # gen_ext = 'gen908' # 298
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep4'
-    # gen_ext = 'gen837' # 292
-    # names.append((exp_name,gen_ext))
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep1'
-    # gen_ext = 'gen944' # 291
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep2'
-    # gen_ext = 'gen944' # 297
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep4'
-    # gen_ext = 'gen971' # 302
-    # names.append((exp_name,gen_ext))
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep0'
-    # gen_ext = 'gen956' # 291
-    # names.append((exp_name,gen_ext))
-    exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep1'
-    gen_ext = 'gen857' # 279
-    names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep2'
-    # gen_ext = 'gen804' # 284
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep3'
-    # gen_ext = 'gen876' # 260
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep4'
-    # gen_ext = 'gen958' # 423
-    # names.append((exp_name,gen_ext))
-
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep0'
-    # gen_ext = 'gen975' # 148
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep1'
-    # gen_ext = 'gen809' # 231
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep2'
-    # gen_ext = 'gen352' # 185
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep3'
-    # gen_ext = 'gen966' # 167
-    # names.append((exp_name,gen_ext))
-
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep0'
-    # gen_ext = 'gen665' # 297
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep1'
-    # gen_ext = 'gen992' # 283
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep2'
-    # gen_ext = 'gen583' # 573
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep3'
-    # gen_ext = 'gen933' # 360
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep4'
-    # gen_ext = 'gen923' # 258
-    # names.append((exp_name,gen_ext))
-
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn05b4CNN_vis8_rep0'
-    # gen_ext = 'gen982' # 404
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn05b4CNN_vis8_rep1'
-    # gen_ext = 'gen845' # 357
-    # names.append((exp_name,gen_ext))
-
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn05afCNN_vis8_rep0'
-    # gen_ext = 'gen811' # 364
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn05afCNN_vis8_rep1'
-    # gen_ext = 'gen918' # 307
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn05afCNN_vis8_rep2'
-    # gen_ext = 'gen944' # 439
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn05afCNN_vis8_rep3'
-    # gen_ext = 'gen969' # 381
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn05afCNN_vis8_rep4'
-    # gen_ext = 'gen841' # 278
-    # names.append((exp_name,gen_ext))
-
-
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn025afCNN_vis8_rep0'
-    # gen_ext = 'gen919' # 291
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn025afCNN_vis8_rep1'
-    # gen_ext = 'gen837' # 292
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn025afCNN_vis8_rep2'
-    # gen_ext = 'gen956' # 301
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn025afCNN_vis8_rep3'
-    # gen_ext = 'gen923' # 274
-    # names.append((exp_name,gen_ext))
-    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_sn025afCNN_vis8_rep4'
-    # gen_ext = 'gen893' # 287
-    # names.append((exp_name,gen_ext))
-
+    names = [
+    #     'singlecorner_exp_CNN1124_FNN2_p100e20_vis8_rep1',
+    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss075_rep1'
+        'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3',
+        # 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep4',
+        # 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_rep1',
+        ]
 
     for name in names:
-        print(f'build/plot matrix for: {name}')
-        # build_Nact_matrix_parallel(name, space_step, orient_step)
-        # plot_Nact_imshow(name, space_step, orient_step)
+        gen, valfit = find_top_val_gen(name)
+        print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
+        
+        # build_Nact_matrix_parallel(name, gen, space_step, orient_step)
+        # plot_Nact_imshow(name, gen, space_step, orient_step)
         # anim_Nact(name, space_step, orient_step)
 
-        # build_agent_trajs_parallel(name, space_step, orient_step, timesteps)
-        # plot_agent_trajs(name, space_step, orient_step, timesteps)
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps)
 
         # build_agent_visfield_parallel(name, space_step, orient_step)
         # plot_visfield_imshow(name, space_step, orient_step)
         # anim_visfield(name, space_step, orient_step)
+
+        build_agent_trajalls_parallel(name, gen, space_step, orient_step, timesteps)
+        plot_agent_trajalls(name, gen, space_step, orient_step, timesteps)
