@@ -15,7 +15,7 @@ class EvolAlgo():
     
     def __init__(self, arch, activ, RNN_type,
                  generations, population_size, episodes, 
-                 init_sigma, stepsize, 
+                 init_sigma, step_sigma, step_mu, momentum,
                  num_top_nn_saved, num_top_nn_plots, EA_save_name, start_seed,
                  est_method):
         
@@ -47,15 +47,15 @@ class EvolAlgo():
             popsize = population_size,
 
             stdev_init = init_sigma, # clipup paper suggests init_sigma = sqrt(radius^2 / n) ; where radius ~ 15*max_speed = 15*0.15 = 2.25 ; tf init_sigma = sqrt(2.25^2 / 300) = 0.13
-            center_learning_rate = stepsize,
-            stdev_learning_rate=0.1,
-            stdev_max_change=0.2,
+            center_learning_rate = step_mu,
+            stdev_learning_rate = step_sigma,
+            stdev_max_change = step_sigma*2,
             solution_ranking=True,
 
             optimizer = 'clipup',
             optimizer_config = {
-                'momentum' : 0.9,
-                'max_speed': stepsize*2, # clipup paper suggests pinning max_speed to twice stepsize
+                'momentum' : momentum,
+                'max_speed': step_mu*2, # clipup paper suggests pinning max_speed to twice stepsize
                 },
 
             # --- for adaptive pop sizes --- 
