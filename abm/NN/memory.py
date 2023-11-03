@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class FNN(nn.Module):
-    def __init__(self, arch, activ='relu', param_vector=None):
+    def __init__(self, arch, activ='relu'):
         super().__init__()
         input_size, hidden_size = arch
         
@@ -24,7 +24,7 @@ class FNN(nn.Module):
 #--------------------------------------------------------------------------------------------------------#
 
 class CTRNN(nn.Module):
-    def __init__(self, arch, activ='relu', param_vector=None):
+    def __init__(self, arch, activ='relu'):
         super().__init__()
         input_size, hidden_size = arch
         self.hidden_size = hidden_size
@@ -39,6 +39,10 @@ class CTRNN(nn.Module):
         elif activ == 'silu': self.activ = torch.nn.SiLU()
         elif activ == 'gelu': self.active = torch.nn.GELU()
         else: raise ValueError(f'Invalid activation function: {activ}')
+        
+        # # set time constant
+        # tau = 100
+        # self.alpha = dt / tau # default --> alpha = 1
 
     def forward(self, state, hidden):
         if hidden is None:
@@ -47,6 +51,7 @@ class CTRNN(nn.Module):
         i = self.i2h(state)
         h = self.norm_h(self.h2h(hidden))
         x = self.activ(i + h)
+        # x = hidden * (1 - self.alpha) + x * self.alpha ## uncomment for time constant
 
         hidden = x # --> pull current hidden activity + return this as second variable
 
@@ -55,7 +60,7 @@ class CTRNN(nn.Module):
 #--------------------------------------------------------------------------------------------------------#
 
 class GRU(nn.Module):
-    def __init__(self, arch, activ='', param_vector=None):
+    def __init__(self, arch, activ=''):
         super().__init__()
         input_size, hidden_size = arch
         self.hidden_size = hidden_size
@@ -72,7 +77,7 @@ class GRU(nn.Module):
 #--------------------------------------------------------------------------------------------------------#
 
 class LSTM(nn.Module):
-    def __init__(self, arch, activ='', param_vector=None):
+    def __init__(self, arch, activ=''):
         super().__init__()
         input_size, hidden_size = arch
         self.hidden_size = hidden_size
