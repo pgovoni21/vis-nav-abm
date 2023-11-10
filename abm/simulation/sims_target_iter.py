@@ -13,7 +13,8 @@ from abm.sprites.resource import Resource
 from abm.sprites.wall import Wall
 from abm.monitoring import tracking, plot_funcs
 # from abm.monitoring.screen_recorder import ScreenRecorder
-# from abm.helpers import timer
+from abm.helpers import timer
+from abm.NN.model import WorldModel as Model
 
 class Simulation:
     # @timer
@@ -21,7 +22,7 @@ class Simulation:
                  N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, min_res_perpatch, max_res_perpatch, min_res_quality, max_res_quality, regenerate_patches, 
-                 NN, 
+                 NN, model_tuple,
                  ):
         """
         Initializing the main simulation instance
@@ -90,7 +91,7 @@ class Simulation:
         # Simulation parameters
         self.N = N
         self.T = T
-        self.t = 0
+        # self.t = 0
         self.with_visualization = with_visualization
         if self.with_visualization:
             self.framerate_orig = framerate
@@ -109,7 +110,6 @@ class Simulation:
             self.data_agent = np.zeros( (self.N, self.T, 4) ) # (pos_x, pos_y, mode, coll_res)
             self.data_res = []
 
-        self.elapsed_time = 0
         # self.fitnesses = []
         self.save_ext = save_ext
 
@@ -138,7 +138,7 @@ class Simulation:
         self.regenerate_resources = regenerate_patches
 
         # Neural Network parameters
-        self.model = NN
+        self.model_tuple =  model_tuple
 
         if N == 1:  self.num_class_elements = 4 # single-agent --> perception of 4 walls
         else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
@@ -153,12 +153,6 @@ class Simulation:
         else:
             pygame.display.init()
             pygame.display.set_mode([1,1])
-
-        # pygame related class attributes
-        self.walls = pygame.sprite.Group()
-        self.agents = pygame.sprite.Group()
-        self.resources = pygame.sprite.Group()
-        self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
 
 ### -------------------------- DRAWING FUNCTIONS -------------------------- ###
 
@@ -613,11 +607,26 @@ class Simulation:
 ### -------------------------- MAIN SIMULATION LOOP -------------------------- ###
 ##################################################################################
 
-    def start(self):
+    # @timer
+    def start(self, pv, seed):
 
         ### ---- INITIALIZATION ---- ###
 
         start_time = time.time()
+
+        self.t = 0
+        self.fitnesses = []
+
+        np.random.seed(seed)
+
+        arch, activ, RNN_type = self.model_tuple
+        self.model = Model(arch, activ, RNN_type, pv)
+
+        self.walls = pygame.sprite.Group()
+        self.agents = pygame.sprite.Group()
+        self.resources = pygame.sprite.Group()
+        self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
+
         self.create_walls()
         self.create_resources()
         self.create_agents()
@@ -630,6 +639,8 @@ class Simulation:
         ### ---- START OF SIMULATION ---- ###
 
         while self.t < self.T:
+
+            # print(seed, self.t)
 
             if not self.is_paused:
 
@@ -703,9 +714,8 @@ class Simulation:
 
                         pygame.quit()
                         # compute simulation time in seconds
-                        self.elapsed_time = round( (time.time() - start_time) , 2)
                         if self.print_enabled:
-                            print(f"Elapsed_time: {self.elapsed_time}")
+                            print(f"Elapsed_time: {round( (time.time() - start_time) , 2)}")
 
                         if self.log_zarr_file:
                             # conclude agent/resource tracking
@@ -727,9 +737,12 @@ class Simulation:
                             plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
                         # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-                        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+                        self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
 
-                        return self.t, 0, self.elapsed_time
+                        # print(self.t)
+                        # print([ag.position for ag in self.agents])
+
+                        return self.fitnesses
 
                     else: # No food --> move (stay stationary if collided object in front)
                         agent.move(agent.action)
@@ -762,9 +775,8 @@ class Simulation:
         pygame.quit()
 
         # compute simulation time in seconds
-        self.elapsed_time = round( (time.time() - start_time) , 2)
         if self.print_enabled:
-            print(f"Elapsed_time: {self.elapsed_time}")
+            print(f"Elapsed_time: {round( (time.time() - start_time) , 2)}")
 
         if self.log_zarr_file:
             # conclude agent/resource tracking
@@ -787,7 +799,7 @@ class Simulation:
 
         # extract total fitnesses + save into sim instance (pulled for EA)
         dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.resources.sprites()[0].position)
-        # self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
+        self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
         # self.fitnesses = np.array([self.T]) # --> max time + proximity as extra error signal
 
-        return self.T, dist_to_res, self.elapsed_time
+        return self.fitnesses

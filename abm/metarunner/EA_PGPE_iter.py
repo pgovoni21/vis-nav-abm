@@ -1,5 +1,5 @@
 from abm.NN.model import WorldModel as Model
-from abm import start_sim
+from abm import start_sim, start_sim_env, start_sim_iter
 from abm.monitoring import plot_funcs
 
 from pathlib import Path
@@ -55,6 +55,10 @@ class EvolAlgo():
                 'momentum' : momentum,
                 'max_speed': step_mu*2, # clipup paper suggests pinning max_speed to twice stepsize
                 },
+
+            # --- for adaptive pop sizes --- 
+            # popsize_max = population_size * 5,
+            # num_interactions = generations * population_size * episodes * 1000 # final parameter = sim_time
         )
         
         # Generate initial RNN parameters
@@ -89,6 +93,10 @@ class EvolAlgo():
 
     def fit_parallel(self):
 
+        # init process pool executor/manager
+        # pool = multiprocessing.Pool()
+        pool = multiprocessing.Pool(initializer=start_sim_iter.start_env, initargs=(self.model_tuple,))
+
         for i in range(self.generations):
 
             #### ---- Run sim + Save in running/nn/ep folder ---- ####
@@ -104,17 +112,11 @@ class EvolAlgo():
             sim_inputs_per_gen = []
             for pv in self.NN_param_vectors:
                 for e in range(self.episodes):
-                    sim_inputs_per_gen.append( (self.model_tuple, pv, None, seeds_per_gen[e]) )
+                    sim_inputs_per_gen.append( (pv, seeds_per_gen[e]) )
 
+            # issue all tasks to pool at once (non-blocking + ordered)
             sim_time = time.time()
-
-            # using process pool executor/manager
-            with multiprocessing.Pool() as pool:
-
-                # issue all tasks to pool at once (non-blocking + ordered)
-                results = pool.starmap_async( start_sim.start, sim_inputs_per_gen )
-                pool.close()
-                pool.join()
+            results = pool.starmap_async( start_sim_iter.start_iter, sim_inputs_per_gen)
 
             # convert results iterator to list
             results_list = results.get()
@@ -129,21 +131,20 @@ class EvolAlgo():
 
             #### ---- Find fitness averages across episodes ---- ####
 
-
             # # set non-sim timer
             # eval_time = time.time()
 
             # skip to start of each episode series/chunk
             for p, NN_index in enumerate(range(0, len(results_list), self.episodes)):
                 # pull sim data for each episode
-                for e, (time, dist) in enumerate(results_list[NN_index : NN_index + self.episodes]):
-                    self.fitness_evol[i,p,e] = int(time + dist)
+                for e, fitnesses in enumerate(results_list[NN_index : NN_index + self.episodes]):
+                    self.fitness_evol[i,p,e] = int(fitnesses[0])
 
             # estimate episodal fitnesses by mean or median
             if self.est_method == 'mean':
                 fitness_rank = np.mean(self.fitness_evol[i,:,:], axis=1)
             else:
-                fitness_rank = np.median(self.fitness_evol[i,:,:], axis=1) # potentially better ranking statistics, ignores outliers
+                fitness_rank = np.median(self.fitness_evol[i,:,:], axis=1)
 
             # # list all averaged fitnesses
             # print(f'Fitnesses: {fitness_rank}')
@@ -200,6 +201,9 @@ class EvolAlgo():
 
         #### ---- Post-evolution tasks ---- ####
 
+        pool.close()
+        pool.join()
+            
         end_overall_time = round(time.time() - self.overall_time, 2)
         print(f'overall time: {end_overall_time} s')
 

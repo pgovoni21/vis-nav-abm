@@ -10,7 +10,6 @@ import os
 import numpy as np
 
 from abm.NN.model import WorldModel as Model
-# from abm.NN.model_simp import WorldModel as Model
 
 
 def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): # "abm-start" in terminal
@@ -41,11 +40,11 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
 
             # envconf['WITH_VISUALIZATION'] = 1
             # envconf['PLOT_TRAJECTORY'] = 1
-
             # envconf['INIT_FRAMERATE'] = 10
-            # envconf['T'] = 5000
-            # envconf['RADIUS_RESOURCE'] = 50
 
+            # envconf['N'] = 16
+            # envconf['T'] = 500
+            # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
 
     # to run headless
@@ -83,12 +82,11 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                          NN                     =NN,
                          )
-        fitnesses, elapsed_time = sim.start()
+        t, d, elapsed_time = sim.start()
 
         # print(f'Finished {save_ext}, runtime: {elapsed_time} sec, fitness: {int(fitnesses[0])}')
 
-    return save_ext, fitnesses, elapsed_time
-
+    return t, d
 
 def reconstruct_NN(envconf,pv):
     """mirrors start_EA arch packaging"""
@@ -98,6 +96,7 @@ def reconstruct_NN(envconf,pv):
 
     if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
     else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+    # num_class_elements = 4
     
     # assemble NN architecture
     vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
@@ -108,6 +107,7 @@ def reconstruct_NN(envconf,pv):
     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
     LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"])
     sensory_noise_std    = float(envconf["SENSORY_NOISE_STD"])
+    # sensory_noise_std    = 0.0
 
     arch = (
         CNN_input_size, 
@@ -159,12 +159,32 @@ if __name__ == '__main__':
 
     # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep0'
     # gen_ext = 'gen975' # 148
-    exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep1'
-    gen_ext = 'gen809' # 231
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep1'
+    # gen_ext = 'gen809' # 231
     # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep2'
     # gen_ext = 'gen352' # 185
     # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_wh500_rep3'
     # gen_ext = 'gen966' # 167
+
+    # exp_name = 'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep0'
+    # gen_ext = 'gen665' # 297
+    # exp_name = 'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep4'
+    # gen_ext = 'gen923' # 258
+
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p100e20_vis8_rep1'
+    # gen_ext = 'gen811' # 
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p100e20_vis8_rep2'
+    # gen_ext = 'gen982' # 258
+
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss075_rep1'
+    # gen_ext = 'gen844' # 
+    # exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3'
+    # gen_ext = 'gen956' # 
+
+    exp_name = 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom7_rep4'
+    gen_ext = 'gen877' # 
+
+
 
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{NN_ext}/NN_pickle.bin'
@@ -174,7 +194,7 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=0)
+    start(pv=pv, env_path=env_path, seed=1)
 
     # for s in [0,1,2]:
     # # for s in [0]:
