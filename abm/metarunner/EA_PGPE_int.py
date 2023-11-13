@@ -1,6 +1,6 @@
 from abm.NN.model import WorldModel as Model
 from abm import start_sim
-from abm.monitoring import plot_funcs
+# from abm.monitoring import plot_funcs
 
 from pathlib import Path
 import shutil, os, warnings, time
@@ -14,8 +14,7 @@ class EvolAlgo():
     def __init__(self, arch, activ, RNN_type,
                  generations, population_size, episodes, 
                  init_sigma, step_sigma, step_mu, momentum,
-                 num_top_nn_saved, num_top_nn_plots, EA_save_name, start_seed,
-                 est_method):
+                 EA_save_name, start_seed, est_method):
         
         # init_time = time.time()
         self.overall_time = time.time()
@@ -40,7 +39,7 @@ class EvolAlgo():
         self.est_method = est_method
 
         self.population_size_max = population_size * 10
-        self.num_interactions = int(population_size * episodes / 5)
+        self.num_interactions = int(population_size * episodes / 10)
 
         # Initialize ES optimizer
         self.es = PGPE(
@@ -94,10 +93,9 @@ class EvolAlgo():
 
             #### ---- Run sim + Save in running/nn/ep folder ---- ####
 
-            print(f'------------------------------------ gen {i} ------------------------------------')
             gen_time = time.time()
 
-            # increments each time ES is re-ran (until reaching num_interactions or popsize_max)W
+            # increments each time ES is re-ran (until reaching num_interactions or popsize_max)
             pop_clicker = 0
             gen_patches_found = 0
 
@@ -117,16 +115,11 @@ class EvolAlgo():
                 sim_inputs_per_gen = []
                 for pv in self.NN_param_vectors:
                     for e in range(self.episodes):
-                        sim_inputs_per_gen.append( (self.model_tuple, pv, None, seeds_per_gen[e]) )
-
-                # sim_time = time.time()
+                        sim_inputs_per_gen.append( (self.model_tuple, pv, self.EA_save_dir, seeds_per_gen[e]) )
 
                 # issue all tasks to pool at once (non-blocking + ordered)
                 results = pool.starmap_async( start_sim.start, sim_inputs_per_gen )
                 results_list = results.get()
-
-                # end_sim_time = time.time() - sim_time
-                # print(f'sim time: {round( end_sim_time, 2)} s')
 
                 # print('Sim Results:')
                 # for result in results_list:
@@ -190,8 +183,7 @@ class EvolAlgo():
             top_fg = int(np.min(gen_fitness_rank)) # min : top
             avg_fg = int(np.mean(gen_fitness_rank))
             med_fg = int(np.median(gen_fitness_rank))
-
-            print(f'--- t: {gen_time}s pop: {pop} | patches: {patches} || top: {top_fg} | avg: {avg_fg} | med: {med_fg} ---')
+            print(f'--- gen {i} | t: {gen_time}s | pop: {pop} | patches: {patches} || top: {top_fg} | avg: {avg_fg} | med: {med_fg} ---')
 
             # update/pickle generational fitness data in parent directory
             with open(fr'{self.EA_save_dir}/fitness_spread_per_generation.bin', 'wb') as f:
@@ -226,5 +218,5 @@ class EvolAlgo():
         with open(fr'{self.EA_save_dir}/run_data.bin', 'wb') as f:
             pickle.dump(run_data, f)
 
-        # plot violin plot for the EA trend
-        plot_funcs.plot_EA_trend_violin(self.fitness_evol, self.est_method, self.EA_save_dir)
+        # # plot violin plot for the EA trend
+        # plot_funcs.plot_EA_trend_violin(self.fitness_evol, self.est_method, self.EA_save_dir)

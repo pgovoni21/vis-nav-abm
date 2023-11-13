@@ -1,7 +1,7 @@
 # from abm.metarunner.EA import EvolAlgo
-# from abm.metarunner.EA_PGPE import EvolAlgo
+from abm.metarunner.EA_PGPE import EvolAlgo
 # from abm.metarunner.EA_PGPE_iter import EvolAlgo
-from abm.metarunner.EA_PGPE_int import EvolAlgo
+# from abm.metarunner.EA_PGPE_int import EvolAlgo
 
 from pathlib import Path
 from dotenv import dotenv_values
@@ -48,8 +48,6 @@ def start_EA(): # "EA-start" in terminal
                   momentum                  =float(envconf["EA_MOMENTUM"]),
                   generations               =int(envconf["EA_GENERATIONS"]), 
                   episodes                  =int(envconf["EA_EPISODES"]), 
-                  num_top_nn_saved          =int(envconf["EA_NUM_TOP_NN_SAVED"]),
-                  num_top_nn_plots          =int(envconf["EA_NUM_TOP_NN_PLOTS"]),
                   EA_save_name              =str(envconf["EA_SAVE_NAME"]),
                   start_seed                =int(envconf["EA_START_SEED"]),
                   est_method                =str(envconf["EA_EST_METHOD"])

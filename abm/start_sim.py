@@ -12,7 +12,7 @@ import numpy as np
 from abm.NN.model import WorldModel as Model
 
 
-def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): # "abm-start" in terminal
+def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): # "abm-start" in terminal
 
     # print(f'Running {save_ext}')
 
@@ -24,7 +24,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
 
     else:
         if env_path is None: # if called from EA
-            envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
+            envconf = de.dotenv_values(load_dir / '.env')
             arch, activ, RNN_type = model_tuple
             NN = Model(arch, activ, RNN_type, pv)
 
@@ -65,7 +65,7 @@ def start(model_tuple=None, pv=None, save_ext=None, seed=None, env_path=None): #
                          print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
                          plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
                          log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
-                         save_ext               =save_ext,
+                         save_ext               =None,
                          agent_radius           =int(envconf["RADIUS_AGENT"]),
                          max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
                          vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
