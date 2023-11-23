@@ -1,5 +1,4 @@
 from abm.NN.model import WorldModel as Model
-# from abm.NN.model_simp import WorldModel as Model
 from abm import start_sim
 from abm.monitoring import plot_funcs
 
@@ -9,7 +8,6 @@ import numpy as np
 import cma
 import multiprocessing
 import pickle
-# import zarr
 
 class EvolAlgo():
     

@@ -116,7 +116,14 @@ class EvolAlgo():
             # pull sim data, skipping to start of each episode series/chunk
             for p, NN_index in enumerate(range(0, len(results_list), self.episodes)):
                 for e, (time_taken, dist_from_patch) in enumerate(results_list[NN_index : NN_index + self.episodes]):
-                    self.fitness_evol[i,p,e] = int(time_taken + dist_from_patch)
+
+                    if dist_from_patch == 0:
+                        self.fitness_evol[i,p,e] = int(time_taken)
+                    else:
+                        self.fitness_evol[i,p,e] = int(time_taken + dist_from_patch)
+                        # self.fitness_evol[i,p,e] = int(time_taken + dist_from_patch/2)
+                        # self.fitness_evol[i,p,e] = int(time_taken + dist_from_patch + 200)
+                        # self.fitness_evol[i,p,e] = int(time_taken + dist_from_patch/2 + 200)
 
             # estimate episodal fitnesses by mean or median
             if self.est_method == 'mean':
@@ -129,19 +136,11 @@ class EvolAlgo():
             fitness_rank = [-f for f in fitness_rank] # flips sign (only applicable if min : top)
             self.es.tell(fitness_rank)
 
-            # print run info
-            gen_time = round(time.time() - gen_time,2)
-            # top_fg = int(np.max(fitness_rank)) # max : top
-            top_fg = int(np.min(fitness_rank)) # min : top
-            avg_fg = int(np.mean(fitness_rank))
-            med_fg = int(np.median(fitness_rank))
-            print(f'--- gen {i} | t: {gen_time}s | top: {top_fg} | avg: {avg_fg} | med: {med_fg} ---')
-
             # update/pickle generational fitness data in parent directory
             with open(fr'{self.EA_save_dir}/fitness_spread_per_generation.bin', 'wb') as f:
                 pickle.dump(self.fitness_evol, f)
 
-            #### ---- Save current ES/model params   ---- ####
+            #### ---- Save current ES/model params + print info ---- ####
 
             # cycle through the top X performers
             # top_indices = np.argsort(fitness_rank)[ : -1-self.num_top_nn_saved : -1] # max : top
@@ -151,7 +150,7 @@ class EvolAlgo():
 
             # save top sim params
             for n_top, n_gen in enumerate(top_indices):
-                with open(fr'{self.EA_save_dir}/NN{n_top}_pickle.bin','wb') as f:
+                with open(fr'{self.EA_save_dir}/gen{i}_NN{n_top}_pickle.bin','wb') as f:
                     pickle.dump(self.NN_param_vectors[n_gen], f)
             
             # save center sim params
@@ -161,6 +160,14 @@ class EvolAlgo():
             # Save param_vec distribution
             self.mean_param_vec[i,:] = self.es.center
             self.std_param_vec[i,:] = self.es.stdev
+
+            # print run info
+            gen_time = round(time.time() - gen_time,2)
+            # top_fg = int(np.min(fitness_rank)) # max : top
+            top_fg = int(np.max(fitness_rank)) # min : top
+            avg_fg = int(np.mean(fitness_rank))
+            med_fg = int(np.median(fitness_rank))
+            print(f'--- gen {i} | t: {gen_time}s | top: {top_fg} | avg: {avg_fg} | med: {med_fg} ---')
 
         #### ---- Post-evolution tasks ---- ####
 
