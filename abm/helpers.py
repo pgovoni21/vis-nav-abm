@@ -3,6 +3,8 @@ import time
 import os
 import linecache
 import tracemalloc
+from pathlib import Path
+import shutil
 
 def timer(func):
     """Print runtime of decorated function"""
@@ -61,3 +63,40 @@ def display_top_mem_users(snapshot, key_type='lineno', limit=3):
         print("%s other: %.1f KiB" % (len(other), size / 1024))
     total = sum(stat.size for stat in top_stats)
     print("Total allocated size: %.1f KiB" % (total / 1024))
+
+
+def folder_trim():
+
+    root_dir = Path(__file__).parent / fr'data/simulation_data'
+    for file in os.listdir(root_dir):
+
+        dir = Path(root_dir, file)
+        print(dir)
+
+        for g in range(1000):
+            if os.path.isdir(Path(dir,fr'gen{g}')):
+                for file in os.listdir(Path(dir,fr'gen{g}')):
+                    if file.startswith('NN0'):
+                        if not file.endswith('png'):
+                            shutil.move(fr'{dir}/gen{g}/{file}/NN_pickle.bin', fr'{dir}/gen{g}_NN0.bin')
+                shutil.rmtree(fr'{dir}/gen{g}')
+
+            # else: 
+            #     print(f'failed for: {dir,g}')
+
+
+
+def rename_folders():
+
+    root_dir = Path(__file__).parent / fr'data/simulation_data'
+
+    existing_names = [f'singlecorner_exp_CNN16_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
+    new_names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
+
+    for e,n in zip(existing_names, new_names):
+        os.rename(Path(root_dir, e), Path(root_dir, n))
+
+
+if __name__ == '__main__':
+
+    rename_folders()
