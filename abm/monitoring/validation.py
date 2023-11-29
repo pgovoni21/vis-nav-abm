@@ -133,17 +133,17 @@ if __name__ == '__main__':
 
     names = []
     
-    # for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_block52_rep{x+11}' for x in range(9)]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_block52_rep{x+11}' for x in range(9)]:
     #     names.append(name) ## --> need to convert model params
-    # for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_block52_rep{x}' for x in range(20)]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_block52_rep{x}' for x in range(20)]:
     #     names.append(name) ## --> need to convert model params
     
 
-    for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(9)]:
+    for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(9)]:
         names.append(name)
-    for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep{x}' for x in range(9)]:
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep{x}' for x in range(9)]:
         names.append(name)
-    for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep{x}' for x in range(11)]:
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep{x}' for x in range(11)]:
         names.append(name)
 
 

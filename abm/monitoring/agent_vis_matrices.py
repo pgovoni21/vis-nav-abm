@@ -829,80 +829,80 @@ if __name__ == '__main__':
 
     names = []
 
-    # for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_block52_rep{x}' for x in [1,2,4,5,7,8,9,10]]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_block52_rep{x}' for x in [1,2,4,5,7,8,9,10]]:
     #     names.append(name)
 
-    # for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep{x}' for x in [5,7,8]]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep{x}' for x in [5,7,8]]:
     #     names.append(name)
-    # for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep{x}' for x in [0,4,8,9]]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep{x}' for x in [0,4,8,9]]:
     #     names.append(name)
 
-    # for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in [14,15,16]]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in [14,15,16]]:
     #     names.append(name)
-    # for name in [f'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov875_rep{x}' for x in [4,10,12,14,18]]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov875_rep{x}' for x in [4,10,12,14,18]]:
     #     names.append(name)
-    # for name in [f'singlecorner_exp_CNN14_FNN1_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [16]]:
+    # for name in [f'sc_CNN14_FNN1_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [16]]:
     #     names.append(name)
-    # for name in [f'singlecorner_exp_CNN13_FNN1_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [12,13,19]]:
+    # for name in [f'sc_CNN13_FNN1_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [12,13,19]]:
     #     names.append(name)
     
-    names.append('singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4')
-    # names.append('singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8')
-    # names.append('singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0')
+    names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4')
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8')
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0')
     
     # names = [
-    #     'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep0',
-        # 'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep1',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep2',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep3',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e15_vis8_rep4',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep0',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep1',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep2',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep3',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_rep4',
-    #     'singlecorner_exp_CNN1124_FNN2_p100e20_vis8_rep0',
-    #     'singlecorner_exp_CNN1124_FNN2_p100e20_vis8_rep1',
-    #     'singlecorner_exp_CNN1124_FNN2_p100e20_vis8_rep2',
-    #     'singlecorner_exp_CNN1124_FNN2_p200e20_vis8_rep0',
-    #     'singlecorner_exp_CNN1124_FNN2_p200e20_vis8_rep1',
-    #     'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep0',
-    #     'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep1',
-    #     'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep2',
-    #     'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep3',
-    #     'singlecorner_exp_CNN1124_FNN16_p50e20_vis8_rep4',
-    #     'singlecorner_exp_CNN1128_FNN2_p50e20_vis8_rep0',
-    #     'singlecorner_exp_CNN1128_FNN2_p50e20_vis8_rep1',
-    #     'singlecorner_exp_CNN1128_FNN2_p50e20_vis8_rep2',
-    #     'singlecorner_exp_CNN1128_FNN2_p50e20_vis8_rep3',
-    #     'singlecorner_exp_CNN1128_FNN2_p50e20_vis8_rep4',
-    #     'singlecorner_exp_CNN18_FNN2_p50e20_vis8_rep0',
-    #     'singlecorner_exp_CNN18_FNN2_p50e20_vis8_rep1',
-    #     'singlecorner_exp_CNN18_FNN2_p50e20_vis8_rep2',
-    #     'singlecorner_exp_CNN18_FNN2_p50e20_vis8_rep3',
-    #     'singlecorner_exp_CNN18_FNN2_p50e20_vis8_rep4',
-    #     'singlecorner_exp_CNN14_FNN2_p50e20_vis8_rep0',
-    #     'singlecorner_exp_CNN14_FNN2_p50e20_vis8_rep1',
-    #     'singlecorner_exp_CNN14_FNN2_p50e20_vis8_rep2',
-    #     'singlecorner_exp_CNN14_FNN2_p50e20_vis8_rep3',
-    #     'singlecorner_exp_CNN14_FNN2_p50e20_vis8_rep4',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss075_rep0',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss075_rep1',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_rep0',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_rep1',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep4',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom7_rep2',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom7_rep4',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_mom8_rep2',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_mom8_rep4',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep0',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep1',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep2',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep3',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2',
-    #     'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3',
+    #     'sc_CNN1124_FNN2_p50e15_vis8_rep0',
+        # 'sc_CNN1124_FNN2_p50e15_vis8_rep1',
+    #     'sc_CNN1124_FNN2_p50e15_vis8_rep2',
+    #     'sc_CNN1124_FNN2_p50e15_vis8_rep3',
+    #     'sc_CNN1124_FNN2_p50e15_vis8_rep4',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_rep0',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_rep1',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_rep2',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_rep3',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_rep4',
+    #     'sc_CNN1124_FNN2_p100e20_vis8_rep0',
+    #     'sc_CNN1124_FNN2_p100e20_vis8_rep1',
+    #     'sc_CNN1124_FNN2_p100e20_vis8_rep2',
+    #     'sc_CNN1124_FNN2_p200e20_vis8_rep0',
+    #     'sc_CNN1124_FNN2_p200e20_vis8_rep1',
+    #     'sc_CNN1124_FNN16_p50e20_vis8_rep0',
+    #     'sc_CNN1124_FNN16_p50e20_vis8_rep1',
+    #     'sc_CNN1124_FNN16_p50e20_vis8_rep2',
+    #     'sc_CNN1124_FNN16_p50e20_vis8_rep3',
+    #     'sc_CNN1124_FNN16_p50e20_vis8_rep4',
+    #     'sc_CNN1128_FNN2_p50e20_vis8_rep0',
+    #     'sc_CNN1128_FNN2_p50e20_vis8_rep1',
+    #     'sc_CNN1128_FNN2_p50e20_vis8_rep2',
+    #     'sc_CNN1128_FNN2_p50e20_vis8_rep3',
+    #     'sc_CNN1128_FNN2_p50e20_vis8_rep4',
+    #     'sc_CNN18_FNN2_p50e20_vis8_rep0',
+    #     'sc_CNN18_FNN2_p50e20_vis8_rep1',
+    #     'sc_CNN18_FNN2_p50e20_vis8_rep2',
+    #     'sc_CNN18_FNN2_p50e20_vis8_rep3',
+    #     'sc_CNN18_FNN2_p50e20_vis8_rep4',
+    #     'sc_CNN14_FNN2_p50e20_vis8_rep0',
+    #     'sc_CNN14_FNN2_p50e20_vis8_rep1',
+    #     'sc_CNN14_FNN2_p50e20_vis8_rep2',
+    #     'sc_CNN14_FNN2_p50e20_vis8_rep3',
+    #     'sc_CNN14_FNN2_p50e20_vis8_rep4',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss075_rep0',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss075_rep1',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_rep0',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_rep1',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep4',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom7_rep2',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom7_rep4',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_mom8_rep2',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss10_mom8_rep4',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep0',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep1',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep2',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_mom8_rep3',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2',
+    #     'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3',
         # ]
 
     for name in names:
@@ -924,8 +924,8 @@ if __name__ == '__main__':
 
 
     # names = [
-    #     'singlecorner_exp_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3',
-    #     # 'singlecorner_exp_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'
+    #     'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3',
+    #     # 'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'
     #     ]
     # gens = [
     #     'gen956',
