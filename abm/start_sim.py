@@ -38,13 +38,13 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # envconf['LOG_ZARR_FILE'] = 0
 
             # envconf['WITH_VISUALIZATION'] = 1
-            # envconf['PLOT_TRAJECTORY'] = 1
-            # envconf['INIT_FRAMERATE'] = 10
+            # envconf['INIT_FRAMERATE'] = 1
 
             # envconf['N'] = 15
             # envconf['T'] = 200
             # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
+            # envconf['VIS_TRANSFORM'] = ''
 
             NN, arch = reconstruct_NN(envconf, pv)
 
@@ -82,6 +82,8 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                          max_res_quality        =float(envconf["MAX_RESOURCE_QUALITY"]),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                          NN                     =NN,
+                         other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
+                         vis_transform          =str(envconf["VIS_TRANSFORM"]),
                          )
         t, d, elapsed_time = sim.start()
 
@@ -151,8 +153,8 @@ if __name__ == '__main__':
     #     print(envconf['EA_STEP_MU'])
 
 
-    exp_name = 'sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'
-    gen_ext = 'gen790'
+    # exp_name = 'sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'
+    # gen_ext = 'gen790'
     # exp_name = 'sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'
     # gen_ext = 'gen979'
 
@@ -165,6 +167,10 @@ if __name__ == '__main__':
     # gen_ext = 'gen968'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep0'
     # gen_ext = 'gen831'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep5'
+    # gen_ext = 'gen765'
+    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep8'
+    gen_ext = 'gen893'
 
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
@@ -174,4 +180,4 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=2)
+    start(pv=pv, env_path=env_path, seed=1)

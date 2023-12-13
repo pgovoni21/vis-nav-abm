@@ -21,7 +21,7 @@ class Simulation:
                  N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, min_res_perpatch, max_res_perpatch, min_res_quality, max_res_quality, regenerate_patches, 
-                 NN, 
+                 NN, other_input, vis_transform
                  ):
         """
         Initializing the main simulation instance
@@ -78,14 +78,6 @@ class Simulation:
             np.array([ width, height ])
         ]
         self.boundary_endpts_wp = [endpt + self.window_pad for endpt in self.boundary_endpts]
-
-        self.spwn_endpts = [
-            np.array([ width*.4, height*.4 ]),
-            np.array([ width*.6, height*.4 ]),
-            np.array([ width*.4, height*.6 ]),
-            np.array([ width*.6, height*.6 ])
-        ]
-        self.spwn_endpts_wp = [endpt + self.window_pad for endpt in self.spwn_endpts]
 
         # Simulation parameters
         self.N = N
@@ -144,6 +136,11 @@ class Simulation:
         else:       self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
         # self.num_class_elements = 4
 
+        self.other_input = other_input
+        self.max_dist = np.hypot(self.WIDTH, self.HEIGHT)
+        self.min_dist = agent_radius*2
+        self.vis_transform = vis_transform
+
         # Initializing pygame
         if self.with_visualization:
             pygame.init()
@@ -169,12 +166,6 @@ class Simulation:
         pygame.draw.line(self.screen, colors.BLACK, TR, BR)
         pygame.draw.line(self.screen, colors.BLACK, BR, BL)
         pygame.draw.line(self.screen, colors.BLACK, BL, TL)
-
-        TL,TR,BL,BR = self.spwn_endpts_wp
-        pygame.draw.line(self.screen, colors.GREY, TL, TR)
-        pygame.draw.line(self.screen, colors.GREY, TR, BR)
-        pygame.draw.line(self.screen, colors.GREY, BR, BL)
-        pygame.draw.line(self.screen, colors.GREY, BL, TL)
 
     def draw_status(self):
         """Showing framerate, sim time and pause status on simulation windows"""
@@ -222,15 +213,25 @@ class Simulation:
                                start_pos[1] - np.sin(angle) * vis_proj_distance)
                     pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
 
-            # for each visual field ray
+            # draw projections as gray lines, either ending at walls (if dist_field is calculated) or extending beyond
+            if self.vis_transform:
+                for phi, vis_name, dist in zip(agent.phis, agent.vis_field, agent.dist_field):
+
+                    end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * dist,
+                                start_pos[1] - np.sin(agent.orientation - phi) * dist)
+                    pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
+                    pygame.draw.circle(self.screen, colors.BLACK, end_pos, 2)
+
+            else:
+                for phi, vis_name in zip(agent.phis, agent.vis_field):
+
+                    end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * 1500,
+                                start_pos[1] - np.sin(agent.orientation - phi) * 1500)
+                    pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
+
+            # draw bubbles reflecting perceived identities (wall/agents)
             for phi, vis_name in zip(agent.phis, agent.vis_field):
 
-                # # draw projections as gray lines
-                # end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * 1500,
-                #             start_pos[1] - np.sin(agent.orientation - phi) * 1500)
-                # pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
-
-                # draw bubbles reflecting perceived identities (wall/agents)
                 if vis_name == 'wall_north': # --> red
                     pygame.draw.circle(
                         self.screen, colors.TOMATO, 
@@ -273,6 +274,7 @@ class Simulation:
         """Drawing environment, agents and every other visualization in each timestep"""
         pygame.display.flip()
         self.screen.fill(colors.WHITE)
+        # pygame.draw.circle(self.screen, colors.BLACK, (700,425), 5)
         self.walls.draw(self.screen)
         self.resources.draw(self.screen)
         self.agents.draw(self.screen)
@@ -328,18 +330,25 @@ class Simulation:
                 
                 orient = np.random.uniform(0, 2 * np.pi)
 
-                # x,y = 800,800
-                # orient = 1.5
-
-                # x,y = 850,50
-                # orient = 1.5
-
-                # x,y = 950,50
-                # orient = 3.7
                 # x,y = 950,950
-                # orient = 2.1
+                # orient = 3
                 # x,y = 50,950
-                # orient = .7
+                # orient = 0
+                # x,y = 800,200
+                # orient = 4.5
+                # x,y = 50,600
+                # orient = 4.5
+                # x,y = 400,100
+                # orient = 3
+                # x,y = 700,500
+                # orient = 1.5
+                # x,y = 700,250
+                # orient = 4.5
+                # x,y = 25,900
+                # orient = 3
+
+                # x,y = 300,50
+                # orient = 3
 
                 agent = Agent(
                         id=0,
@@ -356,6 +365,7 @@ class Simulation:
                         window_pad=self.window_pad,
                         radius=self.agent_radii,
                         color=colors.BLUE,
+                        vis_transform=self.vis_transform,
                     )
                 
                 colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
@@ -385,7 +395,6 @@ class Simulation:
             #     (700, 900, 1.5),
             # ])
 
-
             for i in range(self.N):
 
                 colliding_resources = [0]
@@ -407,7 +416,7 @@ class Simulation:
                     # x,y,orient = edges[i,:]
 
                     agent = Agent(
-                            id=0,
+                            id=i,
                             position=(x, y),
                             orientation=orient,
                             max_vel=self.max_vel,
@@ -421,6 +430,7 @@ class Simulation:
                             window_pad=self.window_pad,
                             radius=self.agent_radii,
                             color=colors.BLUE,
+                            vis_transform=self.vis_transform,
                         )
                     
                     colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
@@ -531,7 +541,7 @@ class Simulation:
                 clip = agent.rect.clip(wall.rect)
                 if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
 
-                # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
+                # print(f'agent {agent.rect.center, agent.position} collided with {wall.id} @ {clip.center}')
 
                 agent.collided_points.append(np.array(clip.center) - self.window_pad)
 
@@ -689,12 +699,30 @@ class Simulation:
 
                     # Observe + encode sensory inputs
                     vis_input = agent.encode_one_hot(agent.vis_field)
+                    dist_input = np.array(agent.dist_field)
+
+                    if self.vis_transform != '':
+                        if self.vis_transform == 'close':
+                            dist_input = (1 - dist_input + self.max_dist) / self.max_dist
+                            vis_input *= dist_input
+                        elif self.vis_transform == 'far':
+                            dist_input = 1/np.power(dist_input/self.min_dist, 1)
+                            vis_input *= dist_input
+                        elif self.vis_transform == 'minmax':
+                            dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                            vis_input *= dist_input
+                        elif self.vis_transform == 'minmax_buffer':
+                            dist_input = (dist_input - self.min_dist+50)/(self.max_dist+50 - self.min_dist+50)
+                            vis_input *= dist_input
+
                     # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
                     # else:                       other_input = np.array([agent.on_res, 0])
 
-                    # Calculate action 
-                    # agent.action, agent.hidden = agent.model.forward(vis_input, other_input, agent.hidden)
-                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res]), agent.hidden)
+                    # Calculate action
+                    if self.other_input == 2:
+                        agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res, agent.acceleration / self.max_vel]), agent.hidden)
+                    else:
+                        agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res]), agent.hidden)
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':

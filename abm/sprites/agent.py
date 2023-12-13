@@ -18,7 +18,7 @@ class Agent(pygame.sprite.Sprite):
     # @timer
     def __init__(self, id, position, orientation, max_vel, 
                  FOV, vision_range, num_class_elements, vis_field_res, consumption,
-                 model, boundary_endpts, window_pad, radius, color):
+                 model, boundary_endpts, window_pad, radius, color, vis_transform):
         """
         Initalization method of main agent class of the simulations
 
@@ -45,6 +45,7 @@ class Agent(pygame.sprite.Sprite):
         self.position = np.array(position, dtype=np.float64)
         self.orientation = orientation
         self.velocity = 0  # (absolute)
+        self.acceleration = 0
         
         self.pt_eye = np.array([
             self.position[0] + np.cos(orientation) * radius, 
@@ -56,10 +57,16 @@ class Agent(pygame.sprite.Sprite):
 
         # Visual field parameters
         self.vis_field_res = vis_field_res
+        # FOV = 0.41
+        # FOV = 0.45
         self.FOV = FOV
         self.phis = np.linspace(-FOV*np.pi, FOV*np.pi, vis_field_res) # array of raycasts (- : left / + : right)
         self.vision_range = vision_range
         self.vis_field = [0] * vis_field_res
+        if vis_transform:
+            self.dist_field = [0] * vis_field_res
+        else:
+            self.dist_field = None
         self.num_class_elements = num_class_elements
 
         # Resource parameters
@@ -77,6 +84,8 @@ class Agent(pygame.sprite.Sprite):
         TL,TR,BL,BR = boundary_endpts
         self.window_pad = window_pad
         # define names for each endpoint (top/bottom + left/right)
+        # TL = np.array([ 100, 0 ])
+        # TL = np.array([ 0, 100 ])
         self.boundary_endpts = [
             ('TL', TL),
             ('TR', TR),
@@ -114,6 +123,7 @@ class Agent(pygame.sprite.Sprite):
         ## where v1[0] --> + : right, 0 : center, - : left, 10 : max
         ## where v1[1] --> + : down, 0 : center, - : up, 10 : max
 
+    # @timer
     def gather_boundary_endpt_info(self):
         """
         create dictionary storing visually relevant information for each boundary endpoint
@@ -136,7 +146,7 @@ class Agent(pygame.sprite.Sprite):
             ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
 
             # update dictionary with added info
-            self.boundary_endpt_dict[endpt_name] = angle_bw
+            self.boundary_endpt_dict[endpt_name] = (angle_bw, endpt_coord)
 
             # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}'
 
@@ -156,12 +166,14 @@ class Agent(pygame.sprite.Sprite):
         for wall_name, pt_L, pt_R in walls:
 
             # unpack dict entry for each corresponding endpt
-            angle_L = self.boundary_endpt_dict[pt_L]
-            angle_R = self.boundary_endpt_dict[pt_R]
+            angle_L, coord_L = self.boundary_endpt_dict[pt_L]
+            angle_R, coord_R = self.boundary_endpt_dict[pt_R]
 
             self.vis_field_wall_dict[wall_name] = {}
             self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
             self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
+            self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
+            self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
 
     # @timer
     def gather_agent_info(self, agents):
@@ -202,17 +214,22 @@ class Agent(pygame.sprite.Sprite):
                         self.vis_field_agent_dict[agent_name]['angle_L'] = angle_L
                         self.vis_field_agent_dict[agent_name]['angle_R'] = angle_R
 
+    # @timer
     def fill_vis_field_walls(self):
         """
         Mark projection field according to each wall
         """
         # for each discretized perception angle within FOV range
-        for i in range(self.vis_field_res):
+        # for i in range(self.vis_field_res):
+        for i,phi in enumerate(self.phis):
 
             # look for intersections
             for obj_name, v in self.vis_field_wall_dict.items():
                 if v["angle_L"] <= self.phis[i] <= v["angle_R"]:
                     self.vis_field[i] = obj_name
+
+                    if self.dist_field is not None:
+                        self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
             
             # no intersections bc one endpoint is behind back, iterate again
             if self.vis_field[i] == 0:
@@ -220,7 +237,26 @@ class Agent(pygame.sprite.Sprite):
                     if v["angle_L"] > v["angle_R"]:
                         self.vis_field[i] = obj_name
 
+                    if self.dist_field is not None:
+                        self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
+    
 
+    def fill_dist_field(self, i, phi, coord_L, coord_R):
+
+        # transfrom perception ray angle to vector to coord
+        orient_global = phi - self.orientation
+        vec_percep = np.array([ np.cos(orient_global), np.sin(orient_global) ])
+        pt_percep = self.pt_eye + vec_percep
+
+        # find where perception ray intersects with boundary/object + calc distance
+        pt_cross = supcalc.get_intersection( coord_L,coord_R, self.pt_eye,pt_percep )
+        if pt_cross is None: print('error: perception ray is parallel to perceived edge') # shouldn't happen
+
+        # fill in appropriate field entry with calculated distance
+        distance = np.linalg.norm(self.pt_eye - pt_cross)
+        self.dist_field[i] = distance
+
+    # @timer
     def fill_vis_field_agents(self):
         """
         Mark projection field according to each agent
@@ -251,6 +287,8 @@ class Agent(pygame.sprite.Sprite):
         """
         # Zero from previous step
         self.vis_field = [0] * self.vis_field_res
+        if self.dist_field is not None:
+            self.dist_field = [0] * self.vis_field_res
 
         # Gather relevant info for self / boundary endpoints / walls
         self.gather_self_percep_info()
@@ -289,7 +327,9 @@ class Agent(pygame.sprite.Sprite):
         self.bind_orientation()
 
         # Update velocity (constrained by turn angle)
+        velocity_last_step = self.velocity
         self.velocity = self.max_vel * (1 - abs(NN_output))
+        self.acceleration = self.velocity - velocity_last_step
 
         # Check for velocity-stopping collisions for each point of contact
         if self.mode == 'collide':
