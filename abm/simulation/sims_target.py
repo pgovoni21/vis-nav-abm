@@ -21,7 +21,7 @@ class Simulation:
                  N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, min_res_perpatch, max_res_perpatch, min_res_quality, max_res_quality, regenerate_patches, 
-                 NN, other_input, vis_transform
+                 NN, other_input, vis_transform, sensory_noise_std
                  ):
         """
         Initializing the main simulation instance
@@ -140,6 +140,7 @@ class Simulation:
         self.max_dist = np.hypot(self.WIDTH, self.HEIGHT)
         self.min_dist = agent_radius*2
         self.vis_transform = vis_transform
+        self.sensory_noise_std = sensory_noise_std
 
         # Initializing pygame
         if self.with_visualization:
@@ -215,12 +216,67 @@ class Simulation:
 
             # draw projections as gray lines, either ending at walls (if dist_field is calculated) or extending beyond
             if self.vis_transform:
+
+                dist_input = np.array(agent.dist_field)
+
+                if self.vis_transform == 'close':
+                    dist_input = (1 - dist_input + self.max_dist) / self.max_dist
+                elif self.vis_transform == 'far':
+                    dist_input = 1/np.power(dist_input/self.min_dist, 1)
+                elif self.vis_transform == 'minmax':
+                    dist_input = 1-(dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                elif self.vis_transform == 'WF':
+                    dist_input = 1.5-np.log(dist_input)/5
+
+                dist_input += np.random.randn(self.vis_field_res) * self.sensory_noise_std
+                # dist_input += np.random.randn(self.vis_field_res) * .5
+
                 for phi, vis_name, dist in zip(agent.phis, agent.vis_field, agent.dist_field):
 
                     end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * dist,
                                 start_pos[1] - np.sin(agent.orientation - phi) * dist)
                     pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
                     pygame.draw.circle(self.screen, colors.BLACK, end_pos, 2)
+
+                # draw bubbles reflecting perceived identities (wall/agents)
+                for phi, vis_name, dist_input in zip(agent.phis, agent.vis_field, dist_input):
+
+                    if vis_name == 'wall_north': # --> red
+                        pygame.draw.circle(
+                            self.screen, colors.TOMATO, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                    elif vis_name == 'wall_south': # --> green
+                        pygame.draw.circle(
+                            self.screen, colors.LIME, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                    elif vis_name == 'wall_east': # --> blue
+                        pygame.draw.circle(
+                            self.screen, colors.CORN, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                    elif vis_name == 'wall_west': # --> yellow
+                        pygame.draw.circle(
+                            self.screen, colors.GOLD, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                    elif vis_name == 'agent_exploit':
+                        pygame.draw.circle(
+                            self.screen, colors.VIOLET, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                    else: # vis_name == 'agent_explore':
+                        pygame.draw.circle(
+                            self.screen, colors.BLACK, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
 
             else:
                 for phi, vis_name in zip(agent.phis, agent.vis_field):
@@ -229,45 +285,45 @@ class Simulation:
                                 start_pos[1] - np.sin(agent.orientation - phi) * 1500)
                     pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
 
-            # draw bubbles reflecting perceived identities (wall/agents)
-            for phi, vis_name in zip(agent.phis, agent.vis_field):
+                # draw bubbles reflecting perceived identities (wall/agents)
+                for phi, vis_name in zip(agent.phis, agent.vis_field):
 
-                if vis_name == 'wall_north': # --> red
-                    pygame.draw.circle(
-                        self.screen, colors.TOMATO, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                        radius = vis_project_IDbubble_size)
-                elif vis_name == 'wall_south': # --> green
-                    pygame.draw.circle(
-                        self.screen, colors.LIME, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                        radius = vis_project_IDbubble_size)
-                elif vis_name == 'wall_east': # --> blue
-                    pygame.draw.circle(
-                        self.screen, colors.CORN, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                        radius = vis_project_IDbubble_size)
-                elif vis_name == 'wall_west': # --> yellow
-                    pygame.draw.circle(
-                        self.screen, colors.GOLD, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                        radius = vis_project_IDbubble_size)
-                elif vis_name == 'agent_exploit':
-                    pygame.draw.circle(
-                        self.screen, colors.VIOLET, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                        radius = vis_project_IDbubble_size)
-                else: # vis_name == 'agent_explore':
-                    pygame.draw.circle(
-                        self.screen, colors.BLACK, 
-                        (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                        radius = vis_project_IDbubble_size)
+                    if vis_name == 'wall_north': # --> red
+                        pygame.draw.circle(
+                            self.screen, colors.TOMATO, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = vis_project_IDbubble_size)
+                    elif vis_name == 'wall_south': # --> green
+                        pygame.draw.circle(
+                            self.screen, colors.LIME, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = vis_project_IDbubble_size)
+                    elif vis_name == 'wall_east': # --> blue
+                        pygame.draw.circle(
+                            self.screen, colors.CORN, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = vis_project_IDbubble_size)
+                    elif vis_name == 'wall_west': # --> yellow
+                        pygame.draw.circle(
+                            self.screen, colors.GOLD, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = vis_project_IDbubble_size)
+                    elif vis_name == 'agent_exploit':
+                        pygame.draw.circle(
+                            self.screen, colors.VIOLET, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = vis_project_IDbubble_size)
+                    else: # vis_name == 'agent_explore':
+                        pygame.draw.circle(
+                            self.screen, colors.BLACK, 
+                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                            radius = vis_project_IDbubble_size)
 
     # @timer
     def draw_frame(self):
@@ -704,16 +760,33 @@ class Simulation:
                     if self.vis_transform != '':
                         if self.vis_transform == 'close':
                             dist_input = (1 - dist_input + self.max_dist) / self.max_dist
-                            vis_input *= dist_input
+                            # dist_input2 = 1-(dist_input - self.min_dist)/(self.max_dist - self.min_dist)
                         elif self.vis_transform == 'far':
                             dist_input = 1/np.power(dist_input/self.min_dist, 1)
-                            vis_input *= dist_input
                         elif self.vis_transform == 'minmax':
                             dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
-                            vis_input *= dist_input
-                        elif self.vis_transform == 'minmax_buffer':
-                            dist_input = (dist_input - self.min_dist+50)/(self.max_dist+50 - self.min_dist+50)
-                            vis_input *= dist_input
+                        elif self.vis_transform == 'WF':
+                            dist_input = 1.24 - np.log(dist_input) / 7 # bounds [min, max] within [0.2, 0.8]
+                        # elif self.vis_transform == 'minmax_buffer':
+                        #     dist_input = (dist_input - self.min_dist+50)/(self.max_dist+50 - self.min_dist+50)
+                        #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
+                        #     vis_input *= dist_input
+                        # elif self.vis_transform == 'minmax_scalp1':
+                        #     dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                        #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
+                        #     vis_input -= dist_input*.1
+                        # elif self.vis_transform == 'minmax_scalp5':
+                        #     dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                        #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
+                        #     vis_input -= dist_input*.5
+                    
+                        # add noise + clip
+                        dist_input += np.random.randn(dist_input.shape[0]) * self.sensory_noise_std
+                        dist_input = np.clip(dist_input, 0,1)
+
+                        vis_input *= dist_input
+
+                    # print(np.round(np.sum(vis_input,axis=0),2))
 
                     # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
                     # else:                       other_input = np.array([agent.on_res, 0])

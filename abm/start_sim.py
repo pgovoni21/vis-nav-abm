@@ -45,6 +45,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
             # envconf['VIS_TRANSFORM'] = ''
+            # envconf['SENSORY_NOISE_STD'] = .2
 
             NN, arch = reconstruct_NN(envconf, pv)
 
@@ -84,6 +85,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                          NN                     =NN,
                          other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                          vis_transform          =str(envconf["VIS_TRANSFORM"]),
+                         sensory_noise_std      =float(envconf["SENSORY_NOISE_STD"]),
                          )
         t, d, elapsed_time = sim.start()
 
@@ -169,9 +171,15 @@ if __name__ == '__main__':
     # gen_ext = 'gen831'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep5'
     # gen_ext = 'gen765'
-    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep8'
-    gen_ext = 'gen893'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep8'
+    # gen_ext = 'gen893'
 
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_far_rep13'
+    # gen_ext = 'gen990'
+    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_close_rep1'
+    gen_ext = 'gen956'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep0'
+    # gen_ext = 'gen857'
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
@@ -180,4 +188,4 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=1)
+    start(pv=pv, env_path=env_path, seed=2)
