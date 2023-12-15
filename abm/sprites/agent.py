@@ -237,8 +237,8 @@ class Agent(pygame.sprite.Sprite):
                     if v["angle_L"] > v["angle_R"]:
                         self.vis_field[i] = obj_name
 
-                    if self.dist_field is not None:
-                        self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
+                        if self.dist_field is not None:
+                            self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
     
 
     def fill_dist_field(self, i, phi, coord_L, coord_R):

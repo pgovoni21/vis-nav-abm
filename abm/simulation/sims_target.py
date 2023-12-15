@@ -138,7 +138,7 @@ class Simulation:
 
         self.other_input = other_input
         self.max_dist = np.hypot(self.WIDTH, self.HEIGHT)
-        self.min_dist = agent_radius*2
+        self.min_dist = agent_radius
         self.vis_transform = vis_transform
         self.sensory_noise_std = sensory_noise_std
 
@@ -218,7 +218,6 @@ class Simulation:
             if self.vis_transform:
 
                 dist_input = np.array(agent.dist_field)
-
                 if self.vis_transform == 'close':
                     dist_input = (1 - dist_input + self.max_dist) / self.max_dist
                 elif self.vis_transform == 'far':
@@ -227,20 +226,17 @@ class Simulation:
                     dist_input = 1-(dist_input - self.min_dist)/(self.max_dist - self.min_dist)
                 elif self.vis_transform == 'WF':
                     dist_input = 1.5-np.log(dist_input)/5
-
                 dist_input += np.random.randn(self.vis_field_res) * self.sensory_noise_std
-                # dist_input += np.random.randn(self.vis_field_res) * .5
 
-                for phi, vis_name, dist in zip(agent.phis, agent.vis_field, agent.dist_field):
+                for phi, vis_name, dist, dist_input in zip(agent.phis, agent.vis_field, agent.dist_field, dist_input):
 
+                    # draw lines to walls + bubble at wall end
                     end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * dist,
                                 start_pos[1] - np.sin(agent.orientation - phi) * dist)
                     pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
                     pygame.draw.circle(self.screen, colors.BLACK, end_pos, 2)
 
-                # draw bubbles reflecting perceived identities (wall/agents)
-                for phi, vis_name, dist_input in zip(agent.phis, agent.vis_field, dist_input):
-
+                    # draw bubbles reflecting perceived identities (wall/agents) with radius proportional to dist_input
                     if vis_name == 'wall_north': # --> red
                         pygame.draw.circle(
                             self.screen, colors.TOMATO, 
@@ -281,13 +277,12 @@ class Simulation:
             else:
                 for phi, vis_name in zip(agent.phis, agent.vis_field):
 
+                    # draw lines to walls
                     end_pos = (start_pos[0] + np.cos(agent.orientation - phi) * 1500,
                                 start_pos[1] - np.sin(agent.orientation - phi) * 1500)
                     pygame.draw.line(self.screen, colors.GREY, start_pos, end_pos, 1)
 
-                # draw bubbles reflecting perceived identities (wall/agents)
-                for phi, vis_name in zip(agent.phis, agent.vis_field):
-
+                    # draw bubbles reflecting perceived identities (wall/agents)
                     if vis_name == 'wall_north': # --> red
                         pygame.draw.circle(
                             self.screen, colors.TOMATO, 
@@ -386,7 +381,7 @@ class Simulation:
                 
                 orient = np.random.uniform(0, 2 * np.pi)
 
-                # x,y = 950,950
+                # x,y = 980,980
                 # orient = 3
                 # x,y = 50,950
                 # orient = 0
@@ -758,17 +753,20 @@ class Simulation:
                     dist_input = np.array(agent.dist_field)
 
                     if self.vis_transform != '':
-                        if self.vis_transform == 'close':
-                            dist_input = (1 - dist_input + self.max_dist) / self.max_dist
-                            # dist_input2 = 1-(dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                        if self.vis_transform == 'minmax':
+                            dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist) # flipped --> todo: switch + scale
                         elif self.vis_transform == 'far':
-                            dist_input = 1/np.power(dist_input/self.min_dist, 1)
-                        elif self.vis_transform == 'minmax':
-                            dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                            dist_input = ( self.min_dist / dist_input + .25 ) / 1.25
+                        elif self.vis_transform == 'mfar':
+                            dist_input = ( np.power(self.min_dist / dist_input, 1.2) + .25 ) / 1.25
+                        elif self.vis_transform == 'vfar':
+                            dist_input = ( np.power(self.min_dist / dist_input, 2) + .25 ) / 1.25
                         elif self.vis_transform == 'WF':
-                            dist_input = 1.24 - np.log(dist_input) / 7 # bounds [min, max] within [0.2, 0.8]
+                            dist_input = 1.24 - np.log(dist_input) / 7 # bounds [min, max] within [0.2, 0.9]
+                        elif self.vis_transform == 'sWF':
+                            dist_input = .7 - np.log(dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
                         # elif self.vis_transform == 'minmax_buffer':
-                        #     dist_input = (dist_input - self.min_dist+50)/(self.max_dist+50 - self.min_dist+50)
+                        #     dist_input = (dist_input - self.min_dist + 100)/(self.max_dist - self.min_dist + 200)
                         #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
                         #     vis_input *= dist_input
                         # elif self.vis_transform == 'minmax_scalp1':
@@ -786,7 +784,7 @@ class Simulation:
 
                         vis_input *= dist_input
 
-                    # print(np.round(np.sum(vis_input,axis=0),2))
+                    # print(np.round(np.sum(vis_input,axis=0),4))
 
                     # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
                     # else:                       other_input = np.array([agent.on_res, 0])
