@@ -3,31 +3,30 @@ from abm.monitoring.agent_vis_matrices import find_top_val_gen
 from pathlib import Path
 import numpy as np
 
-from sklearn.preprocessing import scale, ICA
-from sklearn.decomposition import PCA
+from sklearn.preprocessing import scale
+from sklearn.decomposition import PCA, FastICA
 
 import matplotlib.pyplot as plt
 import _pickle as pickle
 
 
-def plot_CNN_analysis(exp_name, gen_ext, space_step, orient_step, timesteps, n_CNN_filters, analysis='pca'):
+def comp_analysis(exp_name, gen_ext, space_step, orient_step, timesteps, 
+                      vis_field_res, n_CNN_filters, analysis='pca'):
 
-    print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
+    print(f'analyzing {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}.bin', 'rb') as f:
         data = pickle.load(f)
     traj_data, res_data = data
     print('Raw data shape: (agents, time points, neurons): ', traj_data.shape)
 
-    # slice relevant data out
-    vis_field_res = 8
-
+    # slice relevant data out for each plot
     plots = [
         ('input', 3, 3+vis_field_res),
         ('CNN', 3+vis_field_res, 3+vis_field_res + n_CNN_filters),
-        ('output', 3+vis_field_res, -1),
+        # ('output', 3+vis_field_res, None),
         ]
-    
+
     for name, start, end in plots:
         print(f'Plot name: {name}')
         sliced_data = traj_data[:,:,start:end]
@@ -35,28 +34,41 @@ def plot_CNN_analysis(exp_name, gen_ext, space_step, orient_step, timesteps, n_C
         # reshape/flatten trajectories
         n_ag, n_tp, n_feat = sliced_data.shape
         sliced_data = sliced_data.reshape((n_ag*n_tp, n_feat))
-        print('Neural activity shape: (time points, neurons): ', sliced_data.shape)
+        print('Neural activity shape: (time points, features): ', sliced_data.shape)
 
-        # scale + fit analysis according to number of input dimensions+
+        # scale + fit analysis according to number of input dimensions
         if analysis == 'pca':
-            analyzed_data = PCA().fit(scale(sliced_data))
-            expl_var = analyzed_data.explained_variance_ratio_
+            est = PCA().fit(scale(sliced_data))
+            expl_var = est.explained_variance_ratio_
+            projected_data = est.transform(scale(sliced_data))
+
         elif analysis == 'ica':
-            analyzed_data = ICA().fit(scale(sliced_data))
-            expl_var = analyzed_data.pca_explained_variance_ratio_
+            est = FastICA(whiten="arbitrary-variance").fit(scale(sliced_data))
+            projected_data = est.transform(scale(sliced_data))
+
+        reshap_proj_data = projected_data.reshape((n_ag, n_tp, n_feat))
+        print('Projected data shape: (agents, time points, features): ', reshap_proj_data.shape)
+        new_traj_data = np.concatenate( (traj_data[:,:,:3], reshap_proj_data), axis=2 )
+        print('Traj data shape: (agents, time points, features): ', new_traj_data.shape)
+        new_data = new_traj_data, res_data
         # print('Explained variance by component: ', pca.explained_variance_)
 
-        # explained variance as cumulative line + 95% cutoff + individual contribution bar
-        plt.plot(np.cumsum(analyzed_data.explained_variance_ratio_))
-        plt.hlines(.95,0,n_feat, linestyles='dashed')
+        # save projected array
+        with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{analysis}_{name}_projdata.bin', 'wb') as f:
+            pickle.dump(new_data, f)
 
-        plt.bar(range(n_feat), analyzed_data.explained_variance_ratio_, alpha=.5)
-        plt.xlabel('number of components')
-        plt.ylabel('cumulative explained variance');
+        if analysis == 'pca':
+            # explained variance as cumulative line + 95% cutoff + individual contribution bar
+            plt.plot(np.cumsum(expl_var))
+            plt.hlines(.95,0,n_feat, linestyles='dashed')
 
-        save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{analysis}_{name}'
-        plt.savefig(fr'{save_name}.png')
-        plt.close()
+            plt.bar(range(n_feat), expl_var, alpha=.5)
+            plt.xlabel('number of components')
+            plt.ylabel('cumulative explained variance');
+
+            save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{analysis}_{name}'
+            plt.savefig(fr'{save_name}.png')
+            plt.close()
 
 
     # # Project each trial and visualize activity
@@ -95,28 +107,29 @@ if __name__ == '__main__':
 
     names = []
 
-    names.append(('sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18', 2, 'cen'))
+    names.append(('sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18', 8, 2, 'cen'))
 
-    # names.append(('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1', 3, 'cen'))
-    # names.append(('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9', 3, 'cen'))
+    names.append(('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1', 8, 3, 'cen'))
+    names.append(('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9', 8, 3, 'cen'))
 
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1', 4, 'cen'))
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3', 4, 'cen'))
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10', 4, 'cen'))
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11', 4, 'cen'))
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14', 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1', 8, 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3', 8, 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10', 8, 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11', 8, 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14', 8, 4, 'cen'))
 
-    # names.append(('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9', 4, 'cen'))
-    # names.append(('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3', 4, 'top'))
-    # names.append(('sc_CNN1124_FNN2_p100e20_vis8_rep1', 4, 'top'))
+    names.append(('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9', 8, 4, 'cen'))
+    names.append(('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3', 8, 4, 'top'))
+    names.append(('sc_CNN1124_FNN2_p100e20_vis8_rep1', 8, 4, 'top'))
 
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep0', 4, 'cen'))
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep5', 4, 'cen'))
-    # names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep8', 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep0', 8, 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep5', 8, 4, 'cen'))
+    names.append(('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep8', 8, 4, 'cen'))
 
 
-    for name, n_CNN_filters, rank in names:
+    for name, vis_field_res, n_CNN_filters, rank in names:
         gen, valfit = find_top_val_gen(name, rank)
         print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
 
-        plot_CNN_analysis(name, gen, space_step, orient_step, timesteps, n_CNN_filters, 'ica')
+        # comp_analysis(name, gen, space_step, orient_step, timesteps, vis_field_res, n_CNN_filters, 'pca')
+        comp_analysis(name, gen, space_step, orient_step, timesteps, vis_field_res, n_CNN_filters, 'ica')

@@ -68,7 +68,6 @@ class Simulation:
         
         self.boundary_info = (0, width, 0, height)
         self.boundary_info_coll = (agent_radius*2, width - agent_radius*2, agent_radius*2, height - agent_radius*2)
-        # self.boundary_info_spwn_ag = (width*.3, width*.7, height*.3, height*.7)
         self.boundary_info_spwn_res = (width*.4, width*.6, height*.4, height*.6)
 
         self.boundary_endpts = [
@@ -218,15 +217,48 @@ class Simulation:
             if self.vis_transform:
 
                 dist_input = np.array(agent.dist_field)
-                if self.vis_transform == 'close':
-                    dist_input = (1 - dist_input + self.max_dist) / self.max_dist
+                # if self.vis_transform == 'close':
+                #     dist_input = (1 - dist_input + self.max_dist) / self.max_dist
+                # elif self.vis_transform == 'far':
+                #     dist_input = 1/np.power(dist_input/self.min_dist, 1)
+                # elif self.vis_transform == 'minmax':
+                #     dist_input = 1-(dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                # elif self.vis_transform == 'WF':
+                #     dist_input = 1.5-np.log(dist_input)/5
+                # dist_input += np.random.randn(self.vis_field_res) * self.sensory_noise_std
+
+                if self.vis_transform == 'minmax':
+                    dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist) # flipped --> todo: switch + scale
                 elif self.vis_transform == 'far':
-                    dist_input = 1/np.power(dist_input/self.min_dist, 1)
-                elif self.vis_transform == 'minmax':
-                    dist_input = 1-(dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                    dist_input = self.min_dist*2 / dist_input
+                # elif self.vis_transform == 'far':
+                #     dist_input = ( self.min_dist / dist_input + .25 ) / 1.25
+                # elif self.vis_transform == 'mfar':
+                #     dist_input = ( np.power(self.min_dist / dist_input, 1.2) + .25 ) / 1.25
+                # elif self.vis_transform == 'vfar':
+                #     dist_input = ( np.power(self.min_dist / dist_input, 2) + .25 ) / 1.25
                 elif self.vis_transform == 'WF':
-                    dist_input = 1.5-np.log(dist_input)/5
-                dist_input += np.random.randn(self.vis_field_res) * self.sensory_noise_std
+                    dist_input = 1.24 - np.log(dist_input) / 7 # bounds [min, max] within [0.2, 0.9]
+                elif self.vis_transform == 'mlWF':
+                    dist_input = 1 - np.log(dist_input) / 9.65 # bounds [min, max] within [0.25, 0.75]
+                elif self.vis_transform == 'mWF':
+                    dist_input = .9 - np.log(dist_input) / 12 # bounds [min, max] within [0.3, 0.7]
+                elif self.vis_transform == 'msWF':
+                    dist_input = .8 - np.log(dist_input) / 16 # bounds [min, max] within [0.35, 0.65]
+                elif self.vis_transform == 'sWF':
+                    dist_input = .7 - np.log(dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
+                # elif self.vis_transform == 'minmax_buffer':
+                #     dist_input = (dist_input - self.min_dist + 100)/(self.max_dist - self.min_dist + 200)
+                #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
+                #     vis_input *= dist_input
+                # elif self.vis_transform == 'minmax_scalp1':
+                #     dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
+                #     vis_input -= dist_input*.1
+                # elif self.vis_transform == 'minmax_scalp5':
+                #     dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
+                #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
+                #     vis_input -= dist_input*.5
 
                 for phi, vis_name, dist, dist_input in zip(agent.phis, agent.vis_field, agent.dist_field, dist_input):
 
@@ -367,7 +399,6 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
-        # x_min, x_max, y_min, y_max = self.boundary_info_spwn_ag
         x_min, x_max, y_min, y_max = self.boundary_info_coll
 
         if self.N == 1:
@@ -391,8 +422,8 @@ class Simulation:
                 # orient = 4.5
                 # x,y = 400,100
                 # orient = 3
-                # x,y = 700,500
-                # orient = 1.5
+                # x,y = 750,500
+                # orient = 0
                 # x,y = 700,250
                 # orient = 4.5
                 # x,y = 25,900
@@ -756,13 +787,21 @@ class Simulation:
                         if self.vis_transform == 'minmax':
                             dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist) # flipped --> todo: switch + scale
                         elif self.vis_transform == 'far':
-                            dist_input = ( self.min_dist / dist_input + .25 ) / 1.25
-                        elif self.vis_transform == 'mfar':
-                            dist_input = ( np.power(self.min_dist / dist_input, 1.2) + .25 ) / 1.25
-                        elif self.vis_transform == 'vfar':
-                            dist_input = ( np.power(self.min_dist / dist_input, 2) + .25 ) / 1.25
+                            dist_input = self.min_dist*2 / dist_input
+                        # elif self.vis_transform == 'far':
+                        #     dist_input = ( self.min_dist / dist_input + .25 ) / 1.25
+                        # elif self.vis_transform == 'mfar':
+                        #     dist_input = ( np.power(self.min_dist / dist_input, 1.2) + .25 ) / 1.25
+                        # elif self.vis_transform == 'vfar':
+                        #     dist_input = ( np.power(self.min_dist / dist_input, 2) + .25 ) / 1.25
                         elif self.vis_transform == 'WF':
                             dist_input = 1.24 - np.log(dist_input) / 7 # bounds [min, max] within [0.2, 0.9]
+                        elif self.vis_transform == 'mlWF':
+                            dist_input = 1 - np.log(dist_input) / 9.65 # bounds [min, max] within [0.25, 0.75]
+                        elif self.vis_transform == 'mWF':
+                            dist_input = .9 - np.log(dist_input) / 12 # bounds [min, max] within [0.3, 0.7]
+                        elif self.vis_transform == 'msWF':
+                            dist_input = .8 - np.log(dist_input) / 16 # bounds [min, max] within [0.35, 0.65]
                         elif self.vis_transform == 'sWF':
                             dist_input = .7 - np.log(dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
                         # elif self.vis_transform == 'minmax_buffer':
@@ -777,9 +816,12 @@ class Simulation:
                         #     dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
                         #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
                         #     vis_input -= dist_input*.5
-                    
-                        # add noise + clip
+
+                        # add noise + perturbation + clip
                         dist_input += np.random.randn(dist_input.shape[0]) * self.sensory_noise_std
+                        # dist_input *= 1.1
+                        # dist_input /= 1.5
+                        # dist_input += .05
                         dist_input = np.clip(dist_input, 0,1)
 
                         vis_input *= dist_input

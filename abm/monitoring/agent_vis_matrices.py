@@ -1,6 +1,7 @@
 from abm.start_sim import reconstruct_NN
 from abm.sprites.agent import Agent
 
+import os
 import dotenv as de
 from pathlib import Path
 import numpy as np
@@ -263,7 +264,7 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
     return action
 
 
-def build_action_matrix_parallel(exp_name, gen_ext, space_step, orient_step):
+def build_action_matrix(exp_name, gen_ext, space_step, orient_step):
 
     # pull pv + envconf from save folders
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -396,7 +397,7 @@ def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='hi
         s = 100*actions,
         )
 
-    # plt.savefig(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)_{transform}}.png')
+    plt.savefig(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_{transform}.png')
     plt.close()
 
 
@@ -437,8 +438,9 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     window_pad =int(envconf["WINDOW_PAD"])
     other_input = int(envconf["RNN_OTHER_INPUT_SIZE"])
     agent_radius = int(envconf["RADIUS_AGENT"])
-    vis_transform = ''
-    # vis_transform = str(envconf["VIS_TRANSFORM"])
+    # vis_transform = ''
+    vis_transform = str(envconf["VIS_TRANSFORM"])
+    noise_std = float(envconf["SENSORY_NOISE_STD"])
     max_dist = np.hypot(width, height)
     min_dist = agent_radius*2
 
@@ -466,15 +468,33 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
         agent.visual_sensing([])
         vis_input = agent.encode_one_hot(agent.vis_field)
 
-        dist_input = np.array(agent.dist_field)
-        if vis_transform == 'close':
-            dist_input = (1 - dist_input + max_dist) / max_dist
-            vis_input *= dist_input
-        elif vis_transform == 'far':
-            dist_input = 1/np.power(dist_input/(min_dist), 1)
-            vis_input *= dist_input
-        elif vis_transform == 'minmax':
-            dist_input = (dist_input - min_dist)/(max_dist - min_dist)
+        if vis_transform != '':
+            dist_input = np.array(agent.dist_field)
+            if vis_transform == 'close':
+                dist_input = (1 - dist_input + max_dist) / max_dist
+            elif vis_transform == 'far':
+                dist_input = 1/np.power(dist_input/(min_dist), 1)
+            elif vis_transform == 'minmax':
+                dist_input = (dist_input - min_dist)/(max_dist - min_dist)
+            elif vis_transform == 'WF':
+                dist_input = 1.24 - np.log(dist_input) / 7 # bounds [min, max] within [0.2, 0.9]
+            elif vis_transform == 'mlWF':
+                dist_input = 1 - np.log(dist_input) / 9.65 # bounds [min, max] within [0.25, 0.75]
+            elif vis_transform == 'mWF':
+                dist_input = .9 - np.log(dist_input) / 12 # bounds [min, max] within [0.3, 0.7]
+            elif vis_transform == 'msWF':
+                dist_input = .8 - np.log(dist_input) / 16 # bounds [min, max] within [0.35, 0.65]
+            elif vis_transform == 'sWF':
+                dist_input = .7 - np.log(dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
+
+            noise = np.random.randn(dist_input.shape[0]) * noise_std
+            # dist_input += np.random.randn(dist_input.shape[0]) * .2
+            # noise[noise > 0] = 0
+            # noise[noise < 0] = 0
+            dist_input += noise
+            # dist_input /= 1.5
+            # dist_input += .05
+            dist_input = np.clip(dist_input, 0,1)
             vis_input *= dist_input
 
         if other_input == 2:
@@ -957,17 +977,17 @@ def plot_agent_trajalls(exp_name, gen_ext, space_step, orient_step, timesteps):
         traj_plot_data = pickle.load(f)
 
     save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_vischange'
-    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=True)
+    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True)
     # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_visflat'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=False)
+    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=False)
     # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallN'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=True, wall=1)
+    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=1)
     # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallE'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=True, wall=2)
+    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=2)
     # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallS'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=True, wall=3)
+    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=3)
     # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallW'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=3, change=True, wall=4)
+    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=4)
 
     # loop over encoded vis (CNN output)
     vis_field_res = int(envconf["VISUAL_FIELD_RESOLUTION"])
@@ -981,6 +1001,34 @@ def plot_agent_trajalls(exp_name, gen_ext, space_step, orient_step, timesteps):
     plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=-1)
     # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_action_inv'
     # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=-1, inv=True)
+
+
+
+def plot_agent_trajalls_pca(exp_name, gen_ext, space_step, orient_step, timesteps, analyses, datasets, comps):
+
+    from abm.monitoring.plot_funcs import plot_map_iterative_trajall
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    width=int(envconf["ENV_WIDTH"])
+    height=int(envconf["ENV_HEIGHT"])
+
+    # pca or ica
+    for analysis in analyses:
+
+        # input, CNN, or output
+        for name in datasets:
+            with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{analysis}_{name}_projdata.bin', 'rb') as f:
+                traj_plot_data = pickle.load(f)
+
+            # plot first X components
+            for comp in comps:
+                var_pos = 3 + comp
+                save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{analysis}_{name}_c{comp}'
+                plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=var_pos, change=True)
+
 
 
 # -------------------------- misc -------------------------- #
@@ -1029,7 +1077,7 @@ def find_top_val_gen(exp_name, rank='top'):
 
 if __name__ == '__main__':
 
-    ## anim
+    ## anim / action vol
     # space_step = 5
     # orient_step = np.pi/64
 
@@ -1052,50 +1100,55 @@ if __name__ == '__main__':
     timesteps = 500
 
     names = []
-
-    for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}' for x in [1,2,4,12,14]]:
-        names.append(name)
     
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0')
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2')
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep0')
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5')
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep1')
 
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in [7,8,17]]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in [10]]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in [5,6,8]]:
+        names.append(name)
 
 
     # trajalls
 
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [11,14]]:
-    #     names.append(name)
-
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in [5,8]]:
-    #     names.append(name)
-
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3') # gen956
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10')
-    # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9') # gen742
-    # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3')
-    # names.append('sc_CNN1124_FNN2_p100e20_vis8_rep1')
-
     # names.append('sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18')
+    # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1')
     # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9')
 
-    # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep0')
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [1,3,10,11,14]]:
+    #     names.append(name)
 
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in [0,5,8]]:
+    #     names.append(name)
+
+    # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9') # gen742
+    # # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3')
+    # # names.append('sc_CNN1124_FNN2_p100e20_vis8_rep1')
+
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2')
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5')
 
     for name in names:
         gen, valfit = find_top_val_gen(name, 'cen')
         print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
-
+        
         build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, 'cen', eye=True)
         plot_agent_trajs(name, gen, space_step, orient_step, timesteps, 'cen', ellipses=False, eye=True, ns=True)
-        
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, 'cen', eye=True)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, 'cen', ellipses=False, eye=True, ns=False)
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, 'cen', eye=True, extra='n_pos')
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, 'cen', ellipses=False, eye=True, ns=True, extra='n_pos')
 
         # build_agent_trajalls_parallel(name, gen, space_step, orient_step, timesteps)
         # plot_agent_trajalls(name, gen, space_step, orient_step, timesteps)
+
+        # analyses = ['pca', 'ica']
+        # datasets = ['CNN']
+        # comps = [2,3]
+        # plot_agent_trajalls_pca(name, gen, space_step, orient_step, timesteps, analyses, datasets, comps)
 
         # build_Nact_matrix_parallel(name, gen, space_step, orient_step)
         # plot_Nact_imshow(name, gen, space_step, orient_step)
@@ -1103,7 +1156,7 @@ if __name__ == '__main__':
 
         # plot_Nact_action_phase(name, gen, space_step, orient_step)
 
-        # build_action_matrix_parallel(name, gen, space_step, orient_step)
+        # build_action_matrix(name, gen, space_step, orient_step)
         # plot_action_volume(name, gen, space_step, orient_step, 'low')
         # plot_action_volume(name, gen, space_step, orient_step, 'high')
 
