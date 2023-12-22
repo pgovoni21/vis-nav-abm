@@ -13,58 +13,118 @@ def EA_runner():
 
     # # # gadus
     for x in range(20):
-        set_env_var('CNN_DEPTHS', '1')
-        set_env_var('CNN_DIMS','4')
-        set_env_var('AGENT_FOV','.4')
-        set_env_var('VIS_TRANSFORM','WF')
-        set_env_var('SENSORY_NOISE_STD','.2')
-        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep{x}')
+        set_env_var('EA_START_SEED', '10000')
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('EA_START_SEED', '20000')
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed20k_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('EA_START_SEED', '30000')
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed30k_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('EA_START_SEED', '40000')
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed40k_rep{x}')
         start_EA()
 
     # # # fish
     for x in range(20):
-        set_env_var('CNN_DEPTHS', '1')
-        set_env_var('CNN_DIMS','4')
-        set_env_var('AGENT_FOV','.4')
-        set_env_var('VIS_TRANSFORM','WF')
-        set_env_var('SENSORY_NOISE_STD','0')
-        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}')
+        set_env_var('RESOURCE_POS', (0,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res0_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (200,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res20_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (500,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res50_rep{x}')
         start_EA()
 
+
     # # # compute 2
-    # for x in range(20):
-    #     set_env_var('CNN_DEPTHS', '1')
-    #     set_env_var('CNN_DIMS','4')
-    #     set_env_var('AGENT_FOV','.4')
-    #     set_env_var('VISUAL_FIELD_RESOLUTION','6')
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}')
-    #     start_EA()
-
-    # # # compute4
-    # for x in range(18):
-    #     set_env_var('CNN_DEPTHS', '1')
-    #     set_env_var('CNN_DIMS','4')
-    #     set_env_var('AGENT_FOV','.4')
-    #     set_env_var('VISUAL_FIELD_RESOLUTION','16')
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x+2}')
-    #     start_EA()
-
-    # # # michaelis
-    # for x in range(20):
-    #     set_env_var('CNN_DEPTHS', '1')
-    #     set_env_var('CNN_DIMS','4')
-    #     set_env_var('AGENT_FOV','.4')
-    #     set_env_var('VISUAL_FIELD_RESOLUTION','14')
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep{x}')
-    #     start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (500,500))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res55_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (500,300))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res53_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (500,100))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res51_rep{x}')
+        start_EA()
 
     # # # menten
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (300,100))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res31_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (400,200))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res42_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (200,200))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res22_rep{x}')
+        start_EA()
+ 
+
+
+
+
+
     # for x in range(20):
-    #     set_env_var('CNN_DEPTHS', '1')
-    #     set_env_var('CNN_DIMS','7')
-    #     set_env_var('AGENT_FOV','.4')
-    #     set_env_var('VISUAL_FIELD_RESOLUTION','8')
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}')
+    #     set_env_var('RESOURCE_POS', (500,400))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res54_rep{x}')
+    #     start_EA()
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (500,200))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res52_rep{x}')
+    #     start_EA()
+    
+
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (400,300))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res43_rep{x}')
+    #     start_EA()
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (400,100))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res41_rep{x}')
+    #     start_EA()
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (400,0))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res40_rep{x}')
+    #     start_EA()
+    
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (300,300))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res33_rep{x}')
+    #     start_EA()
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (300,200))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res32_rep{x}')
+    #     start_EA()
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (300,0))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res30_rep{x}')
+    #     start_EA()
+    
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (200,100))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res21_rep{x}')
+    #     start_EA()
+    
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (100,100))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res11_rep{x}')
+    #     start_EA()
+    # for x in range(20):
+    #     set_env_var('RESOURCE_POS', (100,0))
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res10_rep{x}')
     #     start_EA()
 
 

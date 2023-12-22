@@ -17,10 +17,10 @@ from abm.monitoring import tracking, plot_funcs
 
 class Simulation:
     # @timer
-    def __init__(self, width, height, window_pad,
+    def __init__(self, env_size, window_pad,
                  N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
-                 N_res, patch_radius, min_res_perpatch, max_res_perpatch, min_res_quality, max_res_quality, regenerate_patches, 
+                 N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
                  NN, other_input, vis_transform, sensory_noise_std
                  ):
         """
@@ -58,23 +58,23 @@ class Simulation:
         :param NN:
         """
         # Arena parameters
-        self.WIDTH = width
-        self.HEIGHT = height
+        self.WIDTH, self.HEIGHT = env_size
         self.window_pad = window_pad
         self.coll_boundary_thickness = agent_radius
 
-        self.x_min, self.x_max = 0, width
-        self.y_min, self.y_max = 0, height
+        self.x_min, self.x_max = 0, self.WIDTH
+        self.y_min, self.y_max = 0, self.HEIGHT
         
-        self.boundary_info = (0, width, 0, height)
-        self.boundary_info_coll = (agent_radius*2, width - agent_radius*2, agent_radius*2, height - agent_radius*2)
-        self.boundary_info_spwn_res = (width*.4, width*.6, height*.4, height*.6)
+        self.boundary_info = (0, self.WIDTH, 
+                              0, self.HEIGHT)
+        self.boundary_info_coll = (agent_radius*2, self.WIDTH - agent_radius*2, 
+                                   agent_radius*2, self.HEIGHT - agent_radius*2)
 
         self.boundary_endpts = [
             np.array([ 0, 0 ]),
-            np.array([ width, 0 ]),
-            np.array([ 0, height ]),
-            np.array([ width, height ])
+            np.array([ self.WIDTH, 0 ]),
+            np.array([ 0, self.HEIGHT ]),
+            np.array([ self.WIDTH, self.HEIGHT ])
         ]
         self.boundary_endpts_wp = [endpt + self.window_pad for endpt in self.boundary_endpts]
 
@@ -116,16 +116,14 @@ class Simulation:
         # Resource parameters
         self.N_res = N_res
         self.res_radius = patch_radius
-        self.min_res_units = min_res_perpatch
-        self.max_res_units = max_res_perpatch
-        self.min_res_quality = min_res_quality
-        self.max_res_quality = max_res_quality
-        # possibility to provide single values instead of value ranges
-        # if maximum values are negative for both quality and contained units
-        if self.max_res_quality < 0:
-            self.max_res_quality = self.min_res_quality
-        if self.max_res_units < 0:
-            self.max_res_units = self.min_res_units + 1
+        self.res_pos = res_pos
+        self.min_res_units, self.max_res_units = res_units
+        self.min_res_quality, self.max_res_quality = res_quality
+        # fix units/quality to single values if not ranges
+        if self.max_res_units <= self.min_res_units:
+            self.max_res_units = self.min_res_units + 1 # randint is exclusive
+        if self.max_res_quality < self.min_res_quality:
+            self.max_res_quality = self.min_res_quality # uniform is inclusive
         self.regenerate_resources = regenerate_patches
 
         # Neural Network parameters
@@ -544,21 +542,10 @@ class Simulation:
 
         # creates single resource patch
         id = 0
-
-        ##--> 'singlecorner' : top-left corner of center area
-        x_min, x_max, y_min, y_max = self.boundary_info_spwn_res
-        x,y = x_min,y_min
-        # x,y = 0,0
-
-        # ##--> 'stationarypoint' : top-left off-center off-wall
-        # self.res_radius = 10
-        # x = self.x_min + 120
-        # y = self.y_min + 30
-
         units = np.random.randint(self.min_res_units, self.max_res_units)
         quality = np.random.uniform(self.min_res_quality, self.max_res_quality)
 
-        resource = Resource(id, self.res_radius, (x, y), units, quality)
+        resource = Resource(id, self.res_radius, self.res_pos, units, quality)
         self.resources.add(resource)
 
         if not self.log_zarr_file: # save in sim instance

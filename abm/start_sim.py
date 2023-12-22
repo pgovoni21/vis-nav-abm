@@ -37,15 +37,20 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # override original EA-written env dict
             # envconf['LOG_ZARR_FILE'] = 0
 
-            # envconf['WITH_VISUALIZATION'] = 1
-            # envconf['INIT_FRAMERATE'] = 1
+            envconf['WITH_VISUALIZATION'] = 1
+            # envconf['INIT_FRAMERATE'] = 10
 
             # envconf['N'] = 15
-            # envconf['T'] = 200
+            # envconf['T'] = 100000
             # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
             # envconf['VIS_TRANSFORM'] = ''
-            # envconf['SENSORY_NOISE_STD'] = .2
+            # envconf['SENSORY_NOISE_STD'] = .1
+
+            envconf['ENV_SIZE'] = (1000,1000)
+            envconf['RESOURCE_POS'] = (400,400)
+            envconf['RESOURCE_UNITS'] = (1,1)
+            envconf['RESOURCE_QUALITY'] = (1,1)
 
             NN, arch = reconstruct_NN(envconf, pv)
 
@@ -57,8 +62,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
     np.random.seed(seed)
 
     with ExitStack():
-        sim = Simulation(width                  =int(envconf["ENV_WIDTH"]),
-                         height                 =int(envconf["ENV_HEIGHT"]),
+        sim = Simulation(env_size               =tuple(eval(envconf["ENV_SIZE"])),
                          window_pad             =int(envconf["WINDOW_PAD"]),
                          N                      =int(envconf["N"]),
                          T                      =int(envconf["T"]),
@@ -77,10 +81,9 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                          agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
                          N_res                  =int(envconf["N_RESOURCES"]),
                          patch_radius           =float(envconf["RADIUS_RESOURCE"]),
-                         min_res_perpatch       =int(envconf["MIN_RESOURCE_PER_PATCH"]),
-                         max_res_perpatch       =int(envconf["MAX_RESOURCE_PER_PATCH"]),
-                         min_res_quality        =float(envconf["MIN_RESOURCE_QUALITY"]),
-                         max_res_quality        =float(envconf["MAX_RESOURCE_QUALITY"]),
+                         res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
+                         res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
+                         res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                          NN                     =NN,
                          other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
@@ -174,12 +177,24 @@ if __name__ == '__main__':
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep8'
     # gen_ext = 'gen893'
 
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_far_rep13'
-    # gen_ext = 'gen990'
-    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_close_rep1'
-    gen_ext = 'gen956'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_far_rep0'
+    # gen_ext = 'gen963'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep0'
     # gen_ext = 'gen857'
+
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep0'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5'
+    # gen_ext = 'gen963'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep3'
+    # gen_ext = 'gen956'
+    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep5'
+    gen_ext = 'gen937'
+
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep2'
+    # gen_ext = 'gen963'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n1_rep5'
+    # gen_ext = 'gen900'
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
@@ -188,4 +203,4 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=2)
+    start(pv=pv, env_path=env_path, seed=1)
