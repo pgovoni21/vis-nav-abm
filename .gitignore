@@ -249,6 +249,8 @@ cython_debug/
 
 # ignore data
 abm/data/
+abm/data/metaprotocol/
+vids/
 *.bin
 ...start.bat
 ..data.lnk

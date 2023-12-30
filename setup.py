@@ -16,10 +16,14 @@ setup(
         'numpy',
         'zarr',
         'matplotlib',
-        'cma',
+        # 'cma',
         'opencv-python', # screenrecorder
-        # 'pip install git+https://github.com/nnaisense/pgpelib.git#egg=pgpelib' # doesn't work with setup
+
         # 'pip install torch --index-url https://download.pytorch.org/whl/cpu' # doesn't work with setup
+
+        # 'pip install git+https://github.com/nnaisense/pgpelib.git#egg=pgpelib' # doesn't work with setup # now doesn't work at all --> local install below
+        # cd ../pgpelib
+        # pip install -e .
     ],
     # extras_require={
     #     'test': [

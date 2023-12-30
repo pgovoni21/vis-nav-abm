@@ -21,7 +21,7 @@ class Simulation:
                  N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
-                 NN, other_input, vis_transform, sensory_noise_std
+                 NN, other_input, vis_transform, percep_angle_noise_std, sensory_noise_std, action_noise_std,
                  ):
         """
         Initializing the main simulation instance
@@ -137,7 +137,9 @@ class Simulation:
         self.max_dist = np.hypot(self.WIDTH, self.HEIGHT)
         self.min_dist = agent_radius
         self.vis_transform = vis_transform
+        self.percep_angle_noise_std = percep_angle_noise_std
         self.sensory_noise_std = sensory_noise_std
+        self.action_noise_std = action_noise_std
 
         # Initializing pygame
         if self.with_visualization:
@@ -196,7 +198,7 @@ class Simulation:
     def draw_visual_fields(self):
         """Visualizing range of vision as opaque circles around the agents""" 
         vis_proj_distance = 30
-        vis_project_IDbubble_size = 2
+        vis_project_IDbubble_size = 4
         
         for agent in self.agents:
             # Show visual range as circle if non-limiting FOV
@@ -272,31 +274,31 @@ class Simulation:
                             self.screen, colors.TOMATO, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                            radius = (dist_input+1)*vis_project_IDbubble_size)
                     elif vis_name == 'wall_south': # --> green
                         pygame.draw.circle(
                             self.screen, colors.LIME, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                            radius = (dist_input+1)*vis_project_IDbubble_size)
                     elif vis_name == 'wall_east': # --> blue
                         pygame.draw.circle(
                             self.screen, colors.CORN, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                            radius = (dist_input+1)*vis_project_IDbubble_size)
                     elif vis_name == 'wall_west': # --> yellow
                         pygame.draw.circle(
                             self.screen, colors.GOLD, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                            radius = (dist_input+1)*vis_project_IDbubble_size)
                     elif vis_name == 'agent_exploit':
                         pygame.draw.circle(
                             self.screen, colors.VIOLET, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                            radius = (dist_input+1)*vis_project_IDbubble_size)
                     else: # vis_name == 'agent_explore':
                         pygame.draw.circle(
                             self.screen, colors.BLACK, 
@@ -446,6 +448,7 @@ class Simulation:
                         radius=self.agent_radii,
                         color=colors.BLUE,
                         vis_transform=self.vis_transform,
+                        percep_angle_noise_std=self.percep_angle_noise_std,
                     )
                 
                 colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
@@ -774,7 +777,7 @@ class Simulation:
                         if self.vis_transform == 'minmax':
                             dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist) # flipped --> todo: switch + scale
                         elif self.vis_transform == 'far':
-                            dist_input = self.min_dist*2 / dist_input
+                            dist_input = self.min_dist*2 / dist_input # holdover ---> change if using
                         # elif self.vis_transform == 'far':
                         #     dist_input = ( self.min_dist / dist_input + .25 ) / 1.25
                         # elif self.vis_transform == 'mfar':
@@ -860,7 +863,8 @@ class Simulation:
                         return self.t, 0, self.elapsed_time
 
                     else: # No food --> move (stay stationary if collided object in front)
-                        agent.move(agent.action)
+                        action = agent.action + np.random.randn()*self.action_noise_std
+                        agent.move(action)
                         # agent.move(0.1)
                         # agent.move(np.random.uniform(-0.1,0.1))
 

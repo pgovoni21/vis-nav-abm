@@ -5,6 +5,7 @@ import linecache
 import tracemalloc
 from pathlib import Path
 import shutil
+import dotenv as de
 
 def timer(func):
     """Print runtime of decorated function"""
@@ -14,8 +15,8 @@ def timer(func):
         value = func(*args, **kwargs)
         end_time = time.perf_counter()      # 2
         run_time = end_time - start_time    # 3
-        if run_time > 1e-04:
-            print(f"{func.__name__!r} : {run_time:.4f} secs")
+        if run_time > 1e-05:
+            print(f"{func.__name__!r} : {run_time:.5f} secs")
         return value
     return wrapper_timer
     return None
@@ -65,7 +66,7 @@ def display_top_mem_users(snapshot, key_type='lineno', limit=3):
     print("Total allocated size: %.1f KiB" % (total / 1024))
 
 
-def folder_trim():
+def trim_folders():
 
     root_dir = Path(__file__).parent / fr'data/simulation_data'
     for file in os.listdir(root_dir):
@@ -90,13 +91,72 @@ def rename_folders():
 
     root_dir = Path(__file__).parent / fr'data/simulation_data'
 
-    existing_names = [f'singlecorner_exp_CNN16_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
-    new_names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
+    # existing_names = [f'singlecorner_exp_CNN16_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
+    # new_names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
 
-    for e,n in zip(existing_names, new_names):
-        os.rename(Path(root_dir, e), Path(root_dir, n))
+    # for e,n in zip(existing_names, new_names):
+    #     os.rename(Path(root_dir, e), Path(root_dir, n))
+
+    word_to_change = 'vis10_PGPE_ss20_mom8_head44'
+    for old_name in os.listdir(root_dir):
+        if word_to_change in old_name:
+            print(word_to_change)
+            new_name = old_name.replace(word_to_change, 'vis8_PGPE_ss20_mom8_head44')
+            os.rename(Path(root_dir, old_name), Path(root_dir, new_name))
+
+def set_env_var(env_path, key, val):
+    de.set_key(env_path, str(key), str(val))
+
+def modify_env_files():
+
+    root_dir = Path(__file__).parent / fr'data/simulation_data'
+
+    # existing_names = [f'singlecorner_exp_CNN16_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
+    # new_names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
+
+    # for e,n in zip(existing_names, new_names):
+    #     os.rename(Path(root_dir, e), Path(root_dir, n))
+
+    # word_to_change = 'vis10_PGPE_ss20_mom8_head44'
+    # for old_name in os.listdir(root_dir):
+    #     if word_to_change in old_name:
+    #         print(word_to_change)
+    #         new_name = old_name.replace(word_to_change, 'vis8_PGPE_ss20_mom8_head44')
+    #         os.rename(Path(root_dir, old_name), Path(root_dir, new_name))
+
+    for name in os.listdir(root_dir):
+        if name.startswith('sc_') and not name.endswith('png'):
+            # print(name)
+
+            env_path = fr'{root_dir}/{name}/.env'
+            envconf = de.dotenv_values(env_path)
+
+            set_env_var(env_path, 'PERCEP_ANGLE_NOISE_STD', '0')
+            set_env_var(env_path, 'ACTION_NOISE_STD', '0')
+
+            if 'SENSORY_NOISE_STD' in envconf:
+                set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', envconf['SENSORY_NOISE_STD'])
+            else:
+                set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', '0')
+
+            if 'ENV_SIZE' not in envconf:
+                set_env_var(env_path, 'ENV_SIZE', '(1000,1000)')
+
+            if 'RESOURCE_UNITS' not in envconf:
+                set_env_var(env_path, 'RESOURCE_UNITS', '(1,1)')
+
+            if 'RESOURCE_QUALITY' not in envconf:
+                set_env_var(env_path, 'RESOURCE_QUALITY', '(1,1)')
+
+            if 'RESOURCE_POS' not in envconf:
+                set_env_var(env_path, 'RESOURCE_POS', '(400,400)')
+
+            if 'VIS_TRANSFORM' not in envconf:
+                set_env_var(env_path, 'VIS_TRANSFORM', '')
 
 
 if __name__ == '__main__':
 
-    rename_folders()
+    # trim_folders()
+    # rename_folders()
+    modify_env_files()

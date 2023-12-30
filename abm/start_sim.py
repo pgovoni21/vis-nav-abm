@@ -37,20 +37,18 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # override original EA-written env dict
             # envconf['LOG_ZARR_FILE'] = 0
 
-            envconf['WITH_VISUALIZATION'] = 1
+            # envconf['WITH_VISUALIZATION'] = 1
             # envconf['INIT_FRAMERATE'] = 10
 
             # envconf['N'] = 15
             # envconf['T'] = 100000
             # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
-            # envconf['VIS_TRANSFORM'] = ''
-            # envconf['SENSORY_NOISE_STD'] = .1
 
-            envconf['ENV_SIZE'] = (1000,1000)
-            envconf['RESOURCE_POS'] = (400,400)
-            envconf['RESOURCE_UNITS'] = (1,1)
-            envconf['RESOURCE_QUALITY'] = (1,1)
+            # envconf['VIS_TRANSFORM'] = ''
+            # envconf['PERCEP_DIST_NOISE_STD'] = 0
+            # envconf['PERCEP_ANGLE_NOISE_STD'] = .2
+            # envconf['ACTION_NOISE_STD'] = .1
 
             NN, arch = reconstruct_NN(envconf, pv)
 
@@ -88,7 +86,9 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                          NN                     =NN,
                          other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                          vis_transform          =str(envconf["VIS_TRANSFORM"]),
+                         percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
                          sensory_noise_std      =float(envconf["SENSORY_NOISE_STD"]),
+                         action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
                          )
         t, d, elapsed_time = sim.start()
 
@@ -115,7 +115,6 @@ def reconstruct_NN(envconf,pv):
     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
     LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"])
     sensory_noise_std    = float(envconf["SENSORY_NOISE_STD"])
-    # sensory_noise_std    = 0.0
 
     arch = (
         CNN_input_size, 
@@ -164,8 +163,8 @@ if __name__ == '__main__':
     # gen_ext = 'gen979'
 
 
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
-    # gen_ext = 'gen941'
+    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
+    gen_ext = 'gen941'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8'
     # gen_ext = 'gen969'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0'
@@ -188,8 +187,8 @@ if __name__ == '__main__':
     # gen_ext = 'gen963'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep3'
     # gen_ext = 'gen956'
-    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep5'
-    gen_ext = 'gen937'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep5'
+    # gen_ext = 'gen937'
 
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep2'
     # gen_ext = 'gen963'

@@ -18,7 +18,9 @@ class Agent(pygame.sprite.Sprite):
     # @timer
     def __init__(self, id, position, orientation, max_vel, 
                  FOV, vision_range, num_class_elements, vis_field_res, consumption,
-                 model, boundary_endpts, window_pad, radius, color, vis_transform):
+                 model, boundary_endpts, window_pad, radius, color, 
+                 vis_transform, percep_angle_noise_std
+                 ):
         """
         Initalization method of main agent class of the simulations
 
@@ -62,12 +64,13 @@ class Agent(pygame.sprite.Sprite):
         self.FOV = FOV
         self.phis = np.linspace(-FOV*np.pi, FOV*np.pi, vis_field_res) # array of raycasts (- : left / + : right)
         self.vision_range = vision_range
+        self.num_class_elements = num_class_elements
         self.vis_field = [0] * vis_field_res
         if vis_transform:
             self.dist_field = [0] * vis_field_res
         else:
             self.dist_field = None
-        self.num_class_elements = num_class_elements
+        self.percep_angle_noise_std = percep_angle_noise_std
 
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
@@ -289,6 +292,10 @@ class Agent(pygame.sprite.Sprite):
         self.vis_field = [0] * self.vis_field_res
         if self.dist_field is not None:
             self.dist_field = [0] * self.vis_field_res
+        
+        # Add perceptual noise if specified
+        orientation_real = self.orientation
+        self.orientation += np.random.randn()*self.percep_angle_noise_std
 
         # Gather relevant info for self / boundary endpoints / walls
         self.gather_self_percep_info()
@@ -299,6 +306,9 @@ class Agent(pygame.sprite.Sprite):
         # Fill in vis_field with id info (wall name / agent mode) for each visual perception ray
         self.fill_vis_field_walls()
         if len(agents) > 1: self.fill_vis_field_agents()
+
+        # Reset orientation
+        self.orientation = orientation_real
 
 ### -------------------------- MOVEMENT FUNCTIONS -------------------------- ###
 
