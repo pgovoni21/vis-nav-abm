@@ -37,7 +37,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # override original EA-written env dict
             # envconf['LOG_ZARR_FILE'] = 0
 
-            # envconf['WITH_VISUALIZATION'] = 1
+            envconf['WITH_VISUALIZATION'] = 1
             # envconf['INIT_FRAMERATE'] = 10
 
             # envconf['N'] = 15
@@ -49,6 +49,13 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # envconf['PERCEP_DIST_NOISE_STD'] = 0
             # envconf['PERCEP_ANGLE_NOISE_STD'] = .2
             # envconf['ACTION_NOISE_STD'] = .1
+            # print(envconf['ENV_SIZE'])
+            # print(envconf['RESOURCE_POS'])
+            # print(envconf['VIS_TRANSFORM'])
+            # print(envconf['SENSORY_NOISE_STD'])
+            # print(envconf['PERCEP_ANGLE_NOISE_STD'])
+            # print(envconf['ACTION_NOISE_STD'])
+            # print(envconf['PERCEP_DIST_NOISE_STD'])
 
             NN, arch = reconstruct_NN(envconf, pv)
 
@@ -87,7 +94,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                          other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                          vis_transform          =str(envconf["VIS_TRANSFORM"]),
                          percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
-                         sensory_noise_std      =float(envconf["SENSORY_NOISE_STD"]),
+                         percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
                          action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
                          )
         t, d, elapsed_time = sim.start()
@@ -114,7 +121,6 @@ def reconstruct_NN(envconf,pv):
     RNN_other_input_size = int(envconf["RNN_OTHER_INPUT_SIZE"])
     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
     LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"])
-    sensory_noise_std    = float(envconf["SENSORY_NOISE_STD"])
 
     arch = (
         CNN_input_size, 
@@ -123,7 +129,6 @@ def reconstruct_NN(envconf,pv):
         RNN_other_input_size, 
         RNN_hidden_size, 
         LCL_output_size,
-        sensory_noise_std
         )
 
     activ                     =str(envconf["NN_ACTIVATION_FUNCTION"])
@@ -163,8 +168,8 @@ if __name__ == '__main__':
     # gen_ext = 'gen979'
 
 
-    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
-    gen_ext = 'gen941'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
+    # gen_ext = 'gen941'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8'
     # gen_ext = 'gen969'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0'
@@ -194,6 +199,10 @@ if __name__ == '__main__':
     # gen_ext = 'gen963'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n1_rep5'
     # gen_ext = 'gen900'
+
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n15_rep1'
+    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res11_rep1'
+    gen_ext = 'gen963'
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'

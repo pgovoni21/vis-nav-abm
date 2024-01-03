@@ -68,8 +68,10 @@ class Agent(pygame.sprite.Sprite):
         self.vis_field = [0] * vis_field_res
         if vis_transform:
             self.dist_field = [0] * vis_field_res
+            self.dist_input = np.array(self.dist_field)
         else:
             self.dist_field = None
+            self.dist_input = None
         self.percep_angle_noise_std = percep_angle_noise_std
 
         # Resource parameters

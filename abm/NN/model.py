@@ -23,7 +23,6 @@ class WorldModel(nn.Module):
             RNN_other_input_size, 
             RNN_hidden_size, 
             LCL_output_size, 
-            sensory_noise_std
         ) = arch
 
         # init vision module
@@ -49,9 +48,6 @@ class WorldModel(nn.Module):
         LCL_in_size = RNN_hidden_size
         # LCL_in_size = RNN_hidden_size + CNN_out_size ## concatenate with vis if using residual
         self.lcl = nn.Linear(LCL_in_size, LCL_output_size)
-
-        # init noise
-        self.sensory_noise_std = sensory_noise_std
 
         # initialize w+b according to passed vector (via optimizer) or init distribution
         if param_vector is not None:
@@ -97,18 +93,8 @@ class WorldModel(nn.Module):
         vis_input = torch.from_numpy(vis_input).float().unsqueeze(0)
         other_input = torch.from_numpy(other_input).float().unsqueeze(0)
 
-        # add sensory noise - b4CNN
-        # if self.sensory_noise_std > 0:
-        #     vis_input += torch.randn(vis_input.shape) * self.sensory_noise_std
-        #     other_input += torch.randn(other_input.shape) * self.sensory_noise_std
-
         # pass through visual module
         vis_features = self.cnn(vis_input)
-
-        # # add sensory noise - afCNN
-        # if self.sensory_noise_std > 0:
-        #     vis_features += torch.randn(vis_features.shape) * self.sensory_noise_std
-        #     other_input += torch.randn(other_input.shape) * self.sensory_noise_std
 
         # concatenate + pass through memory module
         RNN_in = torch.cat((vis_features, other_input), dim=1)

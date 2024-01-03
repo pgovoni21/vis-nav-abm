@@ -131,28 +131,40 @@ def modify_env_files():
             env_path = fr'{root_dir}/{name}/.env'
             envconf = de.dotenv_values(env_path)
 
-            set_env_var(env_path, 'PERCEP_ANGLE_NOISE_STD', '0')
-            set_env_var(env_path, 'ACTION_NOISE_STD', '0')
+            # set_env_var(env_path, 'PERCEP_ANGLE_NOISE_STD', '0')
+            # set_env_var(env_path, 'ACTION_NOISE_STD', '0')
+
+            if envconf['PERCEP_ANGLE_NOISE_STD'] != '0':
+                print(name)
+            if envconf['ACTION_NOISE_STD'] != '0':
+                print(name)
 
             if 'SENSORY_NOISE_STD' in envconf:
-                set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', envconf['SENSORY_NOISE_STD'])
-            else:
-                set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', '0')
+                if envconf['SENSORY_NOISE_STD'] != '0' and envconf['SENSORY_NOISE_STD'] != 0:
+                    print(name, 'sensory')
+            if 'PERCEP_DIST_NOISE_STD' in envconf:
+                if envconf['PERCEP_DIST_NOISE_STD'] != '0' and envconf['PERCEP_DIST_NOISE_STD'] != 0:
+                    print(name, 'dist')
 
-            if 'ENV_SIZE' not in envconf:
-                set_env_var(env_path, 'ENV_SIZE', '(1000,1000)')
+            # if 'SENSORY_NOISE_STD' in envconf:
+            #     set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', envconf['SENSORY_NOISE_STD'])
+            # else:
+            #     set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', '0')
 
-            if 'RESOURCE_UNITS' not in envconf:
-                set_env_var(env_path, 'RESOURCE_UNITS', '(1,1)')
+            # if 'ENV_SIZE' not in envconf:
+            #     set_env_var(env_path, 'ENV_SIZE', '(1000,1000)')
 
-            if 'RESOURCE_QUALITY' not in envconf:
-                set_env_var(env_path, 'RESOURCE_QUALITY', '(1,1)')
+            # if 'RESOURCE_UNITS' not in envconf:
+            #     set_env_var(env_path, 'RESOURCE_UNITS', '(1,1)')
 
-            if 'RESOURCE_POS' not in envconf:
-                set_env_var(env_path, 'RESOURCE_POS', '(400,400)')
+            # if 'RESOURCE_QUALITY' not in envconf:
+            #     set_env_var(env_path, 'RESOURCE_QUALITY', '(1,1)')
 
-            if 'VIS_TRANSFORM' not in envconf:
-                set_env_var(env_path, 'VIS_TRANSFORM', '')
+            # if 'RESOURCE_POS' not in envconf:
+            #     set_env_var(env_path, 'RESOURCE_POS', '(400,400)')
+
+            # if 'VIS_TRANSFORM' not in envconf:
+            #     set_env_var(env_path, 'VIS_TRANSFORM', '')
 
 
 if __name__ == '__main__':
