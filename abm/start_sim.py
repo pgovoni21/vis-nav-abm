@@ -37,7 +37,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # override original EA-written env dict
             # envconf['LOG_ZARR_FILE'] = 0
 
-            envconf['WITH_VISUALIZATION'] = 1
+            # envconf['WITH_VISUALIZATION'] = 1
             # envconf['INIT_FRAMERATE'] = 10
 
             # envconf['N'] = 15

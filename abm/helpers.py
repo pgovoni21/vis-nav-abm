@@ -131,20 +131,22 @@ def modify_env_files():
             env_path = fr'{root_dir}/{name}/.env'
             envconf = de.dotenv_values(env_path)
 
-            # set_env_var(env_path, 'PERCEP_ANGLE_NOISE_STD', '0')
-            # set_env_var(env_path, 'ACTION_NOISE_STD', '0')
+            # if 'SENSORY_NOISE_STD' in envconf:
+            #     if envconf['SENSORY_NOISE_STD'] != '0' and envconf['SENSORY_NOISE_STD'] != 0:
+            #         print(name, 'sensory')
+            # if 'PERCEP_DIST_NOISE_STD' in envconf:
+            #     if envconf['PERCEP_DIST_NOISE_STD'] != '0' and envconf['PERCEP_DIST_NOISE_STD'] != 0:
+            #         print(name, 'dist')
 
-            if envconf['PERCEP_ANGLE_NOISE_STD'] != '0':
-                print(name)
-            if envconf['ACTION_NOISE_STD'] != '0':
-                print(name)
-
-            if 'SENSORY_NOISE_STD' in envconf:
-                if envconf['SENSORY_NOISE_STD'] != '0' and envconf['SENSORY_NOISE_STD'] != 0:
-                    print(name, 'sensory')
-            if 'PERCEP_DIST_NOISE_STD' in envconf:
-                if envconf['PERCEP_DIST_NOISE_STD'] != '0' and envconf['PERCEP_DIST_NOISE_STD'] != 0:
-                    print(name, 'dist')
+            if 'PERCEP_DIST_NOISE_STD' not in envconf:
+                print(name, 'no dist')
+                set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', '0')
+            if 'PERCEP_ANGL_NOISE_STD' not in envconf:
+                print(name, 'no angl')
+                set_env_var(env_path, 'PERCEP_ANGLE_NOISE_STD', '0')
+            if 'ACTION_NOISE_STD' not in envconf:
+                print(name, 'no act')
+                set_env_var(env_path, 'ACTION_NOISE_STD', '0')
 
             # if 'SENSORY_NOISE_STD' in envconf:
             #     set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', envconf['SENSORY_NOISE_STD'])

@@ -30,101 +30,75 @@ def EA_runner():
     #     start_EA()
 
     # # # fish
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (0,0))
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res0_rep{x}')
-    #     start_EA()
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (200,0))
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res20_rep{x}')
-    #     start_EA()
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (500,0))
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res50_rep{x}')
-    #     start_EA()
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (400,0))
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res40_rep{x}')
-    #     start_EA()
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (300,0))
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res30_rep{x}')
-    #     start_EA()
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (100,0))
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res10_rep{x}')
-    #     start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (500,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res50_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (400,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res40_rep{x}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (300,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res30_rep{x}')
+        start_EA()
+    for x in range(17):
+        set_env_var('RESOURCE_POS', (200,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res20_rep{x+3}')
+        start_EA()
+    for x in range(20):
+        set_env_var('RESOURCE_POS', (100,0))
+        set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res10_rep{x}')
+        start_EA()
 
 
     # # # compute 2
     # for x in range(16):
-    #     set_env_var('RESOURCE_POS', (500,400))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
-    #     set_env_var('RNN_HIDDEN_SIZE', 2)
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res54_rep{x+4}')
-    #     start_EA()
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (500,200))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
-    #     set_env_var('RNN_HIDDEN_SIZE', 2)
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res52_rep{x}')
-    #     start_EA()
-    # for x in range(20):
     #     set_env_var('RESOURCE_POS', (400,400))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
+    #     set_env_var('PERCEP_ANGLE_NOISE_STD', 0)
+    #     set_env_var('ACTION_NOISE_STD', 0)
     #     set_env_var('RNN_HIDDEN_SIZE', 8)
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN8_p50e20_vis8_PGPE_ss20_mom8_rep{x}')
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN8_p50e20_vis8_PGPE_ss20_mom8_rep{x+4}')
     #     start_EA()
     # for x in range(20):
     #     set_env_var('RESOURCE_POS', (400,400))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
+    #     set_env_var('PERCEP_ANGLE_NOISE_STD', 0)
+    #     set_env_var('ACTION_NOISE_STD', 0)
     #     set_env_var('RNN_HIDDEN_SIZE', 16)
     #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep{x}')
     #     start_EA()
 
     
     # # # compute 4
-    # for x in range(20):
-    #     set_env_var('RESOURCE_POS', (200,100))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
-    #     set_env_var('RNN_HIDDEN_SIZE', 2)
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res21_rep{x}')
-    #     start_EA()
-    # for x in range(16):
-    #     set_env_var('RESOURCE_POS', (300,300))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
-    #     set_env_var('RNN_HIDDEN_SIZE', 2)
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res33_rep{x+4}')
-    #     start_EA()
-    # for x in range(20):
+    # set_env_var('RESOURCE_POS', (400,400))
+    # set_env_var('PERCEP_ANGLE_NOISE_STD', 0)
+    # set_env_var('ACTION_NOISE_STD', 0)
+    # set_env_var('RNN_HIDDEN_SIZE', 3)
+    # set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN3_p50e20_vis8_PGPE_ss20_mom8_rep0')
+    # start_EA()
+    # for x in range(17):
     #     set_env_var('RESOURCE_POS', (400,400))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
+    #     set_env_var('PERCEP_ANGLE_NOISE_STD', 0)
+    #     set_env_var('ACTION_NOISE_STD', 0)
     #     set_env_var('RNN_HIDDEN_SIZE', 3)
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN3_p50e20_vis8_PGPE_ss20_mom8_rep{x}')
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN3_p50e20_vis8_PGPE_ss20_mom8_rep{x+3}')
     #     start_EA()
     # for x in range(20):
     #     set_env_var('RESOURCE_POS', (400,400))
-    #     set_env_var('PERCEP_ANGLE_NOISE', 0)
-    #     set_env_var('ACTION_NOISE', 0)
+    #     set_env_var('PERCEP_ANGLE_NOISE_STD', 0)
+    #     set_env_var('ACTION_NOISE_STD', 0)
     #     set_env_var('RNN_HIDDEN_SIZE', 4)
     #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN4_p50e20_vis8_PGPE_ss20_mom8_rep{x}')
     #     start_EA()
 
 
     # # # michaelis
-    # for x in range(20):
+    # for x in range(19):
     #     set_env_var('RESOURCE_POS', (400,400))
     #     set_env_var('PERCEP_ANGLE_NOISE_STD', .1)
     #     set_env_var('ACTION_NOISE_STD', 0)
     #     set_env_var('RNN_HIDDEN_SIZE', 2)
-    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep{x}')
+    #     set_env_var('EA_SAVE_NAME', f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep{x+1}')
     #     start_EA()
     # for x in range(20):
     #     set_env_var('RESOURCE_POS', (400,400))
