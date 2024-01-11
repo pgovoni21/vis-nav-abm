@@ -222,6 +222,34 @@ def plot_Nact_action_phase(exp_name, gen_ext, space_step, orient_step):
     plt.close()
 
 
+def anim_Nact(exp_name, gen_ext, space_step, orient_step):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
+        mat = pickle.load(f)
+    
+    num_x, num_y, num_orient, num_neurons = mat.shape
+    
+    fig = plt.figure()
+    frames = []
+
+    n = -1 # output neuron only
+
+    min = mat[:,:,:,n].flatten().min()
+    max = mat[:,:,:,n].flatten().max()
+
+    for o in range(num_orient):
+
+        frames.append([plt.imshow(np.transpose(mat[:,:,o,0]), vmin = min, vmax = max, animated=True)])
+
+    ani = animation.ArtistAnimation(fig, frames, interval=50, blit=True, repeat_delay=1000)
+    
+    ani.save(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.mp4')
+    plt.close()
+
+
+# -------------------------- action -------------------------- #
+
 def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
 
     agent = Agent(
@@ -401,46 +429,108 @@ def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='hi
     plt.close()
 
 
-def anim_Nact(exp_name, gen_ext, space_step, orient_step):
+def transform_action_mesh(exp_name, gen_ext, space_step, orient_step):
+    
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
+        action_mat = pickle.load(f)
+
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+    max_vel = int(envconf["MAXIMUM_VELOCITY"])
+    orient_range = np.arange(0, 2*np.pi, orient_step) 
+
+    # construct meshgrid for change in x, y, o
+    dO = action_mat * np.pi/2
+    velocity = max_vel * (1 - abs(action_mat))
+    dX = velocity * np.cos(orient_range + dO)
+    dY = velocity * -np.sin(orient_range + dO)
+
+    print(f'meshgrid shape (dX, dY, dO): {dX.shape}, {dY.shape}, {dO.shape}')
+    meshgrid = (dX, dY, dO)
+
+    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_vel.bin', 'wb') as f:
+        pickle.dump(meshgrid, f)
+
+
+def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='high'):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
+    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
         mat = pickle.load(f)
-    
-    num_x, num_y, num_orient, num_neurons = mat.shape
-    
-    fig = plt.figure()
-    frames = []
 
-    n = -1 # output neuron only
+    # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
+    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
+    with open(NN_pv_path,'rb') as f:
+        pv = pickle.load(f)
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
 
-    min = mat[:,:,:,n].flatten().min()
-    max = mat[:,:,:,n].flatten().max()
+    # gather grid params
+    x_min, x_max = 0, int(envconf["ENV_WIDTH"])
+    y_min, y_max = 0, int(envconf["ENV_HEIGHT"])
+    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
+    x_range = np.linspace(x_min + coll_boundary_thickness, 
+                        x_max - coll_boundary_thickness + 1, 
+                        int((x_max - coll_boundary_thickness*2) / space_step))
+    y_range = np.linspace(y_min + coll_boundary_thickness, 
+                        y_max - coll_boundary_thickness + 1, 
+                        int((y_max - coll_boundary_thickness*2) / space_step))
+    orient_range = np.arange(0, 2*np.pi, orient_step) 
 
-    for o in range(num_orient):
+    # construct vectors for each grid pos/dir
+    xs, ys, os = [], [], []
+    for x in x_range:
+        for y in y_range:
+            for o in orient_range:
+                xs.append(x)
+                ys.append(y)
+                os.append(o)
 
-        frames.append([plt.imshow(np.transpose(mat[:,:,o,0]), vmin = min, vmax = max, animated=True)])
+    # set up plot
+    fig = plt.figure(
+        figsize=(25, 25), 
+        )
+    ax = fig.add_subplot(projection='3d')
 
-    ani = animation.ArtistAnimation(fig, frames, interval=50, blit=True, repeat_delay=1000)
-    
-    ani.save(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.mp4')
+    # transform action data
+    actions = abs(mat)
+    if transform == 'low':
+        actions = ( actions.max() - actions ) / actions.max()
+    elif transform == 'high':
+        actions = actions / actions.max()
+    actions = actions.flatten()
+
+    # plot abs(action) for every position (x,y) at every orientation (z)
+    ax.scatter(xs, ys, os,
+        cmap = 'Blues',
+        c = actions,
+        alpha = .1*actions,
+        s = 100*actions,
+        )
+
+    plt.savefig(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_{transform}.png')
     plt.close()
-
 
 
 # -------------------------- early trajectory -------------------------- #
 
 
-def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, eye=False, extra=''):
+def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, extra=''):
 
-    width =int(envconf["ENV_WIDTH"])
-    height =int(envconf["ENV_HEIGHT"])
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
     window_pad =int(envconf["WINDOW_PAD"])
     other_input = int(envconf["RNN_OTHER_INPUT_SIZE"])
     agent_radius = int(envconf["RADIUS_AGENT"])
-    # vis_transform = ''
     vis_transform = str(envconf["VIS_TRANSFORM"])
-    noise_std = float(envconf["SENSORY_NOISE_STD"])
+    angl_noise_std = float(envconf["PERCEP_ANGLE_NOISE_STD"])
+    dist_noise_std = float(envconf["PERCEP_DIST_NOISE_STD"])
+    act_noise_std = float(envconf["ACTION_NOISE_STD"])
+    if extra.startswith('n0'):
+        angl_noise_std = 0.
+        dist_noise_std = 0.
+        act_noise_std = 0.
+
     max_dist = np.hypot(width, height)
     min_dist = agent_radius*2
 
@@ -459,10 +549,11 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
             window_pad=30,
             radius=agent_radius,
             color=(0,0,0),
-            vis_transform=vis_transform
+            vis_transform=vis_transform,
+            percep_angle_noise_std=angl_noise_std,
         )
 
-    traj = np.zeros((timesteps,3))
+    traj = np.zeros((timesteps,4))
     for t in range(timesteps):
 
         agent.visual_sensing([])
@@ -487,10 +578,9 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
             elif vis_transform == 'sWF':
                 dist_input = .7 - np.log(dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
 
-            noise = np.random.randn(dist_input.shape[0]) * noise_std
-            # dist_input += np.random.randn(dist_input.shape[0]) * .2
-            # noise[noise > 0] = 0
-            # noise[noise < 0] = 0
+            noise = np.random.randn(dist_input.shape[0]) * dist_noise_std
+            if extra.endswith('pos'): noise[noise > 0] = 0
+            elif extra.endswith('neg'): noise[noise < 0] = 0
             dist_input += noise
             # dist_input /= 1.5
             # dist_input += .05
@@ -502,31 +592,42 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
         else:
             agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
 
+        agent.collided_points = []
         if agent.rect.center[0] < window_pad + 2*agent_radius:
             agent.mode = 'collide'
-            agent.collided_points = [np.array([agent.rect.center[0] - agent_radius, agent.rect.center[1]])]
-        elif agent.rect.center[0] > window_pad - 2*agent_radius + height:
+            collided_pt = np.array(agent.rect.center) - window_pad
+            collided_pt[0] -= agent.radius
+            agent.collided_points.append(collided_pt)
+        if agent.rect.center[0] > window_pad - 2*agent_radius + height:
             agent.mode = 'collide'
-            agent.collided_points = [np.array([agent.rect.center[0] + agent_radius, agent.rect.center[1]])]
-        elif agent.rect.center[1] < window_pad + 2*agent_radius:
+            collided_pt = np.array(agent.rect.center) - window_pad
+            collided_pt[0] += agent.radius
+            agent.collided_points.append(collided_pt)
+        if agent.rect.center[1] < window_pad + 2*agent_radius:
             agent.mode = 'collide'
-            agent.collided_points = [np.array([agent.rect.center[0], agent.rect.center[1] - agent_radius])]
-        elif agent.rect.center[1] > window_pad - 2*agent_radius + height:
+            collided_pt = np.array(agent.rect.center) - window_pad
+            collided_pt[1] -= agent.radius
+            agent.collided_points.append(collided_pt)
+        if agent.rect.center[1] > window_pad - 2*agent_radius + height:
             agent.mode = 'collide'
-            agent.collided_points = [np.array([agent.rect.center[0], agent.rect.center[1] + agent_radius])]
+            collided_pt = np.array(agent.rect.center) - window_pad
+            collided_pt[1] += agent.radius
+            agent.collided_points.append(collided_pt)
 
-        agent.move(agent.action)
+        noise = np.random.randn()*act_noise_std
+        if extra.endswith('pos') and noise > 0: noise = 0
+        elif extra.endswith('neg') and noise < 0: noise = 0
+        action = agent.action + noise
+        agent.move(action)
 
-        if not eye: traj[t,:2] = agent.position
-        else:       traj[t,:2] = agent.pt_eye
-
-        if extra == 'turn':
-            traj[t,2] = agent.action * np.pi / 2
+        traj[t,:2] = agent.pt_eye
+        traj[t,2] = agent.orientation
+        traj[t,3] = agent.action * np.pi / 2
     
     return traj
 
 
-def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='top', eye=False, extra=''):
+def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra=''):
     print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {rank}, {int(eye)}, {extra}')
 
     # pull pv + envconf from save folders
@@ -542,8 +643,7 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
     NN, arch = reconstruct_NN(envconf, pv)
 
     # construct boundary endpts
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
     x_min, x_max = 0, width
     y_min, y_max = 0, height
     boundary_endpts = [
@@ -556,12 +656,13 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
     # every grid position/direction
     coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
     x_range = np.linspace(x_min + coll_boundary_thickness, 
-                        x_max - coll_boundary_thickness + 1, 
+                        x_max - coll_boundary_thickness, 
                         int((width - coll_boundary_thickness*2) / space_step))
     y_range = np.linspace(y_min + coll_boundary_thickness, 
-                        y_max - coll_boundary_thickness + 1, 
+                        y_max - coll_boundary_thickness, 
                         int((height - coll_boundary_thickness*2) / space_step))
     orient_range = np.arange(0, 2*np.pi, orient_step)
+    print(f'testing ranges (max, min): x[{x_range[0], x_range[-1]}], y[{y_range[0], y_range[-1]}], o[{orient_range[0], orient_range[-1]}]')
     
     # construct matrix of each traj for each grid pos/dir
     num_inits = len(x_range) * len(y_range) * len(orient_range)
@@ -573,7 +674,7 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
     for x in x_range:
         for y in y_range:
             for orient in orient_range:
-                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, eye, extra) )
+                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, extra) )
     
     # run agent NNs in parallel
     with mp.Pool() as pool:
@@ -584,65 +685,120 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
     # unpack results into matrix (y coords transformed for plotting)
     results_list = results.get()
     for n, output in enumerate(results_list):
-        traj_matrix[n,:,:3] =  output
-    
-    # transform data to plotting coords
-    # traj_matrix[:,:,0] = traj_matrix[:,:,0] # pos_x = pos_x
+        traj_matrix[n,:,:] =  output
     traj_matrix[:,:,1] = y_max - traj_matrix[:,:,1]
 
-    with open(fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin', 'wb') as f:
+    if extra == '':
+        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
+    else:
+        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin'
+    with open(save_name, 'wb') as f:
         pickle.dump(traj_matrix, f)
 
 
-def build_res_for_trajs():
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-
-    # build resource coord matrix
-    res_data = np.zeros((1,1,3)) # 1 patch
-    # res_data = np.zeros((2,1,3)) # 2 patches
-
-    env_path = Path(__file__).parent.parent.parent / '.env'
-    envconf = de.dotenv_values(env_path)
-
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
-    res_radius = int(envconf["RADIUS_RESOURCE"])
-    x,y = width*.4, height*.4
-    y_max = height
-
-    res_data[0,0,:] = np.array((x, y_max - y, res_radius))
-    # res_data[1,0,:] = np.array((x, y_max - y, res_radius))
-
-    with open(fr'{data_dir}/traj_matrices/sc_res.bin', 'wb') as f:
-        pickle.dump(res_data, f)
-
-
-def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank, ellipses=False, eye=False, extra='', ns=True):
+def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, extra=''):
     print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {rank}, {int(eye)}, {extra}')
-
-    from abm.monitoring.plot_funcs import plot_map_iterative_traj
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     env_path = fr'{data_dir}/{exp_name}/.env'
     envconf = de.dotenv_values(env_path)
 
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
-
-    save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}'
-
-    if ns: 
-        with open(save_name+'.bin', 'rb') as f:
-            ag_data = pickle.load(f)
-        with open(fr'{data_dir}/traj_matrices/sc_res.bin', 'rb') as f:
-            res_data = pickle.load(f)
-        traj_plot_data = (ag_data, res_data)
+    if extra == '' or extra == '3d':
+        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
+    elif extra.startswith('3d'):
+        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra[3:]}'
     else:
-        with open(save_name+'.bin', 'rb') as f:
-            traj_plot_data = pickle.load(f)
+        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}'
+    with open(save_name+'.bin', 'rb') as f:
+        ag_data = pickle.load(f)
 
-    plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra)
+    # build resource coord matrix
+    res_data = np.zeros((1,1,3)) # 1 patch
+    # res_data = np.zeros((2,1,3)) # 2 patches
+
+    res_radius = int(envconf["RADIUS_RESOURCE"])
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x,y = tuple(eval(envconf["RESOURCE_POS"]))
+    y_max = height
+
+    res_data[0,0,:] = np.array((x, y_max - y, res_radius))
+    traj_plot_data = (ag_data, res_data)
+    
+    # # before
+    # with open(save_name+'.bin', 'rb') as f:
+    #     traj_plot_data = pickle.load(f)
+
+    if extra.startswith('3d'):
+        from abm.monitoring.plot_funcs import plot_map_iterative_traj_3d
+        # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='scatter', var='cturn')
+        plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='scatter', var='str_manif')
+        # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='cturn')
+        # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime')
+        # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_flat')
+        plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows')
+        plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only')
+        # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only', sv_typ='anim')
+    else:
+        from abm.monitoring.plot_funcs import plot_map_iterative_traj
+        plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra)
+
+
+
+
+def get_pos_vel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra=''):
+    
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+
+    if extra == '':
+        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
+    else:
+        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin'
+
+    with open(save_name, 'rb') as f:
+        traj_data = pickle.load(f)
+    
+    print(f'traj_data: {traj_data.shape}')
+
+    # pos_x = traj_data[:,:,0]
+    # pos_y = traj_data[:,:,1]
+    # ori = traj_data[:,:,2]
+    # turn = traj_data[:,:,3]
+    pos_x = traj_data[::100,:,0]
+    pos_y = traj_data[::100,:,1]
+    ori = traj_data[::100,:,2]
+    turn = traj_data[::100,:,3]
+
+    pos_mesh = traj_data[::100, :, :3]
+
+    print(f'turns: {turn.shape}')
+    print(f'pos mesh (x, y, o): {pos_mesh.shape}')
+
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+    max_vel = int(envconf["MAXIMUM_VELOCITY"])
+    orient_range = np.arange(0, 2*np.pi, orient_step)
+
+    # construct meshgrid for change in x, y, o
+    dO = turn * np.pi/2
+    velocity = max_vel * (1 - abs(turn))
+    dX = velocity * np.cos(ori + dO)
+    dY = velocity * -np.sin(ori + dO)
+
+    vel_mesh = np.dstack((dX, dY, dO))
+    print(f'vel mesh (dX, dY, dO): {vel_mesh.shape}')
+    # meshgrid = np.(dX, dY, dO)
+
+    # # check vel_mesh via estimate
+    # x = np.vstack([np.diff(ts_1, axis=0), np.diff(ts_2, axis=0)]) 
+    # # crop pos
+    # pos = np.vstack([ts_1[:-1,:], ts_2[:-1,:]])
+
+    # with open(fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_pos.bin', 'wb') as f:
+    #     pickle.dump(meshgrid, f)
+    # with open(fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_vel.bin', 'wb') as f:
+    #     pickle.dump(meshgrid, f)
+
+
 
 
 # -------------------------- stationary vis -------------------------- #
@@ -1100,19 +1256,24 @@ if __name__ == '__main__':
     timesteps = 500
 
     names = []
-    
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep0')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep1')
 
-    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in [7,8,17]]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in [10]]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in [5,6,8]]:
-        names.append(name)
 
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n05_rep{x}' for x in [3,5,8,11]]:
+    #     names.append(name)
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep9')
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n10_rep{x}' for x in [0,5,13,15]]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n15_rep{x}' for x in [9,14,15,16]]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n20_rep{x}' for x in [7,12,14,18]]:
+    #     names.append(name)
+
+    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_rep{x}' for x in [6]]:
+        names.append(name)
+    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm300_rep{x}' for x in [6,7]]:
+        names.append(name)
+    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100_rep{x}' for x in [5,2]]:
+        names.append(name)
 
     # trajalls
 
@@ -1120,15 +1281,26 @@ if __name__ == '__main__':
     # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1')
     # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9')
 
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [1,3,10,11,14]]:
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3')
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [1,3,10,11,14]]: # OG best
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [0,2,4,5,6,7,9,12,13,15]]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}' for x in [5,1,0,16,2,17,14,6,19,4,18,3,9,13]]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed20k_rep{x}' for x in [7,1,16,0,10,15,13,6,19,12,2,9,11,5,14,3,17,18]]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed30k_rep{x}' for x in [15,7,17,16,6,14,1,10,4,0,3,9,2,5]]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed40k_rep{x}' for x in [15,1,5,17,16,19,12,10,14,3]]:
     #     names.append(name)
 
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in [0,5,8]]:
     #     names.append(name)
 
-    # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9') # gen742
-    # # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3')
-    # # names.append('sc_CNN1124_FNN2_p100e20_vis8_rep1')
+    # # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9') # gen742
+    # # # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3')
+    # # # names.append('sc_CNN1124_FNN2_p100e20_vis8_rep1')
 
     # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2')
     # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5')
@@ -1137,10 +1309,20 @@ if __name__ == '__main__':
         gen, valfit = find_top_val_gen(name, 'cen')
         print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
         
-        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, 'cen', eye=True)
-        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, 'cen', ellipses=False, eye=True, ns=True)
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, 'cen', eye=True, extra='n_pos')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, 'cen', ellipses=False, eye=True, ns=True, extra='n_pos')
+        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='3d')
+
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0')
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0')
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='3d_n0')
+
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n_pos')
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_pos')
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n_neg')
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_neg')
+
+        # get_pos_vel(name, gen, space_step, orient_step, timesteps)
 
         # build_agent_trajalls_parallel(name, gen, space_step, orient_step, timesteps)
         # plot_agent_trajalls(name, gen, space_step, orient_step, timesteps)
@@ -1159,6 +1341,7 @@ if __name__ == '__main__':
         # build_action_matrix(name, gen, space_step, orient_step)
         # plot_action_volume(name, gen, space_step, orient_step, 'low')
         # plot_action_volume(name, gen, space_step, orient_step, 'high')
+        # transform_action_mesh(name, gen, space_step, orient_step)
 
         # build_agent_visfield_parallel(name, space_step, orient_step)
         # plot_visfield_imshow(name, space_step, orient_step)
