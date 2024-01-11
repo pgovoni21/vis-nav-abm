@@ -1,7 +1,8 @@
 # from abm.simulation.sims import Simulation
-from abm.simulation.sims_target import Simulation
+# from abm.simulation.sims_target import Simulation
 # from abm.simulation.sims_target_double import Simulation
 # from abm.simulation.sims_target_cross import Simulation
+from abm.simulation.sims_target_LM import Simulation
 
 from contextlib import ExitStack
 from pathlib import Path
@@ -38,9 +39,9 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # envconf['LOG_ZARR_FILE'] = 0
 
             # envconf['WITH_VISUALIZATION'] = 1
-            # envconf['INIT_FRAMERATE'] = 10
+            # envconf['INIT_FRAMERATE'] = 40
 
-            # envconf['N'] = 15
+            # envconf['N'] = 4
             # envconf['T'] = 100000
             # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
@@ -90,6 +91,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                          res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
                          res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
                          regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
+                         landmark_radius        =int(envconf["RADIUS_LANDMARK"]),
                          NN                     =NN,
                          other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                          vis_transform          =str(envconf["VIS_TRANSFORM"]),
@@ -168,21 +170,11 @@ if __name__ == '__main__':
     # gen_ext = 'gen979'
 
 
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'
+    # gen_ext = 'gen956'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
     # gen_ext = 'gen941'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8'
-    # gen_ext = 'gen969'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0'
-    # gen_ext = 'gen968'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep0'
-    # gen_ext = 'gen831'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep5'
-    # gen_ext = 'gen765'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep8'
-    # gen_ext = 'gen893'
 
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_far_rep0'
-    # gen_ext = 'gen963'
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep0'
     # gen_ext = 'gen857'
 
@@ -200,9 +192,16 @@ if __name__ == '__main__':
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n1_rep5'
     # gen_ext = 'gen900'
 
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n15_rep1'
-    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res11_rep1'
-    gen_ext = 'gen963'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep6'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep9'
+    # gen_ext = 'gen844'
+
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_rep6'
+    # gen_ext = 'gen963'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm300_rep1'
+    # gen_ext = 'gen857'
+    exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100_rep2'
+    gen_ext = 'gen973'
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
@@ -211,4 +210,4 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=1)
+    start(pv=pv, env_path=env_path, seed=9)

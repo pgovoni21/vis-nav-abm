@@ -128,57 +128,98 @@ class Agent(pygame.sprite.Sprite):
         ## where v1[0] --> + : right, 0 : center, - : left, 10 : max
         ## where v1[1] --> + : down, 0 : center, - : up, 10 : max
 
-    # @timer
-    def gather_boundary_endpt_info(self):
-        """
-        create dictionary storing visually relevant information for each boundary endpoint
-        """
-        # print()
-        # print(f'self \t {np.round(self.vec_self_dir/self.radius,2)} \t {np.round(self.orientation*90/np.pi,0)}')
-        # print(np.round(self.phis*90/np.pi,0))
+    # # @timer
+    # def gather_boundary_endpt_info(self):
+    #     """
+    #     create dictionary storing visually relevant information for each boundary endpoint
+    #     """
+    #     # print()
+    #     # print(f'self \t {np.round(self.vec_self_dir/self.radius,2)} \t {np.round(self.orientation*90/np.pi,0)}')
+    #     # print(np.round(self.phis*90/np.pi,0))
 
-        self.boundary_endpt_dict = {}
-        for endpt_name, endpt_coord in self.boundary_endpts:
+    #     self.boundary_endpt_dict = {}
+    #     for endpt_name, endpt_coord in self.boundary_endpts:
 
-            # calc vector between boundary endpoint + direction point (front-facing)
-            vec_between = endpt_coord - self.pt_eye
+    #         # calc vector between boundary endpoint + direction point (front-facing)
+    #         vec_between = endpt_coord - self.pt_eye
 
-            # calc magnitude/norm
-            distance = np.linalg.norm(vec_between)
+    #         # calc magnitude/norm
+    #         distance = np.linalg.norm(vec_between)
 
-            # calc orientation angle
-            angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, distance)
-            ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
+    #         # calc orientation angle
+    #         angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, distance)
+    #         ## relative to perceiving agent, in radians between [-pi (left/CCW), +pi (right/CW)]
 
-            # update dictionary with added info
-            self.boundary_endpt_dict[endpt_name] = (angle_bw, endpt_coord)
+    #         # update dictionary with added info
+    #         self.boundary_endpt_dict[endpt_name] = (angle_bw, endpt_coord)
 
-            # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}'
+    #         # print(f'{endpt_name} \t {np.round(vec_between/distance,2)} \t {np.round(angle_bw*90/np.pi,0)}'
 
-    # @timer
-    def gather_boundary_wall_info(self):
+    # # @timer
+    # def gather_boundary_wall_info(self):
 
-        # initialize wall dict
-        self.vis_field_wall_dict = {}
-        # strings to name walls + call corresponding L/R endpts
-        walls = [
-            ('wall_north', 'TL', 'TR'),
-            ('wall_south', 'BR', 'BL'),
-            ('wall_east', 'TR', 'BR'),
-            ('wall_west', 'BL', 'TL'),
-        ]
-        # loop over the 4 walls
-        for wall_name, pt_L, pt_R in walls:
+    #     # initialize wall dict
+    #     self.vis_field_wall_dict = {}
+    #     # strings to name walls + call corresponding L/R endpts
+    #     walls = [
+    #         ('wall_north', 'TL', 'TR'),
+    #         ('wall_south', 'BR', 'BL'),
+    #         ('wall_east', 'TR', 'BR'),
+    #         ('wall_west', 'BL', 'TL'),
+    #     ]
+    #     # loop over the 4 walls
+    #     for wall_name, pt_L, pt_R in walls:
 
-            # unpack dict entry for each corresponding endpt
-            angle_L, coord_L = self.boundary_endpt_dict[pt_L]
-            angle_R, coord_R = self.boundary_endpt_dict[pt_R]
+    #         # unpack dict entry for each corresponding endpt
+    #         angle_L, coord_L = self.boundary_endpt_dict[pt_L]
+    #         angle_R, coord_R = self.boundary_endpt_dict[pt_R]
 
-            self.vis_field_wall_dict[wall_name] = {}
-            self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
-            self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
-            self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
-            self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
+    #         self.vis_field_wall_dict[wall_name] = {}
+    #         self.vis_field_wall_dict[wall_name]['angle_L'] = angle_L
+    #         self.vis_field_wall_dict[wall_name]['angle_R'] = angle_R
+    #         self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
+    #         self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
+
+
+    def gather_landmark_info(self, landmarks):
+
+        # initialize landmark dict
+        self.vis_field_landmark_dict = {}
+
+        # for all landmarks in the simulation
+        for lm in landmarks:
+
+            # exclude self from list
+            if lm.id != self.id:
+
+                # exclude landmarks outside range of vision (calculate distance bw landmark center + self eye)
+                landmark_coord = lm.position
+                vec_between = landmark_coord - self.pt_eye
+                landmark_distance = np.linalg.norm(vec_between)
+                if landmark_distance <= self.vision_range:
+
+                    # exclude landmarks outside FOV limits (calculate visual boundaries of landmark)
+
+                    # orientation angle relative to perceiving landmark, in radians between [-pi (left/CCW), +pi (right/CW)]
+                    angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, landmark_distance)
+                    # exclusionary angle between landmark + self, taken to L/R boundaries
+                    angle_edge = np.arctan(lm.radius / landmark_distance)
+                    angle_L = angle_bw - angle_edge
+                    angle_R = angle_bw + angle_edge
+                    # unpack L/R angle limits of visual projection field
+                    phi_L_limit = self.phis[0]
+                    phi_R_limit = self.phis[-1]
+                    if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
+
+                        # update dictionary with all relevant info
+                        landmark_name = f'landmark_{lm.id}'
+                        self.vis_field_landmark_dict[landmark_name] = {}
+                        self.vis_field_landmark_dict[landmark_name]['id'] = lm.id
+                        self.vis_field_landmark_dict[landmark_name]['distance'] = landmark_distance
+                        self.vis_field_landmark_dict[landmark_name]['angle_L'] = angle_L
+                        self.vis_field_landmark_dict[landmark_name]['angle_R'] = angle_R
+                        self.vis_field_landmark_dict[landmark_name]['coord'] = landmark_coord
+
 
     # @timer
     def gather_agent_info(self, agents):
@@ -220,46 +261,70 @@ class Agent(pygame.sprite.Sprite):
                         self.vis_field_agent_dict[agent_name]['angle_R'] = angle_R
 
     # @timer
-    def fill_vis_field_walls(self):
+    # def fill_vis_field_walls(self):
+    #     """
+    #     Mark projection field according to each wall
+    #     """
+    #     # for each discretized perception angle within FOV range
+    #     # for i in range(self.vis_field_res):
+    #     for i,phi in enumerate(self.phis):
+
+    #         # look for intersections
+    #         for obj_name, v in self.vis_field_wall_dict.items():
+    #             if v["angle_L"] <= self.phis[i] <= v["angle_R"]:
+    #                 self.vis_field[i] = obj_name
+
+    #                 if self.dist_field is not None:
+    #                     self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
+            
+    #         # no intersections bc one endpoint is behind back, iterate again
+    #         if self.vis_field[i] == 0:
+    #             for obj_name, v in self.vis_field_wall_dict.items():
+    #                 if v["angle_L"] > v["angle_R"]:
+    #                     self.vis_field[i] = obj_name
+
+    #                     if self.dist_field is not None:
+    #                         self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
+    
+    # def fill_dist_field(self, i, phi, coord_L, coord_R):
+
+    #     # transfrom perception ray angle to vector to coord
+    #     orient_global = phi - self.orientation
+    #     vec_percep = np.array([ np.cos(orient_global), np.sin(orient_global) ])
+    #     pt_percep = self.pt_eye + vec_percep
+
+    #     # find where perception ray intersects with boundary/object + calc distance
+    #     pt_cross = supcalc.get_intersection( coord_L,coord_R, self.pt_eye,pt_percep )
+    #     if pt_cross is None: print('error: perception ray is parallel to perceived edge') # shouldn't happen
+
+    #     # fill in appropriate field entry with calculated distance
+    #     distance = np.linalg.norm(self.pt_eye - pt_cross)
+    #     self.dist_field[i] = distance
+
+
+    def fill_vis_field_landmarks(self):
         """
-        Mark projection field according to each wall
+        Mark projection field according to each landmark
         """
         # for each discretized perception angle within FOV range
-        # for i in range(self.vis_field_res):
-        for i,phi in enumerate(self.phis):
+        for i, phi in enumerate(self.phis):
 
-            # look for intersections
-            for obj_name, v in self.vis_field_wall_dict.items():
-                if v["angle_L"] <= self.phis[i] <= v["angle_R"]:
-                    self.vis_field[i] = obj_name
+            # look for intersections + keep list of occluded surfaces
+            occ_objs = []
+            for obj_name, v in self.vis_field_landmark_dict.items():
+                if v["angle_L"] <= phi <= v["angle_R"]:
+                    occ_objs.append( (v["distance"], obj_name, v["id"]) )
 
-                    if self.dist_field is not None:
-                        self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
-            
-            # no intersections bc one endpoint is behind back, iterate again
-            if self.vis_field[i] == 0:
-                for obj_name, v in self.vis_field_wall_dict.items():
-                    if v["angle_L"] > v["angle_R"]:
-                        self.vis_field[i] = obj_name
+            if occ_objs:
+                # use closest object to fill in field
+                occ_objs.sort()
+                dist, _, id = occ_objs[0]
 
-                        if self.dist_field is not None:
-                            self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
-    
+                self.vis_field[i] = id
 
-    def fill_dist_field(self, i, phi, coord_L, coord_R):
+                if self.dist_field is not None:
+                    self.dist_field[i] = dist
 
-        # transfrom perception ray angle to vector to coord
-        orient_global = phi - self.orientation
-        vec_percep = np.array([ np.cos(orient_global), np.sin(orient_global) ])
-        pt_percep = self.pt_eye + vec_percep
-
-        # find where perception ray intersects with boundary/object + calc distance
-        pt_cross = supcalc.get_intersection( coord_L,coord_R, self.pt_eye,pt_percep )
-        if pt_cross is None: print('error: perception ray is parallel to perceived edge') # shouldn't happen
-
-        # fill in appropriate field entry with calculated distance
-        distance = np.linalg.norm(self.pt_eye - pt_cross)
-        self.dist_field[i] = distance
 
     # @timer
     def fill_vis_field_agents(self):
@@ -286,7 +351,7 @@ class Agent(pygame.sprite.Sprite):
                     self.vis_field[i] = "agent_explore"
 
     # @timer
-    def visual_sensing(self, agents):
+    def visual_sensing(self, landmarks, agents):
         """
         Accumulates visual sensory functions
         """
@@ -304,12 +369,14 @@ class Agent(pygame.sprite.Sprite):
 
         # Gather relevant info for self / boundary endpoints / walls
         self.gather_self_percep_info()
-        self.gather_boundary_endpt_info()
-        self.gather_boundary_wall_info()
+        # self.gather_boundary_endpt_info()
+        # self.gather_boundary_wall_info()
+        self.gather_landmark_info(landmarks)
         if len(agents) > 1: self.gather_agent_info(agents)
 
         # Fill in vis_field with id info (wall name / agent mode) for each visual perception ray
-        self.fill_vis_field_walls()
+        # self.fill_vis_field_walls()
+        self.fill_vis_field_landmarks()
         if len(agents) > 1: self.fill_vis_field_agents()
 
         # Reset orientation
@@ -394,13 +461,14 @@ class Agent(pygame.sprite.Sprite):
         field_onehot = np.zeros((self.num_class_elements, len(field)))
 
         for i,x in enumerate(field):
-            if x == 'wall_north': field_onehot[0,i] = 1
-            elif x == 'wall_south': field_onehot[1,i] = 1
-            elif x == 'wall_east': field_onehot[2,i] = 1
-            elif x == 'wall_west': field_onehot[3,i] = 1
+            if x == 'TL': field_onehot[0,i] = 1
+            elif x == 'BR': field_onehot[1,i] = 1
+            elif x == 'TR': field_onehot[2,i] = 1
+            elif x == 'BL': field_onehot[3,i] = 1
             elif x == 'agent_exploit': field_onehot[4,i] = 1
-            else: # x == 'agent_explore
-                field_onehot[5,i] = 1
+            elif x == 'agent_explore': field_onehot[5,i] = 1
+            else: # x == 0
+                pass
         return field_onehot
 
 

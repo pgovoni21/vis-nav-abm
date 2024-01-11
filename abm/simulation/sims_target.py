@@ -370,23 +370,6 @@ class Simulation:
 
                 # x,y = 980,980
                 # orient = 3
-                # x,y = 50,950
-                # orient = 0
-                # x,y = 800,200
-                # orient = 4.5
-                # x,y = 50,600
-                # orient = 4.5
-                # x,y = 400,100
-                # orient = 3
-                # x,y = 750,500
-                # orient = 0
-                # x,y = 700,250
-                # orient = 4.5
-                # x,y = 25,900
-                # orient = 3
-
-                # x,y = 300,50
-                # orient = 3
 
                 agent = Agent(
                         id=0,
@@ -415,7 +398,7 @@ class Simulation:
 
         else: # N > 1
 
-            # edges = np.array([
+            # starts = np.array([
             #     (100, 100, 5.33),
             #     (100, 300, 0),
             #     (100, 500, 0),
@@ -432,6 +415,13 @@ class Simulation:
             #     (300, 900, 1.5),
             #     (500, 900, 1.5),
             #     (700, 900, 1.5),
+            # ])
+
+            # starts = np.array([
+            #     (50,600,0),
+            #     (600,800,3),
+            #     (800,700,1.5),
+            #     (800,100,3),
             # ])
 
             for i in range(self.N):
@@ -452,7 +442,7 @@ class Simulation:
 
                     # orient = 3
 
-                    # x,y,orient = edges[i,:]
+                    # x,y,orient = starts[i,:]
 
                     agent = Agent(
                             id=i,
@@ -470,6 +460,7 @@ class Simulation:
                             radius=self.agent_radii,
                             color=colors.BLUE,
                             vis_transform=self.vis_transform,
+                            percep_angle_noise_std=self.percep_angle_noise_std,
                         )
                     
                     colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
