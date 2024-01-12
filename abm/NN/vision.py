@@ -33,7 +33,7 @@ class Block(nn.Module):
         if activ == 'relu': self.activ = torch.relu
         elif activ == 'tanh': self.activ = torch.tanh
         elif activ == 'silu': self.activ = torch.nn.SiLU()
-        elif activ == 'gelu': self.active = torch.nn.GELU()
+        elif activ == 'gelu': self.activ = torch.nn.GELU()
         else: raise ValueError(f'Invalid activation function: {activ}')
 
         self.grn = GRN(4 * dim) # -- channel separation (relative to global mean)

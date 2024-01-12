@@ -22,7 +22,7 @@ class Simulation:
                  N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, landmark_radius,
-                 NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
+                 NN, other_input, vis_transform, percep_angle_noise_std, percep_LM_noise_std, percep_dist_noise_std, action_noise_std,
                  ):
         """
         Initializing the main simulation instance
@@ -137,6 +137,7 @@ class Simulation:
         self.min_dist = agent_radius
         self.vis_transform = vis_transform
         self.percep_angle_noise_std = percep_angle_noise_std
+        self.percep_LM_noise_std = percep_LM_noise_std
         self.percep_dist_noise_std = percep_dist_noise_std
         self.action_noise_std = action_noise_std
 
@@ -402,6 +403,7 @@ class Simulation:
                         color=colors.BLUE,
                         vis_transform=self.vis_transform,
                         percep_angle_noise_std=self.percep_angle_noise_std,
+                        percep_LM_noise_std=self.percep_LM_noise_std,
                     )
                 
                 colliding_landmarks = pygame.sprite.spritecollide(agent, self.landmarks, False, pygame.sprite.collide_circle)

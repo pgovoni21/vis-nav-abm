@@ -19,7 +19,7 @@ class Agent(pygame.sprite.Sprite):
     def __init__(self, id, position, orientation, max_vel, 
                  FOV, vision_range, num_class_elements, vis_field_res, consumption,
                  model, boundary_endpts, window_pad, radius, color, 
-                 vis_transform, percep_angle_noise_std
+                 vis_transform, percep_angle_noise_std, percep_LM_noise_std
                  ):
         """
         Initalization method of main agent class of the simulations
@@ -73,6 +73,7 @@ class Agent(pygame.sprite.Sprite):
             self.dist_field = None
             self.dist_input = None
         self.percep_angle_noise_std = percep_angle_noise_std
+        self.percep_LM_noise_std = percep_LM_noise_std
 
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
@@ -196,6 +197,9 @@ class Agent(pygame.sprite.Sprite):
                 landmark_coord = lm.position
                 vec_between = landmark_coord - self.pt_eye
                 landmark_distance = np.linalg.norm(vec_between)
+                landmark_distance += np.random.randn()*self.percep_LM_noise_std
+                # landmark_distance += np.random.randn()*50
+
                 if landmark_distance <= self.vision_range:
 
                     # exclude landmarks outside FOV limits (calculate visual boundaries of landmark)

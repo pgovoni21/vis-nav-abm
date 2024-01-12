@@ -12,7 +12,7 @@ class FNN(nn.Module):
         if activ == 'relu': self.activ = torch.relu
         elif activ == 'tanh': self.activ = torch.tanh
         elif activ == 'silu': self.activ = torch.nn.SiLU()
-        elif activ == 'gelu': self.active = torch.nn.GELU()
+        elif activ == 'gelu': self.activ = torch.nn.GELU()
         else: raise ValueError(f'Invalid activation function: {activ}')
 
     def forward(self, state, hidden_null):
@@ -20,6 +20,55 @@ class FNN(nn.Module):
         x = self.activ(x)
         return x, hidden_null
 
+class FNN2(nn.Module):
+    def __init__(self, arch, activ='relu'):
+        super().__init__()
+        input_size, hidden_size = arch
+        
+        self.h1 = nn.Linear(input_size, hidden_size)
+        self.h2 = nn.Linear(input_size, hidden_size)
+        
+        if activ == 'relu': self.activ = torch.relu
+        elif activ == 'tanh': self.activ = torch.tanh
+        elif activ == 'silu': self.activ = torch.nn.SiLU()
+        elif activ == 'gelu': self.activ = torch.nn.GELU()
+        else: raise ValueError(f'Invalid activation function: {activ}')
+
+    def forward(self, state, hidden_null):
+        x = self.h1(state)
+        x = self.activ(x)
+        x = self.h2(state)
+        x = self.activ(x)
+        return x, hidden_null
+
+class FNN_noise(nn.Module):
+    def __init__(self, arch, activ='relu'):
+        super().__init__()
+        input_size, hidden_size = arch
+        
+        self.i2h = nn.Linear(input_size, hidden_size)
+        self.noise = Noise(hidden_size)
+        
+        if activ == 'relu': self.activ = torch.relu
+        elif activ == 'tanh': self.activ = torch.tanh
+        elif activ == 'silu': self.activ = torch.nn.SiLU()
+        elif activ == 'gelu': self.activ = torch.nn.GELU()
+        else: raise ValueError(f'Invalid activation function: {activ}')
+
+    def forward(self, state, hidden_null):
+        x = self.i2h(state)
+        x = self.activ(x)
+        x = self.noise(x)
+        return x, hidden_null
+
+class Noise(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.weight = nn.Parameter(torch.zeros(1, dim))
+
+    def forward(self, x):
+        noise = torch.randn_like(x) * self.weight
+        return x + noise
 
 #--------------------------------------------------------------------------------------------------------#
 
@@ -96,12 +145,15 @@ class LSTM(nn.Module):
 
 if __name__ == '__main__':
 
-    model = FNN(
-        arch=(15,8),
+    # model = FNN(
+    #     arch=(4,2),
+    # )
+    model = FNN_noise(
+        arch=(4,2),
     )
 
     for m in model.modules():
-        if isinstance(m, (nn.Linear, nn.InstanceNorm1d, nn.GRU, nn.LSTM)):
+        if isinstance(m, (nn.Linear, nn.InstanceNorm1d, nn.GRU, nn.LSTM, Noise)):
         
             print(m)
             params = sum(p.numel() for p in m.parameters())
@@ -109,3 +161,5 @@ if __name__ == '__main__':
     
     total_params = sum(p.numel() for p in model.parameters())
     print(f'Total #Params: {total_params}')
+
+    model.forward(torch.rand(1,4), None)

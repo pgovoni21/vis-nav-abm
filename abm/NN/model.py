@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from abm.NN.memory import FNN, CTRNN, GRU
+from abm.NN.memory import FNN, FNN2, FNN_noise, CTRNN, GRU
 from abm.NN.vision import ConvNeXt as CNN
 from abm.NN.vision import LayerNorm, GRN
 # from abm.helpers import timer
@@ -9,7 +9,7 @@ from abm.NN.vision import LayerNorm, GRN
 class WorldModel(nn.Module):
     # @timer
     def __init__(self,
-                 arch=((4,8),[1],[4],1,2,1,0.),
+                 arch=((4,8),[1],[4],1,2,1),
                  activ='relu',
                  RNN_type='fnn',
                  param_vector=None,
@@ -40,6 +40,8 @@ class WorldModel(nn.Module):
         RNN_in_size = CNN_out_size + RNN_other_input_size
         RNN_arch = (RNN_in_size, RNN_hidden_size)
         if RNN_type == 'fnn': self.rnn = FNN(arch=RNN_arch,activ=activ)
+        elif RNN_type == 'fnn2': self.rnn = FNN2(arch=RNN_arch,activ=activ)
+        elif RNN_type == 'fnn_noise': self.rnn = FNN_noise(arch=RNN_arch,activ=activ)
         elif RNN_type == 'ctrnn': self.rnn = CTRNN(arch=RNN_arch,activ=activ)
         elif RNN_type == 'gru': self.rnn = GRU(arch=RNN_arch,activ=activ)
         else: raise ValueError(f'Invalid RNN type: {RNN_type}')
