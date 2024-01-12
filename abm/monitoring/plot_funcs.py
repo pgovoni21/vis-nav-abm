@@ -317,7 +317,7 @@ def color_gradient_3d(x, y, z):
 
 # ------------------------------- iterative trajectory maps ---------------------------------------- #
 
-def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None, ellipses=False, extra=''):
+def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None, ellipses=False, extra='', landmarks=()):
 
     ag_data, res_data = plot_data
 
@@ -363,6 +363,12 @@ def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None, e
         pos_y = res_data[res,0,1]
         radius = res_data[res,0,2]
         axes.add_patch( plt.Circle((pos_x, pos_y), radius, edgecolor='k', fill=False, zorder=1) )
+    
+    # landmarks via circles
+    if landmarks:
+        lm_radius, pts = landmarks
+        for pos in pts:
+            axes.add_patch( plt.Circle(pos, lm_radius, edgecolor='k', fill=False, zorder=1) )
     
     if ellipses:
         pts = get_ellipses()
@@ -1424,13 +1430,15 @@ if __name__ == '__main__':
     #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_silu_p50e20')
 
 
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_rep{x}' for x in range(7)], val='cen',
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_rep{x}' for x in range(18)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm300_rep{x}' for x in range(11)], val='cen',
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm300_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm300')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100_rep{x}' for x in range(9)], val='cen',
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_angl_n10_rep{x}' for x in range(7)], val='cen',
+    plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_lm100_rep{x}' for x in range(4)], val='cen',
+                        save_name='sc_lm_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_lm100')
+    plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100_rep{x}' for x in range(20)], val='cen',
+                        save_name='sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_angl_n10_rep{x}' for x in range(16)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_angl_n10')
 
 ### ----------pop runs >> num_inter ----------- ###

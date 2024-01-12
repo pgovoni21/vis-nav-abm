@@ -1,5 +1,7 @@
 from abm.start_sim import reconstruct_NN
-from abm.sprites.agent import Agent
+# from abm.sprites.agent import Agent
+from abm.sprites.agent_LM import Agent
+from abm.sprites.landmark import Landmark
 
 import os
 import dotenv as de
@@ -516,23 +518,37 @@ def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='hi
 # -------------------------- early trajectory -------------------------- #
 
 
-def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, extra=''):
+def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, extra='', landmarks=[]):
 
     width, height = tuple(eval(envconf["ENV_SIZE"]))
-    window_pad =int(envconf["WINDOW_PAD"])
+    window_pad = int(envconf["WINDOW_PAD"])
     other_input = int(envconf["RNN_OTHER_INPUT_SIZE"])
     agent_radius = int(envconf["RADIUS_AGENT"])
     vis_transform = str(envconf["VIS_TRANSFORM"])
     angl_noise_std = float(envconf["PERCEP_ANGLE_NOISE_STD"])
+    LM_noise_std = float(envconf["PERCEP_LM_NOISE_STD"])
     dist_noise_std = float(envconf["PERCEP_DIST_NOISE_STD"])
     act_noise_std = float(envconf["ACTION_NOISE_STD"])
     if extra.startswith('n0'):
         angl_noise_std = 0.
+        LM_noise_std = 0.
         dist_noise_std = 0.
         act_noise_std = 0.
 
     max_dist = np.hypot(width, height)
     min_dist = agent_radius*2
+
+    landmarks = []
+    ids = ('TL', 'TR', 'BL', 'BR')
+    for id, pos in zip(ids, boundary_endpts):
+        landmark = Landmark(
+            id=id,
+            color=(0,0,0),
+            radius=int(envconf["RADIUS_LANDMARK"]),
+            position=pos,
+            window_pad=int(envconf["WINDOW_PAD"]),
+        )
+        landmarks.append(landmark)
 
     agent = Agent(
             id=0,
@@ -546,17 +562,20 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
             consumption=1,
             model=NN,
             boundary_endpts=boundary_endpts,
-            window_pad=30,
+            window_pad=window_pad,
             radius=agent_radius,
             color=(0,0,0),
             vis_transform=vis_transform,
             percep_angle_noise_std=angl_noise_std,
+            percep_LM_noise_std=LM_noise_std,
         )
 
     traj = np.zeros((timesteps,4))
     for t in range(timesteps):
 
-        agent.visual_sensing([])
+        if not landmarks: agent.visual_sensing([])
+        else: agent.visual_sensing(landmarks,[])
+
         vis_input = agent.encode_one_hot(agent.vis_field)
 
         if vis_transform != '':
@@ -592,27 +611,28 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
         else:
             agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
 
-        agent.collided_points = []
-        if agent.rect.center[0] < window_pad + 2*agent_radius:
-            agent.mode = 'collide'
-            collided_pt = np.array(agent.rect.center) - window_pad
-            collided_pt[0] -= agent.radius
-            agent.collided_points.append(collided_pt)
-        if agent.rect.center[0] > window_pad - 2*agent_radius + height:
-            agent.mode = 'collide'
-            collided_pt = np.array(agent.rect.center) - window_pad
-            collided_pt[0] += agent.radius
-            agent.collided_points.append(collided_pt)
-        if agent.rect.center[1] < window_pad + 2*agent_radius:
-            agent.mode = 'collide'
-            collided_pt = np.array(agent.rect.center) - window_pad
-            collided_pt[1] -= agent.radius
-            agent.collided_points.append(collided_pt)
-        if agent.rect.center[1] > window_pad - 2*agent_radius + height:
-            agent.mode = 'collide'
-            collided_pt = np.array(agent.rect.center) - window_pad
-            collided_pt[1] += agent.radius
-            agent.collided_points.append(collided_pt)
+        if not landmarks:
+            agent.collided_points = []
+            if agent.rect.center[0] < window_pad + 2*agent_radius:
+                agent.mode = 'collide'
+                collided_pt = np.array(agent.rect.center) - window_pad
+                collided_pt[0] -= agent.radius
+                agent.collided_points.append(collided_pt)
+            if agent.rect.center[0] > window_pad - 2*agent_radius + height:
+                agent.mode = 'collide'
+                collided_pt = np.array(agent.rect.center) - window_pad
+                collided_pt[0] += agent.radius
+                agent.collided_points.append(collided_pt)
+            if agent.rect.center[1] < window_pad + 2*agent_radius:
+                agent.mode = 'collide'
+                collided_pt = np.array(agent.rect.center) - window_pad
+                collided_pt[1] -= agent.radius
+                agent.collided_points.append(collided_pt)
+            if agent.rect.center[1] > window_pad - 2*agent_radius + height:
+                agent.mode = 'collide'
+                collided_pt = np.array(agent.rect.center) - window_pad
+                collided_pt[1] += agent.radius
+                agent.collided_points.append(collided_pt)
 
         noise = np.random.randn()*act_noise_std
         if extra.endswith('pos') and noise > 0: noise = 0
@@ -627,7 +647,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     return traj
 
 
-def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra=''):
+def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', landmarks=False):
     print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {rank}, {int(eye)}, {extra}')
 
     # pull pv + envconf from save folders
@@ -654,13 +674,17 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
             ]
 
     # every grid position/direction
-    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
-    x_range = np.linspace(x_min + coll_boundary_thickness, 
-                        x_max - coll_boundary_thickness, 
-                        int((width - coll_boundary_thickness*2) / space_step))
-    y_range = np.linspace(y_min + coll_boundary_thickness, 
-                        y_max - coll_boundary_thickness, 
-                        int((height - coll_boundary_thickness*2) / space_step))
+    if not landmarks:
+        coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
+        x_range = np.linspace(x_min + coll_boundary_thickness, 
+                            x_max - coll_boundary_thickness, 
+                            int((width - coll_boundary_thickness*2) / space_step))
+        y_range = np.linspace(y_min + coll_boundary_thickness, 
+                            y_max - coll_boundary_thickness, 
+                            int((height - coll_boundary_thickness*2) / space_step))
+    else:
+        x_range = np.linspace(x_min, x_max, int(width / space_step))
+        y_range = np.linspace(y_min, y_max, int(height / space_step))
     orient_range = np.arange(0, 2*np.pi, orient_step)
     print(f'testing ranges (max, min): x[{x_range[0], x_range[-1]}], y[{y_range[0], y_range[-1]}], o[{orient_range[0], orient_range[-1]}]')
     
@@ -696,8 +720,8 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
         pickle.dump(traj_matrix, f)
 
 
-def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, extra=''):
-    print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {rank}, {int(eye)}, {extra}')
+def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, extra='', landmarks=False):
+    print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {rank}, {int(eye)}, {extra}, {landmarks}')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     env_path = fr'{data_dir}/{exp_name}/.env'
@@ -740,9 +764,18 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only', sv_typ='anim')
     else:
         from abm.monitoring.plot_funcs import plot_map_iterative_traj
-        plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra)
-
-
+        if not landmarks:
+            plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra)
+        else:
+            lms = (int(envconf["RADIUS_LANDMARK"]),
+                   [
+                    np.array([ 0, 0 ]),
+                    np.array([ width, 0 ]),
+                    np.array([ 0, height ]),
+                    np.array([ width, height ])
+                    ]
+            )
+            plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra, landmarks=lms)
 
 
 def get_pos_vel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra=''):
@@ -1268,11 +1301,15 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n20_rep{x}' for x in [7,12,14,18]]:
     #     names.append(name)
 
-    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_rep{x}' for x in [6]]:
-        names.append(name)
-    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm300_rep{x}' for x in [6,7]]:
-        names.append(name)
-    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100_rep{x}' for x in [5,2]]:
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in [9,13,14]]: #6
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in [12,15]]: #6,7
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in [8,19]]: #2,5
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in [0]]:
+    #     names.append(name)
+    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep{x}' for x in [15,2]]:
         names.append(name)
 
     # trajalls
@@ -1309,8 +1346,8 @@ if __name__ == '__main__':
         gen, valfit = find_top_val_gen(name, 'cen')
         print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
         
-        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
-        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='3d')
 
         # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0')
@@ -1321,6 +1358,11 @@ if __name__ == '__main__':
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_pos')
         # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n_neg')
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_neg')
+    
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, landmarks=True)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, landmarks=True)
+        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0', landmarks=True)
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0', landmarks=True)
 
         # get_pos_vel(name, gen, space_step, orient_step, timesteps)
 
