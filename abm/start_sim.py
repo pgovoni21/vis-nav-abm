@@ -38,8 +38,8 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # override original EA-written env dict
             # envconf['LOG_ZARR_FILE'] = 0
 
-            envconf['WITH_VISUALIZATION'] = 1
-            envconf['INIT_FRAMERATE'] = 50
+            # envconf['WITH_VISUALIZATION'] = 1
+            # envconf['INIT_FRAMERATE'] = 10
 
             # envconf['N'] = 4
             # envconf['T'] = 100000
@@ -48,12 +48,12 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
 
             # envconf['VIS_TRANSFORM'] = ''
             # envconf['PERCEP_DIST_NOISE_STD'] = 0
-            # envconf['PERCEP_ANGLE_NOISE_STD'] = .2
+            # envconf['PERCEP_ANGLE_NOISE_STD'] = 0
+            # envconf['PERCEP_LM_NOISE_STD'] = 0
             # envconf['ACTION_NOISE_STD'] = .1
             # print(envconf['ENV_SIZE'])
             # print(envconf['RESOURCE_POS'])
             # print(envconf['VIS_TRANSFORM'])
-            # print(envconf['SENSORY_NOISE_STD'])
             # print(envconf['PERCEP_ANGLE_NOISE_STD'])
             # print(envconf['ACTION_NOISE_STD'])
             # print(envconf['PERCEP_DIST_NOISE_STD'])
@@ -96,9 +96,11 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                          other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                          vis_transform          =str(envconf["VIS_TRANSFORM"]),
                          percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
-                         percep_LM_noise_std    =float(envconf["PERCEP_LM_NOISE_STD"]),
                          percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
                          action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
+                         LM_dist_noise_std      =float(envconf["LM_DIST_NOISE_STD"]),
+                         LM_angle_noise_std     =float(envconf["LM_ANGLE_NOISE_STD"]),
+                         LM_radius_noise_std    =float(envconf["LM_RADIUS_NOISE_STD"]),
                          )
         t, d, elapsed_time = sim.start()
 
@@ -197,16 +199,22 @@ if __name__ == '__main__':
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep9'
     # gen_ext = 'gen844'
 
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_rep6'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep6'
     # gen_ext = 'gen963'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm300_rep1'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep1'
     # gen_ext = 'gen857'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_lm100_rep2'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep2'
     # gen_ext = 'gen973'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_lm100_angl_n10_rep15'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep15'
     # gen_ext = 'gen988'
-    exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_lm100_rep0'
-    gen_ext = 'gen944'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep0'
+    # gen_ext = 'gen944'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep14'
+    # gen_ext = 'gen930'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep15'
+    # gen_ext = 'gen973'
+    exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmn100_rep13'
+    gen_ext = 'gen925'
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'

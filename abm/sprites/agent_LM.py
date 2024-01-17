@@ -19,7 +19,7 @@ class Agent(pygame.sprite.Sprite):
     def __init__(self, id, position, orientation, max_vel, 
                  FOV, vision_range, num_class_elements, vis_field_res, consumption,
                  model, boundary_endpts, window_pad, radius, color, 
-                 vis_transform, percep_angle_noise_std, percep_LM_noise_std
+                 vis_transform, percep_angle_noise_std, LM_dist_noise_std, LM_angle_noise_std, LM_radius_noise_std
                  ):
         """
         Initalization method of main agent class of the simulations
@@ -73,7 +73,9 @@ class Agent(pygame.sprite.Sprite):
             self.dist_field = None
             self.dist_input = None
         self.percep_angle_noise_std = percep_angle_noise_std
-        self.percep_LM_noise_std = percep_LM_noise_std
+        self.LM_dist_noise_std = LM_dist_noise_std
+        self.LM_angle_noise_std = LM_angle_noise_std
+        self.LM_radius_noise_std = LM_radius_noise_std
 
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
@@ -197,7 +199,7 @@ class Agent(pygame.sprite.Sprite):
                 landmark_coord = lm.position
                 vec_between = landmark_coord - self.pt_eye
                 landmark_distance = np.linalg.norm(vec_between)
-                landmark_distance += np.random.randn()*self.percep_LM_noise_std
+                landmark_distance += np.random.randn()*self.LM_dist_noise_std
                 # landmark_distance += np.random.randn()*50
 
                 if landmark_distance <= self.vision_range:
@@ -206,8 +208,11 @@ class Agent(pygame.sprite.Sprite):
 
                     # orientation angle relative to perceiving landmark, in radians between [-pi (left/CCW), +pi (right/CW)]
                     angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, landmark_distance)
+                    angle_bw += np.random.randn()*self.LM_angle_noise_std
                     # exclusionary angle between landmark + self, taken to L/R boundaries
-                    angle_edge = np.arctan(lm.radius / landmark_distance)
+                    lm_radius = lm.radius
+                    lm_radius += np.random.randn()*self.LM_radius_noise_std
+                    angle_edge = np.arctan(lm_radius / landmark_distance)
                     angle_L = angle_bw - angle_edge
                     angle_R = angle_bw + angle_edge
                     # unpack L/R angle limits of visual projection field

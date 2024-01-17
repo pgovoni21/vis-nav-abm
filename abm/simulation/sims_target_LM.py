@@ -22,7 +22,8 @@ class Simulation:
                  N, T, with_visualization, framerate, print_enabled, plot_trajectory, log_zarr_file, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, landmark_radius,
-                 NN, other_input, vis_transform, percep_angle_noise_std, percep_LM_noise_std, percep_dist_noise_std, action_noise_std,
+                 NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
+                 LM_dist_noise_std, LM_angle_noise_std, LM_radius_noise_std, 
                  ):
         """
         Initializing the main simulation instance
@@ -137,9 +138,11 @@ class Simulation:
         self.min_dist = agent_radius
         self.vis_transform = vis_transform
         self.percep_angle_noise_std = percep_angle_noise_std
-        self.percep_LM_noise_std = percep_LM_noise_std
         self.percep_dist_noise_std = percep_dist_noise_std
         self.action_noise_std = action_noise_std
+        self.LM_dist_noise_std = LM_dist_noise_std
+        self.LM_angle_noise_std = LM_angle_noise_std
+        self.LM_radius_noise_std = LM_radius_noise_std
 
         # Initializing pygame
         if self.with_visualization:
@@ -403,7 +406,9 @@ class Simulation:
                         color=colors.BLUE,
                         vis_transform=self.vis_transform,
                         percep_angle_noise_std=self.percep_angle_noise_std,
-                        percep_LM_noise_std=self.percep_LM_noise_std,
+                        LM_dist_noise_std=self.LM_dist_noise_std,
+                        LM_angle_noise_std=self.LM_angle_noise_std,
+                        LM_radius_noise_std=self.LM_radius_noise_std,
                     )
                 
                 colliding_landmarks = pygame.sprite.spritecollide(agent, self.landmarks, False, pygame.sprite.collide_circle)
@@ -478,7 +483,9 @@ class Simulation:
                             radius=self.agent_radii,
                             color=colors.BLUE,
                             vis_transform=self.vis_transform,
-                            percep_angle_noise_std=self.percep_angle_noise_std,
+                            LM_dist_noise_std=self.LM_dist_noise_std,
+                            LM_angle_noise_std=self.LM_angle_noise_std,
+                            LM_radius_noise_std=self.LM_radius_noise_std,
                         )
                     
                     colliding_landmarks = pygame.sprite.spritecollide(agent, self.landmarks, False, pygame.sprite.collide_circle)
@@ -693,6 +700,8 @@ class Simulation:
         # sav_times = np.zeros(self.T)
         # ful_times = np.zeros(self.T)
 
+        # kl_array = np.zeros(self.T)
+
         ### ---- START OF SIMULATION ---- ###
 
         while self.t < self.T:
@@ -811,6 +820,12 @@ class Simulation:
                         agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res, agent.acceleration / self.max_vel]), agent.hidden)
                     else:
                         agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res]), agent.hidden)
+                    
+                    # if self.CL_type == 'variational':
+                    #     mu = agent.model.mu
+                    #     ls = agent.model.log_sigma
+                    #     kl = np.mean(-0.5 * np.sum(1 + ls - mu ** 2 - ls.exp(), dim = 1), dim = 0)
+                    #     kl_array[self.t] = kl
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':
@@ -908,3 +923,4 @@ class Simulation:
         # self.fitnesses = np.array([self.T]) # --> max time + proximity as extra error signal
 
         return self.T, dist_to_res, self.elapsed_time
+        # return self.T, dist_to_res, self.elapsed_time, np.mean(kl_array)

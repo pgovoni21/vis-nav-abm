@@ -87,90 +87,65 @@ def trim_folders():
 
 
 
-def rename_folders():
+def rename_files():
 
     root_dir = Path(__file__).parent / fr'data/simulation_data'
+    # root_dir = Path(__file__).parent / fr'data/simulation_data/traj_matrices'
 
-    # existing_names = [f'singlecorner_exp_CNN16_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
-    # new_names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
-
-    # for e,n in zip(existing_names, new_names):
-    #     os.rename(Path(root_dir, e), Path(root_dir, n))
-
-    word_to_change = 'vis10_PGPE_ss20_mom8_head44'
+    word_to_change = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist'
     for old_name in os.listdir(root_dir):
         if word_to_change in old_name:
-            print(word_to_change)
-            new_name = old_name.replace(word_to_change, 'vis8_PGPE_ss20_mom8_head44')
+            print(old_name)
+            new_name = old_name.replace(word_to_change, 'lmdist_n')
             os.rename(Path(root_dir, old_name), Path(root_dir, new_name))
 
-def set_env_var(env_path, key, val):
-    de.set_key(env_path, str(key), str(val))
+
 
 def modify_env_files():
 
     root_dir = Path(__file__).parent / fr'data/simulation_data'
 
-    # existing_names = [f'singlecorner_exp_CNN16_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
-    # new_names = [f'singlecorner_exp_CNN1124_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x+12}' for x in range(8)]
-
-    # for e,n in zip(existing_names, new_names):
-    #     os.rename(Path(root_dir, e), Path(root_dir, n))
-
-    # word_to_change = 'vis10_PGPE_ss20_mom8_head44'
-    # for old_name in os.listdir(root_dir):
-    #     if word_to_change in old_name:
-    #         print(word_to_change)
-    #         new_name = old_name.replace(word_to_change, 'vis8_PGPE_ss20_mom8_head44')
-    #         os.rename(Path(root_dir, old_name), Path(root_dir, new_name))
-
     for name in os.listdir(root_dir):
         if name.startswith('sc_') and not name.endswith('png'):
-            # print(name)
 
             env_path = fr'{root_dir}/{name}/.env'
             envconf = de.dotenv_values(env_path)
 
+            # de.set_key(env_path, 'PERCEP_LM_RADIUS_NOISE_STD', '0')
+
+            # if 'PERCEP_LM_NOISE_STD' in envconf:
+            #     print(name)
+            # if 'LM_DIST_NOISE_STD' in envconf:
+            #     print(name)
+            # if envconf['LM_DIST_NOISE_STD'] != '0':
+            #     print(name)
+
+            if 'PERCEP_LM_DIST_NOISE_STD' in envconf:
+                val = envconf['PERCEP_LM_DIST_NOISE_STD']
+                de.set_key(env_path, 'LM_DIST_NOISE_STD', val)
+                de.unset_key(env_path, 'PERCEP_LM_DIST_NOISE_STD')
+            if 'PERCEP_LM_RADIUS_NOISE_STD' in envconf:
+                val = envconf['PERCEP_LM_RADIUS_NOISE_STD']
+                de.set_key(env_path, 'LM_RADIUS_NOISE_STD', val)
+                de.unset_key(env_path, 'PERCEP_LM_RADIUS_NOISE_STD')
+            if 'PERCEP_LM_ANGLE_NOISE_STD' in envconf:
+                val = envconf['PERCEP_LM_ANGLE_NOISE_STD']
+                de.set_key(env_path, 'LM_ANGLE_NOISE_STD', val)
+                de.unset_key(env_path, 'PERCEP_LM_ANGLE_NOISE_STD')
+
             # if 'SENSORY_NOISE_STD' in envconf:
-            #     if envconf['SENSORY_NOISE_STD'] != '0' and envconf['SENSORY_NOISE_STD'] != 0:
-            #         print(name, 'sensory')
-            # if 'PERCEP_DIST_NOISE_STD' in envconf:
-            #     if envconf['PERCEP_DIST_NOISE_STD'] != '0' and envconf['PERCEP_DIST_NOISE_STD'] != 0:
-            #         print(name, 'dist')
+            #     de.unset_key(env_path, 'SENSORY_NOISE_STD')
 
-            if 'PERCEP_DIST_NOISE_STD' not in envconf:
-                print(name, 'no dist')
-                set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', '0')
-            if 'PERCEP_ANGL_NOISE_STD' not in envconf:
-                print(name, 'no angl')
-                set_env_var(env_path, 'PERCEP_ANGLE_NOISE_STD', '0')
-            if 'ACTION_NOISE_STD' not in envconf:
-                print(name, 'no act')
-                set_env_var(env_path, 'ACTION_NOISE_STD', '0')
+            # if 'PERCEP_ANGLE_NOISE' in envconf:
+            #     de.unset_key(env_path, 'PERCEP_ANGLE_NOISE')
 
-            # if 'SENSORY_NOISE_STD' in envconf:
-            #     set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', envconf['SENSORY_NOISE_STD'])
-            # else:
-            #     set_env_var(env_path, 'PERCEP_DIST_NOISE_STD', '0')
+            # if 'ACTION_NOISE' in envconf:
+            #     de.unset_key(env_path, 'ACTION_NOISE')
 
-            # if 'ENV_SIZE' not in envconf:
-            #     set_env_var(env_path, 'ENV_SIZE', '(1000,1000)')
-
-            # if 'RESOURCE_UNITS' not in envconf:
-            #     set_env_var(env_path, 'RESOURCE_UNITS', '(1,1)')
-
-            # if 'RESOURCE_QUALITY' not in envconf:
-            #     set_env_var(env_path, 'RESOURCE_QUALITY', '(1,1)')
-
-            # if 'RESOURCE_POS' not in envconf:
-            #     set_env_var(env_path, 'RESOURCE_POS', '(400,400)')
-
-            # if 'VIS_TRANSFORM' not in envconf:
-            #     set_env_var(env_path, 'VIS_TRANSFORM', '')
 
 
 if __name__ == '__main__':
 
     # trim_folders()
-    # rename_folders()
+    # rename_files()
     modify_env_files()

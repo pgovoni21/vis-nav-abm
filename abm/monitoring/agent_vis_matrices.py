@@ -526,14 +526,23 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     agent_radius = int(envconf["RADIUS_AGENT"])
     vis_transform = str(envconf["VIS_TRANSFORM"])
     angl_noise_std = float(envconf["PERCEP_ANGLE_NOISE_STD"])
-    LM_noise_std = float(envconf["PERCEP_LM_NOISE_STD"])
     dist_noise_std = float(envconf["PERCEP_DIST_NOISE_STD"])
     act_noise_std = float(envconf["ACTION_NOISE_STD"])
+    LM_dist_noise_std = float(envconf["LM_DIST_NOISE_STD"])
+    LM_angle_noise_std = float(envconf["LM_ANGLE_NOISE_STD"])
+    LM_radius_noise_std = float(envconf["LM_RADIUS_NOISE_STD"])
     if extra.startswith('n0'):
         angl_noise_std = 0.
-        LM_noise_std = 0.
         dist_noise_std = 0.
         act_noise_std = 0.
+        LM_dist_noise_std = 0.
+        LM_angle_noise_std = 0.
+        LM_radius_noise_std = 0.
+    # if extra.startswith('nhalf'):
+    #     angl_noise_std /= 2
+    #     LM_noise_std /= 2
+    #     dist_noise_std /= 2
+    #     act_noise_std /= 2
 
     max_dist = np.hypot(width, height)
     min_dist = agent_radius*2
@@ -567,7 +576,9 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
             color=(0,0,0),
             vis_transform=vis_transform,
             percep_angle_noise_std=angl_noise_std,
-            percep_LM_noise_std=LM_noise_std,
+            LM_dist_noise_std=LM_dist_noise_std,
+            LM_angle_noise_std=LM_angle_noise_std,
+            LM_radius_noise_std=LM_radius_noise_std,
         )
 
     traj = np.zeros((timesteps,4))
@@ -1301,16 +1312,36 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n20_rep{x}' for x in [7,12,14,18]]:
     #     names.append(name)
 
-    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in [9,13,14]]: #6
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in [6,9,13,14]]: 
     #     names.append(name)
-    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in [12,15]]: #6,7
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep{x}' for x in [3,7,9,15]]:
     #     names.append(name)
-    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in [8,19]]: #2,5
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in [0,6,13,14]]: 
     #     names.append(name)
-    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in [0]]:
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in [2,5,8,19]]: 
     #     names.append(name)
-    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep{x}' for x in [15,2]]:
+
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep{x}' for x in [15,2]]:
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep{x}' for x in [3,7,10,14]]:
+    #     names.append(name)
+    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n05_rep{x}' for x in [0,2,5,13]]:
         names.append(name)
+
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n100_rep{x}' for x in [5,9,13,16]]: 
+    #     names.append(name)
+    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x}' for x in [0,9,12,15]]: 
+        names.append(name)
+
+    # for name in [f'sc_lm_CNN14_FNNn8_p50e20_vis8_lm100_rep{x}' for x in []]: 
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNNn8_p50e20_vis10_lm100_rep{x}' for x in [0,12,16,17]]: 
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNNn8_p50e20_vis12_lm100_rep{x}' for x in [5,6,10,11]]: 
+    #     names.append(name)
+
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in [6,7,12,15]]: 
+    #     names.append(name)
 
     # trajalls
 
@@ -1318,7 +1349,6 @@ if __name__ == '__main__':
     # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1')
     # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9')
 
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3')
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [1,3,10,11,14]]: # OG best
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [0,2,4,5,6,7,9,12,13,15]]:
@@ -1334,10 +1364,6 @@ if __name__ == '__main__':
 
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in [0,5,8]]:
     #     names.append(name)
-
-    # # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9') # gen742
-    # # # names.append('sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss15_rep3')
-    # # # names.append('sc_CNN1124_FNN2_p100e20_vis8_rep1')
 
     # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2')
     # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5')
@@ -1359,10 +1385,12 @@ if __name__ == '__main__':
         # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n_neg')
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_neg')
     
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, landmarks=True)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, landmarks=True)
+        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, landmarks=True)
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, landmarks=True)
         build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0', landmarks=True)
         plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0', landmarks=True)
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='nhalf', landmarks=True)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='nhalf', landmarks=True)
 
         # get_pos_vel(name, gen, space_step, orient_step, timesteps)
 
