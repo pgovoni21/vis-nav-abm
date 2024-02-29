@@ -1,6 +1,6 @@
 from abm.start_sim import reconstruct_NN
-# from abm.sprites.agent import Agent
-from abm.sprites.agent_LM import Agent
+from abm.sprites.agent import Agent
+# from abm.sprites.agent_LM import Agent
 from abm.sprites.landmark import Landmark
 
 import os
@@ -518,7 +518,7 @@ def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='hi
 # -------------------------- early trajectory -------------------------- #
 
 
-def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, extra='', landmarks=[]):
+def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, extra=''):
 
     width, height = tuple(eval(envconf["ENV_SIZE"]))
     window_pad = int(envconf["WINDOW_PAD"])
@@ -548,38 +548,59 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     min_dist = agent_radius*2
 
     landmarks = []
-    ids = ('TL', 'TR', 'BL', 'BR')
-    for id, pos in zip(ids, boundary_endpts):
-        landmark = Landmark(
-            id=id,
-            color=(0,0,0),
-            radius=int(envconf["RADIUS_LANDMARK"]),
-            position=pos,
-            window_pad=int(envconf["WINDOW_PAD"]),
-        )
-        landmarks.append(landmark)
+    if float(envconf["RADIUS_LANDMARK"]) > 0:
+        ids = ('TL', 'TR', 'BL', 'BR')
+        for id, pos in zip(ids, boundary_endpts):
+            landmark = Landmark(
+                id=id,
+                color=(0,0,0),
+                radius=int(envconf["RADIUS_LANDMARK"]),
+                position=pos,
+                window_pad=int(envconf["WINDOW_PAD"]),
+            )
+            landmarks.append(landmark)
 
-    agent = Agent(
-            id=0,
-            position=(x,y),
-            orientation=orient,
-            max_vel=int(envconf["MAXIMUM_VELOCITY"]),
-            FOV=float(envconf['AGENT_FOV']),
-            vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
-            vision_range=int(envconf["VISION_RANGE"]),
-            num_class_elements=4,
-            consumption=1,
-            model=NN,
-            boundary_endpts=boundary_endpts,
-            window_pad=window_pad,
-            radius=agent_radius,
-            color=(0,0,0),
-            vis_transform=vis_transform,
-            percep_angle_noise_std=angl_noise_std,
-            LM_dist_noise_std=LM_dist_noise_std,
-            LM_angle_noise_std=LM_angle_noise_std,
-            LM_radius_noise_std=LM_radius_noise_std,
-        )
+        agent = Agent(
+                id=0,
+                position=(x,y),
+                orientation=orient,
+                max_vel=int(envconf["MAXIMUM_VELOCITY"]),
+                FOV=float(envconf['AGENT_FOV']),
+                vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                vision_range=int(envconf["VISION_RANGE"]),
+                num_class_elements=4,
+                consumption=1,
+                model=NN,
+                boundary_endpts=boundary_endpts,
+                window_pad=window_pad,
+                radius=agent_radius,
+                color=(0,0,0),
+                vis_transform=vis_transform,
+                percep_angle_noise_std=angl_noise_std,
+                LM_dist_noise_std=LM_dist_noise_std,
+                LM_angle_noise_std=LM_angle_noise_std,
+                LM_radius_noise_std=LM_radius_noise_std,
+            )
+    else:
+        agent = Agent(
+                id=0,
+                position=(x,y),
+                orientation=orient,
+                max_vel=int(envconf["MAXIMUM_VELOCITY"]),
+                FOV=float(envconf['AGENT_FOV']),
+                vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                vision_range=int(envconf["VISION_RANGE"]),
+                num_class_elements=4,
+                consumption=1,
+                model=NN,
+                boundary_endpts=boundary_endpts,
+                window_pad=window_pad,
+                radius=agent_radius,
+                color=(0,0,0),
+                vis_transform=vis_transform,
+                percep_angle_noise_std=angl_noise_std,
+            )
+
 
     traj = np.zeros((timesteps,4))
     for t in range(timesteps):
@@ -738,7 +759,7 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
     env_path = fr'{data_dir}/{exp_name}/.env'
     envconf = de.dotenv_values(env_path)
 
-    if extra == '' or extra == '3d':
+    if extra == '' or extra == '3d' or extra == 'clip':
         save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
     elif extra.startswith('3d'):
         save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra[3:]}'
@@ -746,6 +767,10 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
         save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}'
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
+
+    if extra == 'clip':
+        ag_data = ag_data[:,25:250,:]
+        save_name += '_clip'
 
     # build resource coord matrix
     res_data = np.zeros((1,1,3)) # 1 patch
@@ -787,62 +812,6 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
                     ]
             )
             plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra, landmarks=lms)
-
-
-def get_pos_vel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra=''):
-    
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-
-    if extra == '':
-        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
-    else:
-        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin'
-
-    with open(save_name, 'rb') as f:
-        traj_data = pickle.load(f)
-    
-    print(f'traj_data: {traj_data.shape}')
-
-    # pos_x = traj_data[:,:,0]
-    # pos_y = traj_data[:,:,1]
-    # ori = traj_data[:,:,2]
-    # turn = traj_data[:,:,3]
-    pos_x = traj_data[::100,:,0]
-    pos_y = traj_data[::100,:,1]
-    ori = traj_data[::100,:,2]
-    turn = traj_data[::100,:,3]
-
-    pos_mesh = traj_data[::100, :, :3]
-
-    print(f'turns: {turn.shape}')
-    print(f'pos mesh (x, y, o): {pos_mesh.shape}')
-
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-    max_vel = int(envconf["MAXIMUM_VELOCITY"])
-    orient_range = np.arange(0, 2*np.pi, orient_step)
-
-    # construct meshgrid for change in x, y, o
-    dO = turn * np.pi/2
-    velocity = max_vel * (1 - abs(turn))
-    dX = velocity * np.cos(ori + dO)
-    dY = velocity * -np.sin(ori + dO)
-
-    vel_mesh = np.dstack((dX, dY, dO))
-    print(f'vel mesh (dX, dY, dO): {vel_mesh.shape}')
-    # meshgrid = np.(dX, dY, dO)
-
-    # # check vel_mesh via estimate
-    # x = np.vstack([np.diff(ts_1, axis=0), np.diff(ts_2, axis=0)]) 
-    # # crop pos
-    # pos = np.vstack([ts_1[:-1,:], ts_2[:-1,:]])
-
-    # with open(fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_pos.bin', 'wb') as f:
-    #     pickle.dump(meshgrid, f)
-    # with open(fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_vel.bin', 'wb') as f:
-    #     pickle.dump(meshgrid, f)
-
-
 
 
 # -------------------------- stationary vis -------------------------- #
@@ -1325,19 +1294,26 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep{x}' for x in [3,7,10,14]]:
     #     names.append(name)
-    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n05_rep{x}' for x in [0,2,5,13]]:
-        names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n05_rep{x}' for x in [0,2,5,13]]:
+    #     names.append(name)
 
     # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n100_rep{x}' for x in [5,9,13,16]]: 
     #     names.append(name)
-    for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x}' for x in [0,9,12,15]]: 
-        names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x}' for x in [0,10,13,16]]:
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n50_rep{x}' for x in [6,9,13,19]]:
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n100_rep{x}' for x in [1,2,9,17]]: 
+    #     names.append(name)
+    
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n05_rep{x}' for x in [7,12,14,17]]:
+    #     names.append(name)
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n10_rep{x}' for x in [1,5,7,16]]: 
+        # names.append(name)
 
-    # for name in [f'sc_lm_CNN14_FNNn8_p50e20_vis8_lm100_rep{x}' for x in []]: 
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n50_rep{x}' for x in [0,3,15,17]]:
     #     names.append(name)
-    # for name in [f'sc_lm_CNN14_FNNn8_p50e20_vis10_lm100_rep{x}' for x in [0,12,16,17]]: 
-    #     names.append(name)
-    # for name in [f'sc_lm_CNN14_FNNn8_p50e20_vis12_lm100_rep{x}' for x in [5,6,10,11]]: 
+    # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n100_rep{x}' for x in [8,12,14,15]]:
     #     names.append(name)
 
     # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in [6,7,12,15]]: 
@@ -1349,6 +1325,7 @@ if __name__ == '__main__':
     # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1')
     # names.append('sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9')
 
+    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4')
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [1,3,10,11,14]]: # OG best
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in [0,2,4,5,6,7,9,12,13,15]]:
@@ -1362,19 +1339,32 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed40k_rep{x}' for x in [15,1,5,17,16,19,12,10,14,3]]:
     #     names.append(name)
 
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in [0,5,8]]:
-    #     names.append(name)
+    # for i in [1,3,4,10]:
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
+    
+    # for i in [3,5]:
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{str(i)}')
+    # for i in [3,7]:
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{str(i)}')
+    # for i in [7]:
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep{str(i)}')
 
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2')
-    # names.append('sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5')
+
+    # for i in [8]:
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
+    for i in [0,8,12]:
+        names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{str(i)}')
+
 
     for name in names:
         gen, valfit = find_top_val_gen(name, 'cen')
         print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
         
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
+        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=True)
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='3d')
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='clip')
 
         # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0')
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0')
@@ -1385,14 +1375,12 @@ if __name__ == '__main__':
         # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n_neg')
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_neg')
     
-        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, landmarks=True)
-        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, landmarks=True)
-        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0', landmarks=True)
-        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0', landmarks=True)
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, landmarks=True)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, landmarks=True)
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0', landmarks=True)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0', landmarks=True)
         # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='nhalf', landmarks=True)
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='nhalf', landmarks=True)
-
-        # get_pos_vel(name, gen, space_step, orient_step, timesteps)
 
         # build_agent_trajalls_parallel(name, gen, space_step, orient_step, timesteps)
         # plot_agent_trajalls(name, gen, space_step, orient_step, timesteps)

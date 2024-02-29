@@ -1,9 +1,3 @@
-# from abm.simulation.sims import Simulation
-# from abm.simulation.sims_target import Simulation
-# from abm.simulation.sims_target_double import Simulation
-# from abm.simulation.sims_target_cross import Simulation
-from abm.simulation.sims_target_LM import Simulation
-
 from contextlib import ExitStack
 from pathlib import Path
 import dotenv as de
@@ -21,7 +15,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
         envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
         NN = Model()
 
-        envconf['WITH_VISUALIZATION'] = 1
+        envconf['WITH_VISUALIZATION'] = 0
 
     else:
         if env_path is None: # if called from EA
@@ -46,18 +40,6 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
 
-            # envconf['VIS_TRANSFORM'] = ''
-            # envconf['PERCEP_DIST_NOISE_STD'] = 0
-            # envconf['PERCEP_ANGLE_NOISE_STD'] = 0
-            # envconf['PERCEP_LM_NOISE_STD'] = 0
-            # envconf['ACTION_NOISE_STD'] = .1
-            # print(envconf['ENV_SIZE'])
-            # print(envconf['RESOURCE_POS'])
-            # print(envconf['VIS_TRANSFORM'])
-            # print(envconf['PERCEP_ANGLE_NOISE_STD'])
-            # print(envconf['ACTION_NOISE_STD'])
-            # print(envconf['PERCEP_DIST_NOISE_STD'])
-
             NN, arch = reconstruct_NN(envconf, pv)
 
     # to run headless
@@ -67,46 +49,96 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
     # Set seed according to EA parent function to circumvent multiprocessing bug
     np.random.seed(seed)
 
-    with ExitStack():
-        sim = Simulation(env_size               =tuple(eval(envconf["ENV_SIZE"])),
-                         window_pad             =int(envconf["WINDOW_PAD"]),
-                         N                      =int(envconf["N"]),
-                         T                      =int(envconf["T"]),
-                         with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
-                         framerate              =int(envconf["INIT_FRAMERATE"]),
-                         print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
-                         plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
-                         log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
-                         save_ext               =None,
-                         agent_radius           =int(envconf["RADIUS_AGENT"]),
-                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
-                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
-                         vision_range           =int(envconf["VISION_RANGE"]),
-                         agent_fov              =float(envconf['AGENT_FOV']),
-                         show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
-                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
-                         N_res                  =int(envconf["N_RESOURCES"]),
-                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
-                         res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
-                         res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
-                         res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
-                         regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
-                         landmark_radius        =int(envconf["RADIUS_LANDMARK"]),
-                         NN                     =NN,
-                         other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
-                         vis_transform          =str(envconf["VIS_TRANSFORM"]),
-                         percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
-                         percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
-                         action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
-                         LM_dist_noise_std      =float(envconf["LM_DIST_NOISE_STD"]),
-                         LM_angle_noise_std     =float(envconf["LM_ANGLE_NOISE_STD"]),
-                         LM_radius_noise_std    =float(envconf["LM_RADIUS_NOISE_STD"]),
-                         )
-        t, d, elapsed_time = sim.start()
+    # import sim type
+    if envconf['SIM_TYPE'] == 'walls':
+        from abm.simulation.sims_target import Simulation
 
-        # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, d}')
+        with ExitStack():
+            sim = Simulation(env_size               =tuple(eval(envconf["ENV_SIZE"])),
+                            window_pad             =int(envconf["WINDOW_PAD"]),
+                            N                      =int(envconf["N"]),
+                            T                      =int(envconf["T"]),
+                            with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
+                            framerate              =int(envconf["INIT_FRAMERATE"]),
+                            print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
+                            plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
+                            log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
+                            save_ext               =None,
+                            agent_radius           =int(envconf["RADIUS_AGENT"]),
+                            max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
+                            vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                            vision_range           =int(envconf["VISION_RANGE"]),
+                            agent_fov              =float(envconf['AGENT_FOV']),
+                            show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
+                            agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
+                            N_res                  =int(envconf["N_RESOURCES"]),
+                            patch_radius           =float(envconf["RADIUS_RESOURCE"]),
+                            res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
+                            res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
+                            res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
+                            regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
+                            #  landmark_radius        =int(envconf["RADIUS_LANDMARK"]),
+                            NN                     =NN,
+                            other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
+                            vis_transform          =str(envconf["VIS_TRANSFORM"]),
+                            percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
+                            percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
+                            action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
+                            #  LM_dist_noise_std      =float(envconf["LM_DIST_NOISE_STD"]),
+                            #  LM_angle_noise_std     =float(envconf["LM_ANGLE_NOISE_STD"]),
+                            #  LM_radius_noise_std    =float(envconf["LM_RADIUS_NOISE_STD"]),
+                            )
+            t, d, elapsed_time = sim.start()
 
-    return t, d
+            # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, d}')
+
+        return t, d
+
+
+    elif envconf['SIM_TYPE'] == 'LM':
+        from abm.simulation.sims_target_LM import Simulation
+
+        with ExitStack():
+            sim = Simulation(env_size               =tuple(eval(envconf["ENV_SIZE"])),
+                            window_pad             =int(envconf["WINDOW_PAD"]),
+                            N                      =int(envconf["N"]),
+                            T                      =int(envconf["T"]),
+                            with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
+                            framerate              =int(envconf["INIT_FRAMERATE"]),
+                            print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
+                            plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
+                            log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
+                            save_ext               =None,
+                            agent_radius           =int(envconf["RADIUS_AGENT"]),
+                            max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
+                            vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                            vision_range           =int(envconf["VISION_RANGE"]),
+                            agent_fov              =float(envconf['AGENT_FOV']),
+                            show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
+                            agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
+                            N_res                  =int(envconf["N_RESOURCES"]),
+                            patch_radius           =float(envconf["RADIUS_RESOURCE"]),
+                            res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
+                            res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
+                            res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
+                            regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
+                            landmark_radius        =int(envconf["RADIUS_LANDMARK"]),
+                            NN                     =NN,
+                            other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
+                            vis_transform          =str(envconf["VIS_TRANSFORM"]),
+                            percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
+                            percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
+                            action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
+                            LM_dist_noise_std      =float(envconf["LM_DIST_NOISE_STD"]),
+                            LM_angle_noise_std     =float(envconf["LM_ANGLE_NOISE_STD"]),
+                            LM_radius_noise_std    =float(envconf["LM_RADIUS_NOISE_STD"]),
+                            )
+            t, d, elapsed_time = sim.start()
+
+            # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, d}')
+
+        return t, d
+
 
 def reconstruct_NN(envconf,pv):
     """mirrors start_EA arch packaging"""
@@ -203,18 +235,21 @@ if __name__ == '__main__':
     # gen_ext = 'gen963'
     # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep1'
     # gen_ext = 'gen857'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep0'
+    # gen_ext = 'gen944'
     # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep2'
     # gen_ext = 'gen973'
     # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep15'
     # gen_ext = 'gen988'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep0'
-    # gen_ext = 'gen944'
     # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep14'
     # gen_ext = 'gen930'
     # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep15'
     # gen_ext = 'gen973'
-    exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmn100_rep13'
-    gen_ext = 'gen925'
+    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmn100_rep13'
+    # gen_ext = 'gen925'
+
+    exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_lmradius_n100_rep1'
+    gen_ext = 'gen899'
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
@@ -223,4 +258,4 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=1)
+    start(pv=pv, env_path=env_path, seed=0)
