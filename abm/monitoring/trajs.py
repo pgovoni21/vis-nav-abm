@@ -1,6 +1,6 @@
 from abm.start_sim import reconstruct_NN
-from abm.sprites.agent import Agent
-# from abm.sprites.agent_LM import Agent
+# from abm.sprites.agent import Agent
+from abm.sprites.agent_LM import Agent
 from abm.sprites.landmark import Landmark
 
 import dotenv as de
@@ -1096,6 +1096,8 @@ def plot_agent_corr_PRW(space_step, orient_step, timesteps, rot_diff):
     plt.savefig(fr'{save_name}_corr_auto_delayed.png')
     plt.show()
 
+
+
 # -------------------------- stationary vis -------------------------- #
 
 def agent_visfield_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
@@ -1509,6 +1511,8 @@ def find_top_val_gen(exp_name, rank='top'):
     elif rank == 'cen': 
         with open(fr'{data_dir}/{exp_name}/val_results_cen.txt') as f:
             lines = f.readlines()
+        # with open(fr'{data_dir}/{exp_name}/val_matrix_cen.bin') as f:
+        #     val_data = pickle.load(f)
 
             val_data = np.zeros((len(lines)-1, 3))
             for i, line in enumerate(lines[1:]):

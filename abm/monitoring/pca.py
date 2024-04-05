@@ -1,4 +1,4 @@
-from abm.monitoring.agent_vis_matrices import find_top_val_gen
+from abm.monitoring.trajs import find_top_val_gen
 
 from pathlib import Path
 import numpy as np
