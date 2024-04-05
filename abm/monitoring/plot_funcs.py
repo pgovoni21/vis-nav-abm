@@ -277,7 +277,7 @@ def sliding_window_ori(iterable, n):
           yield tuple(window)
 
 
-def color_gradient(x, y):
+def color_gradient(x, y, lw=.1, alp=.3):
   """
   Creates a line collection with a gradient from colors c1 to c2
   https://stackoverflow.com/questions/8500700/how-to-plot-a-gradient-color-line [nog642]
@@ -293,9 +293,9 @@ def color_gradient(x, y):
 
   return mc.LineCollection(sliding_window(zip(x, y), 2),
                            colors=cm_disc,
-                           linewidth=.1, alpha=.3, zorder=0)
+                           linewidth=lw, alpha=alp, zorder=0)
 
-def color_gradient_3d(x, y, z):
+def color_gradient_3d(x, y, z, lw=.1, alp=.1):
   """
   Creates a line collection with a gradient from colors c1 to c2
   https://stackoverflow.com/questions/8500700/how-to-plot-a-gradient-color-line [nog642]
@@ -312,7 +312,7 @@ def color_gradient_3d(x, y, z):
   return Line3DCollection(sliding_window_ori(zip(x, y, z), 2),
                            colors=cm_disc,
                            capstyle="round",
-                           linewidth=.1, alpha=.1, zorder=0)
+                           linewidth=lw, alpha=alp, zorder=0)
 
 
 # ------------------------------- iterative trajectory maps ---------------------------------------- #
@@ -341,7 +341,10 @@ def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None, e
         ag_data[:,:,2] = turn
 
     # agent trajectories as gradient lines
+    # ag_data = ag_data[::103,25:100,:]
+    # ag_data = ag_data[::25,25:100,:]
     N_ag = ag_data.shape[0]
+    # print(N_ag)
     for agent in range(N_ag):
         pos_x = ag_data[agent,:,0]
         pos_y = ag_data[agent,:,1]
@@ -352,9 +355,10 @@ def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None, e
             # axes.add_collection(plt.scatter(pos_x, pos_y, 
             #                             c=turn, cmap='plasma_r', norm=norm, alpha=.01, s=1))
             
-            axes.add_collection(plt.scatter(pos_x[25:], pos_y[25:], c=turn[25:], cmap='Blues', alpha=turn[25:]*.1, s=1))
+            axes.add_collection(plt.scatter(pos_x[25:], pos_y[25:], c=turn[25:], cmap='Blues', alpha=turn[25:]*.01, s=1))
         else:
             axes.add_collection(color_gradient(pos_x, pos_y))
+            # axes.add_collection(color_gradient(pos_x, pos_y, lw=.3, alp=.8))
 
     # resource patches via circles
     N_res = res_data.shape[0]
@@ -374,9 +378,12 @@ def plot_map_iterative_traj(plot_data, x_max, y_max, w=8, h=8, save_name=None, e
         pts = get_ellipses()
         plt.scatter(pts[:,0], pts[:,1], c='black', alpha=.1, s=10)
 
+    # plt.show()
     if save_name:
         if ellipses:
             plt.savefig(fr'{save_name}_ellipses.png')
+        elif extra == 'turn':
+            plt.savefig(fr'{save_name}_turn.png')
         else:
             plt.savefig(fr'{save_name}.png')
         plt.close()
@@ -412,10 +419,10 @@ def get_ellipses(fov=.4, grid_length=1000):
                 if y2 > 0: # should negative
                     continue
 
-                if np.cos(ray1) < 0: # should be positive
-                    continue
-                if np.cos(ray2) < 0: # should be positive
-                    continue
+                # if np.cos(ray1) < 0: # should be positive
+                #     continue
+                # if np.cos(ray2) < 0: # should be positive
+                #     continue
                 
                 y_sep = y1 - y2
                 if isclose(y_sep, grid_length, abs_tol=.2):
@@ -439,10 +446,10 @@ def get_ellipses(fov=.4, grid_length=1000):
                 if x2 > 0: # should negative
                     continue
 
-                if np.cos(ray1) < 0: # should be positive
-                    continue
-                if np.cos(ray2) < 0: # should be positive
-                    continue
+                # if np.cos(ray1) < 0: # should be positive
+                #     continue
+                # if np.cos(ray2) < 0: # should be positive
+                #     continue
 
                 y_sep = x1 - x2
                 if isclose(y_sep, grid_length, abs_tol=.2):
@@ -464,10 +471,10 @@ def get_ellipses(fov=.4, grid_length=1000):
                 if y2 > 0: # should negative
                     continue
 
-                if np.cos(ray1) < 0: # should be positive
-                    continue
-                if np.cos(ray2) < 0: # should be positive
-                    continue
+                # if np.cos(ray1) < 0: # should be positive
+                #     continue
+                # if np.cos(ray2) < 0: # should be positive
+                #     continue
                 
                 y_sep = y1 - y2
                 if isclose(y_sep, grid_length, abs_tol=.2):
@@ -489,10 +496,10 @@ def get_ellipses(fov=.4, grid_length=1000):
                 if x2 > 0: # should negative
                     continue
 
-                if np.cos(ray1) < 0: # should be positive
-                    continue
-                if np.cos(ray2) < 0: # should be positive
-                    continue
+                # if np.cos(ray1) < 0: # should be positive
+                #     continue
+                # if np.cos(ray2) < 0: # should be positive
+                #     continue
                 
                 y_sep = x1 - x2
                 if isclose(y_sep, grid_length, abs_tol=.2):
@@ -952,6 +959,8 @@ def plot_mult_EA_trends(names, inter=False, val=None, group_est='mean', save_nam
                         val_data[n,1] = data[4] # train fitness
                         val_data[n,2] = data[7] # val fitness
 
+                    print(i, val_data[:,2])
+
                     top_ind = np.argsort(val_data[:,2])[:3] # min : top
                     # top_ind = np.argsort(top_data, axis=2)[-1:-4:-1] # max : top
 
@@ -1089,7 +1098,8 @@ def plot_mult_EA_trends_groups(groups, inter=False, val=None, save_name=None):
                     val_stack[r_num] = avg_val
 
         l1 = ax1.plot(np.mean(top_stack, axis=0), 
-                        label = f'{group_name}: top individual (avg of {num_runs} runs)',
+                        # label = f'{group_name}: top individual (avg of {num_runs} runs)',
+                        label = f'{group_name}',
                         color=cmap(g_num/cmap_range), 
                         alpha=0.5
                         )
@@ -1101,7 +1111,7 @@ def plot_mult_EA_trends_groups(groups, inter=False, val=None, save_name=None):
                         linestyle='dotted', 
                         alpha=0.5
                         )
-        lns.append(l2[0])
+        # lns.append(l2[0])
     
         if val is not None:
             val_group_median = np.mean(val_stack, axis=0)
@@ -1116,19 +1126,329 @@ def plot_mult_EA_trends_groups(groups, inter=False, val=None, save_name=None):
     ax1.set_xlabel('Generation')
 
     labs = [l.get_label() for l in lns]
-    ax1.legend(lns, labs, loc='upper left')
+    # ax1.legend(lns, labs, loc='upper right')
 
     # ax1.set_ylabel('# Patches Found')
     # ax1.set_ylim(0,8)
+    ax1.set_ylabel('Mean Fitness')
+    # ax1.set_ylim(-20,1720)
+    ax1.set_ylim(-20,1520)
+
+    if save_name: 
+        plt.savefig(fr'{data_dir}/{save_name}.png')
+        # plt.savefig(fr'{data_dir}/{save_name}_300.png', dpi=300)
+        # plt.savefig(fr'{data_dir}/{save_name}_500.png', dpi=500)
+    plt.show()
+
+
+def plot_mult_EA_trends_groups_endonly(groups, val=None, save_name=None):
+
+    import matplotlib.patches as mpatches
+
+    # establish load directory
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+
+    # # init plot details
+    fig, ax1 = plt.subplots(figsize=(15,10)) 
+    cmap = plt.get_cmap('hsv')
+    cmap_range = len(groups)
+    lns = []
+    violin_labs = []
+    
+    # iterate over each file
+    for g_num, (group_name, run_names) in enumerate(groups):
+
+        data_group = []        
+        for r_num, name in enumerate(run_names):
+
+            if val == 'top': filename = 'val_matrix'
+            elif val == 'cen': filename = 'val_matrix_cen'
+
+            with open(fr'{data_dir}/{name}/{filename}.bin','rb') as f:
+                data = pickle.load(f)
+            
+            data_group.append(data.flatten())
+
+            # print(data, data.shape)
+            # mean_vals = np.mean(data, axis=1)
+            # print(mean_vals, mean_vals.shape)
+        
+            # l0 = ax1.violinplot(data.flatten(), 
+            #             positions=[r_num],
+            #             widths=1, 
+            #             showmeans=False, 
+            #             showextrema=True,
+            #             )
+            # color = l0["bodies"][0].get_facecolor().flatten()
+            # violin_labs.append((mpatches.Patch(color=color), name))
+    
+        data = np.array(data_group)
+        l0 = ax1.violinplot(data.flatten(), 
+                    positions=[g_num],
+                    widths=1, 
+                    showmeans=True, 
+                    showextrema=False,
+                    )
+        color = l0["bodies"][0].get_facecolor().flatten()
+        violin_labs.append((mpatches.Patch(color=color), group_name))
+        # violin_labs.append((mpatches.Patch(color=color), labs[g_num]))
+
+        print(f'{name}: {np.min(data), np.mean(data), np.max(data)}')
+
+    # labs = [l.get_label() for l in lns]
+    # ax1.legend(lns, labs, loc='upper left')
+    ax1.legend(*zip(*violin_labs), loc='upper left')
+    # labs = [group_name for group_name,_ in groups]
+
+    ax1.xaxis.set_ticklabels([])
+    # ax1.set_xticklabels(labs)
     ax1.set_ylabel('Time to Find Patch')
-    ax1.set_ylim(-20,1720)
+    # ax1.set_ylim(-20,1020)
 
     if save_name: 
         plt.savefig(fr'{data_dir}/{save_name}.png')
     plt.show()
 
 
+
+def plot_mult_EA_trends_valnoise(run_names, noise, val=None, save_name=None):
+
+    # import matplotlib.patches as mpatches
+
+    # establish load directory
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+
+    if val == 'top': filename = 'val_matrix'
+    elif val == 'cen': filename = 'val_matrix_cen'
+
+    # init plot details
+    fig, ax1 = plt.subplots(figsize=(15,10)) 
+    cmap = plt.get_cmap('hsv')
+    cmap_range = 20
+
+    noise_name, noise_types = noise
+
+    # iterate over each file
+    for r_num, name in enumerate(run_names):
+
+        for n_num, noise_type in enumerate(noise_types):
+
+            if noise_type == 'no_noise':
+                with open(fr'{data_dir}/{name}/{filename}.bin','rb') as f:
+                    data = pickle.load(f)
+            else:
+                with open(fr'{data_dir}/{name}/{filename}_{noise_type}_noise.bin','rb') as f:
+                    data = pickle.load(f)
+
+            # data = data.flatten()
+            # x = beeswarm(data)
+            # # x = beeswarm2(data)
+            # ax1.scatter(r_num + x, data, c=cmap(r_num/cmap_range), alpha=0.01)
+
+            # print(r_num + n_num/len(noise_types))
+
+            l0 = ax1.violinplot(data.flatten(), 
+                        positions=[r_num + n_num/len(noise_types)*.8],
+                        widths=1/len(noise_types)*.8, 
+                        showmeans=True, 
+                        showextrema=False,
+                        )
+            for p in l0['bodies']:
+                p.set_facecolor(cmap(r_num/cmap_range))
+                p.set_edgecolor('black')
+            l0['cmeans'].set_edgecolor('black')
+
+            # color = l0["bodies"][0].get_facecolor().flatten()
+            # violin_labs.append((mpatches.Patch(color=color), group_name))
+
+    title = '~'
+    for x in noise_types:
+        title += f' {x} ~'
+    ax1.set_title(title)
+
+    # plt.grid(axis = 'x')
+    plt.xticks(np.arange(0, r_num+1, 1))
+    ax1.xaxis.set_ticklabels([])
+    ax1.set_ylabel('Time to Find Patch')
+
+    if save_name: 
+        plt.savefig(fr'{data_dir}/{save_name}_{noise_name}.png')
+    plt.show()
+    plt.close()
+
+
+def beeswarm(y, nbins=None):
+    """
+    Returns x coordinates for the points in ``y``, so that plotting ``x`` and
+    ``y`` results in a bee swarm plot.
+    https://stackoverflow.com/questions/36153410/how-to-create-a-swarm-plot-with-matplotlib
+    """
+    y = np.asarray(y)
+    if nbins is None:
+        nbins = len(y) // 6
+
+    # Get upper bounds of bins
+    x = np.zeros(len(y))
+    ylo = np.min(y)
+    yhi = np.max(y)
+    dy = (yhi - ylo) / nbins
+    ybins = np.linspace(ylo + dy, yhi - dy, nbins - 1)
+
+    # Divide indices into bins
+    i = np.arange(len(y))
+    ibs = [0] * nbins
+    ybs = [0] * nbins
+    nmax = 0
+    for j, ybin in enumerate(ybins):
+        f = y <= ybin
+        ibs[j], ybs[j] = i[f], y[f]
+        nmax = max(nmax, len(ibs[j]))
+        f = ~f
+        i, y = i[f], y[f]
+    ibs[-1], ybs[-1] = i, y
+    nmax = max(nmax, len(ibs[-1]))
+
+    # Assign x indices
+    dx = 1 / (nmax // 2)
+    for i, y in zip(ibs, ybs):
+        if len(i) > 1:
+            j = len(i) % 2
+            i = i[np.argsort(y)]
+            a = i[j::2]
+            b = i[j+1::2]
+            x[a] = (0.5 + j / 3 + np.arange(len(b))) * dx
+            x[b] = (0.5 + j / 3 + np.arange(len(b))) * -dx
+
+    return x
+
+
+
+def plot_mult_EA_trends_randomwalk(run_names, save_name=None):
+
+    import matplotlib.patches as mpatches
+
+    # establish load directory
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data/nonNN')
+
+    # init plot details
+    fig, ax1 = plt.subplots(figsize=(15,10)) 
+    # cmap = plt.get_cmap('hsv')
+    # cmap_range = len(run_names)
+    # violin_labs = []
+
+    diff_coeffs = [0.001,0.005,0.01,0.05,0.1,0.5]
+
+    plt.xticks(np.arange(0, len(run_names)+2, 1))
+    fig.canvas.draw()
+    labels = [item.get_text() for item in ax1.get_xticklabels()]
+
+    # iterate over each file
+    for r_num, name in enumerate(run_names):
+
+        with open(fr'{data_dir}/{name}.bin','rb') as f:
+            data = pickle.load(f)
+
+        # print(r_num + n_num/len(noise_types))
+
+        l0 = ax1.violinplot(data.flatten(), 
+                    positions=[r_num],
+                    widths=1, 
+                    showmeans=True, 
+                    showextrema=False,
+                    )
+        # for p in l0['bodies']:
+        #     p.set_facecolor(cmap(r_num/cmap_range))
+        #     p.set_edgecolor('black')
+        # l0['cmeans'].set_edgecolor('black')
+
+        # color = l0["bodies"][0].get_facecolor().flatten()
+        # violin_labs.append((mpatches.Patch(color=color), name))
+
+        labels[r_num] = diff_coeffs[r_num]
+    
+    # also add perfect traj
+    with open(fr'{data_dir}/perfect.bin','rb') as f:
+        data = pickle.load(f)
+
+    l0 = ax1.violinplot(data.flatten(), 
+                positions=[r_num+1],
+                widths=1, 
+                showmeans=True, 
+                showextrema=False,
+                )
+    labels[r_num+1] = 'perfect'
+
+
+
+    # ax1.legend(*zip(*violin_labs), loc='lower right')
+    # plt.grid(axis = 'x')
+    
+    # ax1.xaxis.set_ticklabels([])
+    ax1.set_xticklabels(labels)
+    ax1.set_ylabel('Time to Find Patch')
+    ax1.set_xlabel('Rotational Diffusion Coefficient')
+
+    plt.savefig(fr'{data_dir}/random.png')
+    plt.show()
+    plt.close()
+
+
+def plot_LM_percep(lm_radius, vis_res, FOV, x_max=1000, y_max=1000, w=8, h=8, save_name=None):
+
+    fig, axes = plt.subplots() 
+    axes.set_xlim(0, x_max)
+    axes.set_ylim(0, y_max)
+
+    # rescale plotting area to square
+    l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+    fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+    # resource patch via circle
+    pos_x = 400
+    pos_y = 600
+    radius = 50
+    axes.add_patch( plt.Circle((pos_x, pos_y), radius, edgecolor='k', fill=False, zorder=1) )
+    
+    # landmarks via circles
+    pts = [
+        (0,0),
+        (0,y_max),
+        (x_max,0),
+        (x_max,y_max),
+    ]
+    for pos in pts:
+        axes.add_patch( plt.Circle(pos, lm_radius, edgecolor='k', fill=True, color='gray', zorder=1) )
+
+    deg_bw_rays = 360 * FOV / vis_res
+    rays = np.arange(1, vis_res+1)
+    dists = lm_radius / np.tan(deg_bw_rays/2 * np.pi/180 * rays)
+
+    cm = plt.get_cmap('plasma_r')
+    cm_disc = cm(np.linspace(.1, .8, len(rays), endpoint=False))
+
+    for i,d in enumerate(dists):
+        for pos in pts:
+            axes.add_patch( plt.Circle(pos, lm_radius + d, edgecolor=cm_disc[i], fill=False, zorder=1) )
+
+    if save_name:
+        plt.savefig(fr'{save_name}.png')
+        plt.show()
+        plt.close()
+    else:
+        plt.show()
+
+
+
 if __name__ == '__main__':
+    
+
+    # plot_LM_percep(lm_radius=100, vis_res=8, FOV=.4, save_name='landmarks_vis8_lm100')
+    # plot_LM_percep(lm_radius=100, vis_res=10, FOV=.4, save_name='landmarks_vis10_lm100')
+    # plot_LM_percep(lm_radius=100, vis_res=12, FOV=.4, save_name='landmarks_vis12_lm100')
+    # plot_LM_percep(lm_radius=100, vis_res=16, FOV=.4, save_name='landmarks_vis16_lm100')
 
 
 ### ----------pop runs----------- ###
@@ -1242,6 +1562,10 @@ if __name__ == '__main__':
     #                     save_name='sc_CNN14_FNN2_vis14_PGPE_ss20_mom8_p50e20_valcen') 
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)], val='cen', 
     #                     save_name='sc_CNN14_FNN2_vis16_PGPE_ss20_mom8_p50e20_valcen') 
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_CNN14_FNN2_vis24_PGPE_ss20_mom8_p50e20_valcen')
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_CNN14_FNN2_vis32_PGPE_ss20_mom8_p50e20_valcen')
 
     # plot_mult_EA_trends([f'sc_CNN1122_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(15)], val='cen', 
     #                     save_name='sc_CNN1122_FNN2_vis8_PGPE_ss20_mom8_p50e20_valcen')
@@ -1331,11 +1655,12 @@ if __name__ == '__main__':
     #                     save_name='sc_CNN14_FNN2_vis8_dist_mWF_n0_PGPE_ss20_mom8_p50e20')
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_CNN14_FNN2_vis8_dist_msWF_n0_PGPE_ss20_mom8_p50e20')
-    
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_CNN14_FNN2_vis8_dist_sWF_n0_PGPE_ss20_mom8_p50e20')
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n1_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_CNN14_FNN2_vis8_dist_sWF_n1_PGPE_ss20_mom8_p50e20')
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)], 
+    #                     save_name='sc_CNN14_FNN2_vis8_dist_ssWF_n0_PGPE_ss20_mom8_p50e20')
 
 
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_res55_rep{x}' for x in range(20)], val='cen', #done
@@ -1434,10 +1759,16 @@ if __name__ == '__main__':
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_lm100')
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis10_lm100')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100')
+    plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)], val='cen',
+                        save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100')
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis16_lm100')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis24_lm100_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis24_lm100')
+    plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{x}' for x in range(20)], val='cen',
+                        save_name='sc_lm_CNN14_FNN2_p50e20_vis32_lm100')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis64_lm100_rep{x}' for x in range(20)], 
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis64_lm100')
 
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10')
@@ -1448,6 +1779,10 @@ if __name__ == '__main__':
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n05')
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n25_rep{x}' for x in range(20)], 
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n25')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_selfangl_n50_rep{x}' for x in range(20)], 
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_selfangl_n50')
 
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNNn8_p50e20_vis8_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNNn8_p50e20_vis8_lm100')
@@ -1459,32 +1794,36 @@ if __name__ == '__main__':
     # # # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in range(20)], val='cen',
     # # #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_lm300')
 
-    plots = [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x}' for x in range(9)]
-    for x in range(10):
-        plots.append(f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x+10}')
-    plot_mult_EA_trends(plots, val='cen',
-                        save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x}' for x in range(20)], val='cen'
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050')
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n100')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n100_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n100')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n50_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n50')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n100_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n100')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_LMdist_n500_rep{x}' for x in range(20)], 
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_LMdist_n500')
 
-    # groups = []
-    # groups.append(('vis8', [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in range(20)]))
-    # groups.append(('vis10', [f'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep{x}' for x in range(20)]))
-    # groups.append(('vis12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
-    # groups.append(('vis16', [f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in range(20)]))
-    # groups.append(('vis8 + angl n10', [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep{x}' for x in range(20)]))
-    # groups.append(('vis10 + angl n10', [f'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_angl_n10_rep{x}' for x in range(20)]))
-    # groups.append(('vis12 + angl n10', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep{x}' for x in range(20)]))
-    # # groups.append(('vis8 + FNNn8', [f'sc_lm_CNN14_FNNn8_p50e20_vis8_lm100_rep{x}' for x in range(20)]))
-    # groups.append(('vis10 + FNNn8', [f'sc_lm_CNN14_FNNn8_p50e20_vis10_lm100_rep{x}' for x in range(20)]))
-    # groups.append(('vis12 + FNNn8', [f'sc_lm_CNN14_FNNn8_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
-    # groups.append(('vis8 + LM s300', [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in range(20)]))
-    # groups.append(('vis12 + LM n100', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmn100_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks_')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n05_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n05')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n10_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n10')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n50_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n50')
+
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n50_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n50')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n100_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n100')
+
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n05_lmdist_n50_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n05_lmdist_n50')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n10_lmdist_n100_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n10_lmdist_n100')
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n50_lmdist_n500_rep{x}' for x in range(20)], 
+    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n50_lmdist_n500')
+
 
 ### ----------pop runs >> num_inter ----------- ###
 
@@ -1599,22 +1938,23 @@ if __name__ == '__main__':
 
 
     ### FEAT ###
-    # # # groups.append(('CNN 1122', [f'sc_CNN1122_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(15)]))
-    # # # groups.append(('CNN 1124', [f'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(53)]))
+    # # groups.append(('CNN 1122', [f'sc_CNN1122_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(15)]))
+    # # groups.append(('CNN 1124', [f'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(53)]))
     # groups.append(('CNN 12', [f'sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('CNN 13', [f'sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('CNN 14', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('CNN 15', [f'sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('CNN 16', [f'sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('CNN 17', [f'sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_CNN')
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_CNN')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_CNN')
 
     # groups.append(('FNN 2', [f'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(53)]))
     # groups.append(('GRU 4', [f'sc_CNN1124_GRU4_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # plot_mult_EA_trends_groups(groups, save_name='groups_singlecorner_integrator_memory')
 
 
-    ### VIS ###
+    # ## VIS ###
     # groups.append(('vis 6', [f'sc_CNN1124_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('vis 8', [f'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(53)]))
     # groups.append(('vis 9', [f'sc_CNN1124_FNN2_p50e20_vis9_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
@@ -1626,13 +1966,17 @@ if __name__ == '__main__':
     # groups.append(('vis 10', [f'sc_CNN1124_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_vis')
     # groups = []
-    # groups.append(('block31/head22 - vis6', [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # groups.append(('block31/head22 - vis8', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # groups.append(('block31/head22 - vis10', [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # groups.append(('block31/head22 - vis12', [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # groups.append(('block31/head22 - vis14', [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # groups.append(('block31/head22 - vis16', [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_block31head22_vis')
+    # groups.append(('vis 6', [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 8', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 10', [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 12', [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 14', [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 16', [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 20', [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 24', [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # groups.append(('vis 32', [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_vis')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_vis')
     # groups = []
     # groups.append(('block52 - vis8', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_block52_rep{x}' for x in range(20)]))
     # groups.append(('block52 - vis10', [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_block52_rep{x}' for x in range(20)]))
@@ -1644,7 +1988,8 @@ if __name__ == '__main__':
     # groups.append(('block52/head44 - vis12', [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_block52_head44_rep{x}' for x in range(20)]))
     # groups.append(('block52/head44 - vis14', [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_block52_head44_rep{x}' for x in range(20)]))
     # groups.append(('block52/head44 - vis16', [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_block52_head44_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_block52head44_vis')
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_block52head44_vis')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_block52head44_vis')
 
     # groups = []
     # groups.append(('CNN13 - FNN 1', [f'sc_CNN13_FNN1_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
@@ -1666,7 +2011,8 @@ if __name__ == '__main__':
     # groups.append(('FNN 2x4', [f'sc_CNN14_FNN2x4_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # # groups.append(('FNN 2x8', [f'sc_CNN14_FNN2x8_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('FNN 2x16', [f'sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_integrator_size')
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_integrator_size')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_integrator_size')
 
 
     ### FOV ###
@@ -1681,29 +2027,34 @@ if __name__ == '__main__':
     # groups.append(('fov7', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov7_rep{x}' for x in range(20)]))
     # groups.append(('fov8', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov8_rep{x}' for x in range(20)]))
     # groups.append(('fov875', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov875_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_FOV')
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_FOV')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_FOV')
 
 
     ### DIST ###
     # groups = []
-    # groups.append(('minmax', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep{x}' for x in range(20)]))
-    # groups.append(('WF_n0', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)]))
-    # groups.append(('mlWF_n0', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]))
-    # groups.append(('mWF_n0', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]))
-    # groups.append(('msWF_n0', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]))
-    # groups.append(('sWF_n0', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_WF_scaling')
+    # groups.append(('min-max', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep{x}' for x in range(20)]))
+    # groups.append(('WF scaling ~ {0.20, 0.90}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)]))
+    # groups.append(('WF scaling ~ {0.25, 0.75}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]))
+    # groups.append(('WF scaling ~ {0.30, 0.70}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]))
+    # groups.append(('WF scaling ~ {0.45, 0.65}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]))
+    # groups.append(('WF scaling ~ {0.40, 0.60}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]))
+    # groups.append(('WF scaling ~ {0.45, 0.55}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]))
+    # groups.append(('no dist scaling', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_WF_scaling')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_singlecorner_WF_scaling')
 
     # groups = []
-    # groups.append(('WF_n0', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)]))
-    # groups.append(('WF_n1', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n1_rep{x}' for x in range(20)]))
-    # groups.append(('WF_n2', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep{x}' for x in range(20)]))
-    # groups.append(('WF_n3', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n3_rep{x}' for x in range(20)]))
-    # groups.append(('WF_n4', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, no noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, 0.1 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n1_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, 0.2 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, 0.3 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n3_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, 0.4 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep{x}' for x in range(20)]))
     # # groups.append(('sWF_n0', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]))
     # # groups.append(('sWF_n1', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n1_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_WF_noise')
-
+    # groups.append(('no dist scaling', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_WF_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_singlecorner_WF_noise')
 
     ### RES POS ###
     # groups = []
@@ -1775,12 +2126,18 @@ if __name__ == '__main__':
     # groups.append(('no noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('angl n05', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n05_rep{x}' for x in range(20)]))
     # groups.append(('angl n10', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep{x}' for x in range(20)]))
-    # groups.append(('act n15', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n15_rep{x}' for x in range(20)]))
+    # groups.append(('angl n15', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n15_rep{x}' for x in range(20)]))
     # groups.append(('angl n20', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n20_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_angl_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_singlecorner_angl_noise')
+
+    # groups = []
+    # groups.append(('no noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
     # groups.append(('act n05', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n05_rep{x}' for x in range(20)]))
     # groups.append(('act n15', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n15_rep{x}' for x in range(20)]))
     # groups.append(('act n20', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n20_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_angl_noise')
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_angl_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_singlecorner_angl_noise')
 
     ### ACTIV FUNC ###
     # groups = []
@@ -1798,7 +2155,136 @@ if __name__ == '__main__':
     # groups.append(('seed 20k', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed20k_rep{x}' for x in range(20)]))
     # groups.append(('seed 30k', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed30k_rep{x}' for x in range(20)]))
     # # groups.append(('seed 40k', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed40k_rep{x}' for x in range(20)]))
-    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_seed')
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_seed')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_seed')
+
+
+    ### LANDMARKS ###
+    # groups = []
+    # groups.append(('resolution = 8', [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('resolution = 10', [f'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('resolution = 12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('resolution = 16', [f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('resolution = 24', [f'sc_lm_CNN14_FNN2_p50e20_vis24_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('resolution = 32', [f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('resolution = 64', [f'sc_lm_CNN14_FNN2_p50e20_vis64_lm100_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_landmarks')
+
+    # groups = []
+    # groups.append(('vis12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + angl n05', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n05_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + angl n10', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + angl n25', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n25_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + angl n50', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n50_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + angl n100', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n100_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks_vis12_angl_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_landmarks_vis12_angl_noise')
+
+    # groups = []
+    # groups.append(('vis8', [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('vis16', [f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('vis8 + LM s300', [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in range(20)]))
+    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks_size')
+
+    # groups = []
+    # groups.append(('vis12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + LM dist n50, pre LM angle calc', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n050_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + LM dist n100, pre LM angle calc', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist_n100_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + LM dist n50, post LM angle calc', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n50_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM dist n100', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n100_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + LM dist n250, post LM angle calc', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n250_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM dist n250', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_clip_n250_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + LM dist n500, post LM angle calc', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_n500_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM dist n500', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdistpost_clip_n500_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks_vis12_lmdist_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_landmarks_vis12_lmdist_noise')
+
+    # groups = []
+    # groups.append(('vis12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + LM angle n05', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n05_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM angle n10', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n10_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM angle n25', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n25_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM angle n50', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n50_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks_vis12_lmangle_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_landmarks_vis12_lmangle_noise')
+
+    # groups = []
+    # groups.append(('vis12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM radius n50', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n50_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM radius n100', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmradius_n100_rep{x}' for x in range(20)]))
+    # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks_vis12_lmradius_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_landmarks_vis12_lmradius_noise')
+
+    # groups = []
+    # groups.append(('vis12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12 + LM angle n05 + LM dist 50', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n05_lmdist_n50_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM angle n10 + LM dist 100', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n10_lmdist_n100_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM angle n25 + LM dist 250', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n25_lmdist_n250_rep{x}' for x in range(20)]))
+    # groups.append(('vis12 + LM angle n50 + LM dist 500', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmangle_n50_lmdist_n500_rep{x}' for x in range(20)]))
+    # # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_landmarks_vis12_lmanglepdist_noise')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_landmarks_vis12_lmanglepdist_noise')
+
+
+### ----------val noise----------- ###
+
+    noise = ('self_dist', ['no_noise', 'dist_n025', 'dist_n05'])
+    # noise = ('self_dist', ['no_noise', 'dist_n05', 'dist_n10'])
+
+    # noise = ('self_angle', ['no_noise', 'angle_n05', 'angle_n10'])
+    # noise = ('dist', ['no_noise', 'dist_n50', 'dist_n100'])
+    # # noise = ('self_angle', ['no_noise', 'angle_n05', 'angle_n10', 'angle_n20'])
+    # # noise = ('dist', ['no_noise', 'dist_n50', 'dist_n100', 'dist_n200'])
+    # # # noise = ('LM_angle', ['no_noise', 'lmangle_n05', 'lmangle_n10'])
+    # # # noise = ('ang_plus_dist', ['no_noise', 'angle_n05_dist_n50', 'angle_n10_dist_n100'])
+
+    # # # groups.append(('vis8', [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in range(20)]))
+    # # # groups.append(('vis10', [f'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep{x}' for x in range(20)]))
+    # # # groups.append(('vis12', [f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{x}' for x in range(20)]))
+    # # # groups.append(('vis16', [f'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep{x}' for x in range(20)]))
+    # # # groups.append(('vis24', [f'sc_lm_CNN14_FNN2_p50e20_vis24_lm100_rep{x}' for x in range(20)]))
+    # # # groups.append(('vis32', [f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{x}' for x in range(20)]))
+
+    # # for tag, names in groups:
+    # #     plot_mult_EA_trends_valnoise(names, noise, val='cen', save_name=f'valnoise_lm_{tag}')
+
+    # # groups.append(('vis6', [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # groups.append(('vis8', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # groups.append(('vis10', [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # groups.append(('vis12', [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # groups.append(('vis14', [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # groups.append(('vis16', [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    # # groups.append(('vis24', [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+
+    # groups.append(('seed10k', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]))
+    # groups.append(('seed20k', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed20k_rep{x}' for x in range(20)]))
+    # groups.append(('seed30k', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed30k_rep{x}' for x in range(20)]))
+
+    groups.append(('min-max', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep{x}' for x in range(20)]))
+    groups.append(('WF {0.20, 0.90}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)]))
+    groups.append(('WF {0.25, 0.75}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]))
+    groups.append(('WF {0.30, 0.70}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]))
+    groups.append(('WF {0.35, 0.65}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]))
+    groups.append(('WF {0.40, 0.60}', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]))
+
+    # groups.append(('full WF, 0.1 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n1_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, 0.2 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, 0.3 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n3_rep{x}' for x in range(20)]))
+    # groups.append(('full WF, 0.4 std noise', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep{x}' for x in range(20)]))
+
+    for tag, names in groups:
+        plot_mult_EA_trends_valnoise(names, noise, val='cen', save_name=f'valnoise_{tag}')
+
+
+    # names = [
+    #     'rotdiff_0p001',
+    #     'rotdiff_0p005',
+    #     'rotdiff_0p01',
+    #     'rotdiff_0p05',
+    #     'rotdiff_0p10',
+    #     'rotdiff_0p50',
+    # ]
+    # plot_mult_EA_trends_randomwalk(names)
 
 
 ### ----------violins----------- ###
