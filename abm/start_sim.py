@@ -32,8 +32,8 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # override original EA-written env dict
             # envconf['LOG_ZARR_FILE'] = 0
 
-            # envconf['WITH_VISUALIZATION'] = 1
-            # envconf['INIT_FRAMERATE'] = 10
+            envconf['WITH_VISUALIZATION'] = 1
+            envconf['INIT_FRAMERATE'] = 100
 
             # envconf['N'] = 4
             # envconf['T'] = 100000
@@ -199,57 +199,8 @@ if __name__ == '__main__':
     #     print(envconf['EA_STEP_MU'])
 
 
-    # exp_name = 'sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'
-    # gen_ext = 'gen790'
-    # exp_name = 'sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'
-    # gen_ext = 'gen979'
-
-
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'
-    # gen_ext = 'gen956'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
-    # gen_ext = 'gen941'
-
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep0'
-    # gen_ext = 'gen857'
-
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep2'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep0'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep5'
-    # gen_ext = 'gen963'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep3'
-    # gen_ext = 'gen956'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep5'
-    # gen_ext = 'gen937'
-
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep2'
-    # gen_ext = 'gen963'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n1_rep5'
-    # gen_ext = 'gen900'
-
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep6'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep9'
-    # gen_ext = 'gen844'
-
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep6'
-    # gen_ext = 'gen963'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep1'
-    # gen_ext = 'gen857'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep0'
-    # gen_ext = 'gen944'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis16_lm100_rep2'
-    # gen_ext = 'gen973'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep15'
-    # gen_ext = 'gen988'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep14'
-    # gen_ext = 'gen930'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_rep15'
-    # gen_ext = 'gen973'
-    # exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmn100_rep13'
-    # gen_ext = 'gen925'
-
-    exp_name = 'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_lmradius_n100_rep1'
-    gen_ext = 'gen899'
+    exp_name = 'sc_CNN14_FNN64x64_p50e20_vis8_PGPE_ss20_mom8_act32_rep0'
+    gen_ext = 'gen977'
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'

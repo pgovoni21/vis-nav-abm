@@ -24,6 +24,9 @@ setup(
         # 'pip install git+https://github.com/nnaisense/pgpelib.git#egg=pgpelib' # doesn't work with setup # now doesn't work at all --> local install below
         # cd ../pgpelib
         # pip install -e .
+
+        # also need to run the Solution 2 commands here:
+        # https://stackoverflow.com/questions/72110384/libgl-error-mesa-loader-failed-to-open-iris
     ],
     # extras_require={
     #     'test': [

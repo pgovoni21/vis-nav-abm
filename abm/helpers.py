@@ -92,12 +92,27 @@ def rename_files():
     root_dir = Path(__file__).parent / fr'data/simulation_data'
     # root_dir = Path(__file__).parent / fr'data/simulation_data/traj_matrices'
 
-    word_to_change = 'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_lmdist'
+    word_to_change = 'mlWF'
     for old_name in os.listdir(root_dir):
         if word_to_change in old_name:
-            print(old_name)
-            new_name = old_name.replace(word_to_change, 'lmdist_n')
-            os.rename(Path(root_dir, old_name), Path(root_dir, new_name))
+            print(old_name, 'old')
+            new_name = old_name.replace(word_to_change, 'dist_p8WF')
+            # print(new_name, 'new')
+            # os.rename(Path(root_dir, old_name), Path(root_dir, new_name))
+
+
+def rename_file_in_folder():
+
+    root_dir = Path(__file__).parent / fr'data/simulation_data'
+    # root_dir = Path(__file__).parent / fr'data/simulation_data/traj_matrices'
+
+    for folder_name in os.listdir(root_dir):
+        if 'ssWF' in folder_name and not folder_name.endswith('png'):
+            for file_name in os.listdir(root_dir/folder_name):
+                if 'val_result' in file_name:
+                # if 'val_result' in file_name and 'cen' not in file_name:
+                    print(file_name, folder_name)
+                    # os.rename(Path(root_dir, folder_name, file_name), Path(root_dir, folder_name, 'val_results_cen.txt'))
 
 
 
@@ -107,11 +122,26 @@ def modify_env_files():
 
     for name in os.listdir(root_dir):
         if name.startswith('sc_') and not name.endswith('png'):
+        # if name.startswith('sc_C') and not name.endswith('png'):
 
-            env_path = fr'{root_dir}/{name}/.env'
-            envconf = de.dotenv_values(env_path)
+            # if 'seed1' in name and 'mlWF' in name:
+            # if 'seed2' in name and 'sWF' in name:
+            # if 'seed2' in name and '24' in name:
+            if 'seed4' in name and 'dist' not in name and '24' not in name:
+
+                env_path = fr'{root_dir}/{name}/.env'
+                envconf = de.dotenv_values(env_path)
+
+                print(name)
+                # print(envconf["EA_START_SEED"])
+                print(envconf["SIM_TYPE"])
+                # de.set_key(env_path, 'SIM_TYPE', 'walls')
 
             # de.set_key(env_path, 'PERCEP_LM_RADIUS_NOISE_STD', '0')
+
+            # if float(envconf["RADIUS_LANDMARK"]) > 0:
+            #     print(float(envconf["RADIUS_LANDMARK"]), name)
+            #     de.set_key(env_path, 'RADIUS_LANDMARK', '0')
 
             # if 'PERCEP_LM_NOISE_STD' in envconf:
             #     print(name)
@@ -120,32 +150,23 @@ def modify_env_files():
             # if envconf['LM_DIST_NOISE_STD'] != '0':
             #     print(name)
 
-            if 'PERCEP_LM_DIST_NOISE_STD' in envconf:
-                val = envconf['PERCEP_LM_DIST_NOISE_STD']
-                de.set_key(env_path, 'LM_DIST_NOISE_STD', val)
-                de.unset_key(env_path, 'PERCEP_LM_DIST_NOISE_STD')
-            if 'PERCEP_LM_RADIUS_NOISE_STD' in envconf:
-                val = envconf['PERCEP_LM_RADIUS_NOISE_STD']
-                de.set_key(env_path, 'LM_RADIUS_NOISE_STD', val)
-                de.unset_key(env_path, 'PERCEP_LM_RADIUS_NOISE_STD')
-            if 'PERCEP_LM_ANGLE_NOISE_STD' in envconf:
-                val = envconf['PERCEP_LM_ANGLE_NOISE_STD']
-                de.set_key(env_path, 'LM_ANGLE_NOISE_STD', val)
-                de.unset_key(env_path, 'PERCEP_LM_ANGLE_NOISE_STD')
+            # if 'lm' in name:
+            #     continue
 
-            # if 'SENSORY_NOISE_STD' in envconf:
-            #     de.unset_key(env_path, 'SENSORY_NOISE_STD')
+            # if 'LM_DIST_NOISE_STD' not in envconf:
+            #     print(name, envconf['LM_DIST_NOISE_STD'])
+            #     val = envconf['LM_DIST_NOISE_STD']
+            #     # de.set_key(env_path, 'LM_DIST_NOISE_STD', val)
+            #     # de.unset_key(env_path, 'PERCEP_LM_DIST_NOISE_STD')
 
-            # if 'PERCEP_ANGLE_NOISE' in envconf:
-            #     de.unset_key(env_path, 'PERCEP_ANGLE_NOISE')
-
-            # if 'ACTION_NOISE' in envconf:
-            #     de.unset_key(env_path, 'ACTION_NOISE')
-
+            # if 'SIM_TYPE' not in envconf:
+            #     print(name)
+            #     de.set_key(env_path, 'SIM_TYPE', 'walls')
 
 
 if __name__ == '__main__':
 
     # trim_folders()
     # rename_files()
-    modify_env_files()
+    rename_file_in_folder()
+    # modify_env_files()

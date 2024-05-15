@@ -212,7 +212,7 @@ class Agent(pygame.sprite.Sprite):
                     # angle_bw += np.random.randn()*.05
                     lm_radius = lm.radius + np.random.randn()*self.LM_radius_noise_std
                     landmark_distance += np.random.randn()*self.LM_dist_noise_std
-                    # landmark_distance += np.random.randn()*100
+                    # landmark_distance += np.random.randn()*200
 
                     # ensure no negative radii/distances
                     lm_radius = np.maximum(lm_radius, 0.01)
@@ -379,7 +379,7 @@ class Agent(pygame.sprite.Sprite):
         # Add perceptual noise if specified
         orientation_real = self.orientation
         noise = np.random.randn()*self.percep_angle_noise_std
-        # noise = np.random.randn()*.1
+        # noise = np.random.randn()*.2
         # if noise > 0: noise = 0
         # if noise < 0: noise = 0
         self.orientation += noise

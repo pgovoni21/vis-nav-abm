@@ -731,6 +731,12 @@ class Simulation:
                         #     dist_input = ( np.power(self.min_dist / dist_input, 1.2) + .25 ) / 1.25
                         # elif self.vis_transform == 'vfar':
                         #     dist_input = ( np.power(self.min_dist / dist_input, 2) + .25 ) / 1.25
+                        elif self.vis_transform == 'maxWF':
+                            agent.dist_input = 1.465 - np.log(agent.dist_input) / 5 # bounds [min, max] within [0, 1]
+                        elif self.vis_transform == 'p9WF':
+                            agent.dist_input = 1.29 - np.log(agent.dist_input) / 6.1 # bounds [min, max] within [0.1, 0.9]
+                        elif self.vis_transform == 'p8WF':
+                            agent.dist_input = 1.09 - np.log(agent.dist_input) / 8.2 # bounds [min, max] within [0.2, 0.8]
                         elif self.vis_transform == 'WF':
                             agent.dist_input = 1.24 - np.log(agent.dist_input) / 7 # bounds [min, max] within [0.2, 0.9]
                         elif self.vis_transform == 'mlWF':
@@ -741,6 +747,8 @@ class Simulation:
                             agent.dist_input = .8 - np.log(agent.dist_input) / 16 # bounds [min, max] within [0.35, 0.65]
                         elif self.vis_transform == 'sWF':
                             agent.dist_input = .7 - np.log(agent.dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
+                        elif self.vis_transform == 'ssWF':
+                            agent.dist_input = .6 - np.log(agent.dist_input) / 48 # bounds [min, max] within [0.45, 0.55]
                         # elif self.vis_transform == 'minmax_buffer':
                         #     dist_input = (dist_input - self.min_dist + 100)/(self.max_dist - self.min_dist + 200)
                         #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
@@ -756,6 +764,7 @@ class Simulation:
 
                         # add noise + perturbation + clip
                         agent.dist_input += np.random.randn(agent.dist_input.shape[0]) * self.percep_dist_noise_std
+                        # agent.dist_input += np.random.randn(agent.dist_input.shape[0]) * .025
                         # dist_input *= 1.1
                         # dist_input /= 1.5
                         # dist_input += .05
@@ -814,6 +823,8 @@ class Simulation:
                         agent.move(action)
                         # agent.move(0.1)
                         # agent.move(np.random.uniform(-0.1,0.1))
+                        # rot_diff = 0.001
+                        # agent.move((2*rot_diff)**.5 * np.random.uniform(-1,1))
 
                 # mod_times[self.t] = time.time() - mod_start
 

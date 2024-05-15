@@ -298,6 +298,7 @@ class Agent(pygame.sprite.Sprite):
         # Add perceptual noise if specified
         orientation_real = self.orientation
         noise = np.random.randn()*self.percep_angle_noise_std
+        # noise += np.random.randn()*.05
         # if noise > 0: noise = 0
         # if noise < 0: noise = 0
         self.orientation += noise
