@@ -61,8 +61,14 @@ def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=Non
 
     # skip to start of each seed series/chunk + allocate fitness to save matrix
     for i,c in enumerate(range(0, len(results_list), num_seeds)):
-        for s,fitnesses in enumerate(results_list[c : c + num_seeds]):
-            val_matrix[i,s] = round(fitnesses[0],0)
+        for s,(time_taken, dist_from_patch) in enumerate(results_list[c : c + num_seeds]):
+
+            val_matrix[i,s] = int(time_taken)
+
+            # if dist_from_patch == 0:
+            #     val_matrix[i,s] = int(time_taken)
+            # else:
+            #     val_matrix[i,s] = int(time_taken + dist_from_patch)
 
     # saving protocol for noise/perturb/regular
 
@@ -101,9 +107,13 @@ def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=Non
             pickle.dump(val_matrix, f)
         avg_per_NN = np.average(val_matrix, axis=1).round(1)
 
+        with open(fr'{exp_path}/val_results_cen.txt', 'w') as f:
+            f.write(f'Validation matrix shape (num_NNs, num_seeds): {val_matrix.shape}\n')
+            for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
+                f.write(str(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)}\n'))
+
         for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
             print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)}')
-
 
 
 def run_randomwalk(name, num_RWs=20, num_seeds=100):
@@ -193,8 +203,10 @@ if __name__ == '__main__':
 
     names = []
 
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(2)]:
-    #     names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
 
     # for name in names:
     #     rerun_NNs(name)
@@ -208,6 +220,7 @@ if __name__ == '__main__':
     # run_randomwalk('rotdiff_0p50')
     # run_perfect()
 
+    # # vis
     # for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
@@ -220,21 +233,78 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
-
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed20k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed30k_rep{x}' for x in range(20)]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
 
+    # # cnn
+    # for name in [f'sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
 
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep{x}' for x in range(20)]:
+    # # fnn
+    # for name in [f'sc_CNN14_FNN1_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)]:
+    # # for name in [f'sc_CNN14_FNN3_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # for name in [f'sc_CNN14_FNN4_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
+    # for name in [f'sc_CNN14_FNN8_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2x2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # # for name in [f'sc_CNN14_FNN2x3_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2x4_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # # for name in [f'sc_CNN14_FNN2x8_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    
+    # # fov
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov2_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov3_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov5_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov6_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov7_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov875_rep{x}' for x in range(20)]:
+    #     names.append(name)
+
+    # # dist
+    # # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)]:
+    # #     names.append(name)
+    # # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)]:
+    # #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]:
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]:
@@ -243,6 +313,27 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]:
     #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+
+    # for s in [10000,20000,30000,40000]:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in [10000,20000,30000,40000]:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in [10000,20000,30000,40000]:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in [10000,20000,30000,40000]:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in [10000,20000,30000,40000]:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in [10000,20000,30000,40000]:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
 
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n1_rep{x}' for x in range(20)]:
     #     names.append(name)
@@ -252,7 +343,6 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep{x}' for x in range(20)]:
     #     names.append(name)
-    
 
     # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in range(20)]:
     #     names.append(name)
@@ -267,6 +357,10 @@ if __name__ == '__main__':
     # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{x}' for x in range(20)]:
     #     names.append(name)
 
+    for name in [f'sc_CNN14_FNN64x64_p50e20_vis8_PGPE_ss20_mom8_act32_rep{x}' for x in range(0)]:
+        names.append(name)
+
     for name in names:
-        # rerun_NNs(name, noise_type='angle_n10')
-        rerun_NNs(name, noise_type='dist_n025')
+        rerun_NNs(name)
+        # rerun_NNs(name, noise_type='angle_n05')
+        # rerun_NNs(name, noise_type='dist_n025')
