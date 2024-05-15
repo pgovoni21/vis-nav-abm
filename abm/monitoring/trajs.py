@@ -1,16 +1,18 @@
 from abm.start_sim import reconstruct_NN
-# from abm.sprites.agent import Agent
-from abm.sprites.agent_LM import Agent
+from abm.sprites.agent import Agent
+# from abm.sprites.agent_LM import Agent
 from abm.sprites.landmark import Landmark
 
 import dotenv as de
 from pathlib import Path
 import numpy as np
+import scipy
 import torch
 import multiprocessing as mp
 import _pickle as pickle
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import os
 
 
 # -------------------------- neuron activity -------------------------- #
@@ -180,7 +182,7 @@ def plot_Nact_imshow(exp_name, gen_ext, space_step, orient_step):
             # ax[o,-1].quiver( X, Y, U, V, pivot='mid' )
             ax[o,-1].quiver( X[::2,::2], Y[::2,::2], U[::2,::2], V[::2,::2], pivot='mid' )
 
-    plt.savefig(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.png', dpi=400)
+    plt.savefig(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.png')
     plt.close()
 
 
@@ -219,7 +221,7 @@ def plot_Nact_action_phase(exp_name, gen_ext, space_step, orient_step):
         # ax[int(n/2)].streamplot( X, Y, U, V )
         ax[o].quiver( X[::2,::2], Y[::2,::2], U[::2,::2], V[::2,::2], pivot='mid' )
 
-    plt.savefig(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action_phase.png', dpi=1000)
+    plt.savefig(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action_phase.png')
     plt.close()
 
 
@@ -547,7 +549,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     min_dist = agent_radius*2
 
     landmarks = []
-    if float(envconf["RADIUS_LANDMARK"]) > 0:
+    if envconf["SIM_TYPE"] == "LM":
         ids = ('TL', 'TR', 'BL', 'BR')
         for id, pos in zip(ids, boundary_endpts):
             landmark = Landmark(
@@ -617,6 +619,12 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
                 dist_input = 1/np.power(dist_input/(min_dist), 1)
             elif vis_transform == 'minmax':
                 dist_input = (dist_input - min_dist)/(max_dist - min_dist)
+            elif vis_transform == 'maxWF':
+                dist_input = 1.465 - np.log(dist_input) / 5 # bounds [min, max] within [0, 1]
+            elif vis_transform == 'p9WF':
+                dist_input = 1.29 - np.log(dist_input) / 6.1 # bounds [min, max] within [0.1, 0.9]
+            elif vis_transform == 'p8WF':
+                dist_input = 1.09 - np.log(dist_input) / 8.2 # bounds [min, max] within [0.2, 0.8]
             elif vis_transform == 'WF':
                 dist_input = 1.24 - np.log(dist_input) / 7 # bounds [min, max] within [0.2, 0.9]
             elif vis_transform == 'mlWF':
@@ -627,6 +635,8 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
                 dist_input = .8 - np.log(dist_input) / 16 # bounds [min, max] within [0.35, 0.65]
             elif vis_transform == 'sWF':
                 dist_input = .7 - np.log(dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
+            elif vis_transform == 'ssWF':
+                dist_input = .6 - np.log(dist_input) / 48 # bounds [min, max] within [0.45, 0.55]
 
             noise = np.random.randn(dist_input.shape[0]) * dist_noise_std
             if extra.endswith('pos'): noise[noise > 0] = 0
@@ -679,7 +689,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
 
 
 def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', landmarks=False):
-    print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {rank}, {int(eye)}, {extra}')
+    print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
 
     # pull pv + envconf from save folders
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -751,8 +761,8 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
         pickle.dump(traj_matrix, f)
 
 
-def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, extra='', landmarks=False):
-    print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {rank}, {int(eye)}, {extra}, {landmarks}')
+def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, ex_lines=False, extra='', landmarks=False):
+    print(f'plotting map - {exp_name}, {gen_ext}, ell{ellipses}, ex_lines{ex_lines}, extra{extra}, lm{landmarks}')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     env_path = fr'{data_dir}/{exp_name}/.env'
@@ -794,13 +804,13 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='cturn')
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime')
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_flat')
-        plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows')
-        plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only')
+        # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows')
+        # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only')
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only', sv_typ='anim')
     else:
         from abm.monitoring.plot_funcs import plot_map_iterative_traj
         if not landmarks:
-            plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra)
+            plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra)
         else:
             lms = (int(envconf["RADIUS_LANDMARK"]),
                    [
@@ -810,10 +820,97 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
                     np.array([ width, height ])
                     ]
             )
-            plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, extra=extra, landmarks=lms)
+            plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra, landmarks=lms)
 
-def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True):
-    print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
+
+def circular_hist(ax, x, bins=16, density=True, offset=0, gaps=True, colored=False):
+    """
+    Produce a circular histogram of angles on ax.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes._subplots.PolarAxesSubplot
+        axis instance created with subplot_kw=dict(projection='polar').
+
+    x : array
+        Angles to plot, expected in units of radians.
+
+    bins : int, optional
+        Defines the number of equal-width bins in the range. The default is 16.
+
+    density : bool, optional
+        If True plot frequency proportional to area. If False plot frequency
+        proportional to radius. The default is True.
+
+    offset : float, optional
+        Sets the offset for the location of the 0 direction in units of
+        radians. The default is 0.
+
+    gaps : bool, optional
+        Whether to allow gaps between bins. When gaps = False the bins are
+        forced to partition the entire [-pi, pi] range. The default is True.
+
+    Returns
+    -------
+    n : array or list of arrays
+        The number of values in each bin.
+
+    bins : array
+        The edges of the bins.
+
+    patches : `.BarContainer` or list of a single `.Polygon`
+        Container of individual artists used to create the histogram
+        or list of such containers if there are multiple input datasets.
+    """
+    # Wrap angles to [-pi, pi)
+    x = (x+np.pi) % (2*np.pi) - np.pi
+    # Force bins to partition entire circle
+    if not gaps:
+        bins = np.linspace(-np.pi, np.pi, num=bins+1)
+
+    # Bin data and record counts
+    n, bins = np.histogram(x, bins=bins)
+
+    # Compute width of each bin
+    widths = np.diff(bins)
+
+    # By default plot frequency proportional to area
+    if density:
+        # Area to assign each bin
+        area = n / x.size
+        # Calculate corresponding bin radius
+        radius = (area/np.pi) ** .5
+    # Otherwise plot frequency proportional to radius
+    else:
+        radius = n
+
+    if colored:
+        my_cmap = plt.get_cmap('plasma')
+        rescale = lambda y: (y - np.min(y)) / (np.max(y) - np.min(y))
+
+        patches = ax.bar(bins[:-1], radius, align='edge', width=widths, 
+                        edgecolor=my_cmap(rescale(n)), fill=False, linewidth=1)
+    else:
+        patches = ax.bar(bins[:-1], radius, align='edge', width=widths, 
+                        edgecolor='k', fill=False, linewidth=1)
+
+    # Set the direction of the zero angle
+    ax.set_theta_offset(offset)
+
+    # Remove ylabels for area plots (they are mostly obstructive)
+    if density:
+        ax.set_yticks([])
+
+    labels = ['$0$', r'-$\pi/4$',  r'-$\pi/2$', r'-$3\pi/4$', r'$\pi$', r'$3\pi4$', r'$\pi/2$', r'$\pi/4$', ]
+    ax.set_xticks(ax.get_xticks())
+    ax.set_xticklabels(labels)
+
+    return n, bins, patches
+
+
+
+def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, dpi=None):
+    print(f'plotting corr - {exp_name} @ {dpi} dpi')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     # env_path = fr'{data_dir}/{exp_name}/.env'
@@ -824,50 +921,264 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
         ag_data = pickle.load(f)
     
     num_runs,t_len,_ = ag_data.shape
-    t = np.linspace(0,t_len,t_len+1)
+    t = np.linspace(0,t_len,t_len)
     # print(f'ag_data shape: {num_runs, len(t)}')
 
-    # # using precalc'd corr
+    # # using precalc'd corr to init
     # corr = ag_data[:,:,3]
     # corr = np.insert(corr, 0, 1, axis=1)
     # # print(f'corr shape: {corr.shape}')
 
-    # # auto corr calc
-    # orient = ag_data[:,:,2]
-    # orient_0 = orient[:,0]
-    # orient_0 = np.tile(orient_0,(t_len,1)).transpose()
-    # corr = np.cos(orient - orient_0)
-    # corr = np.insert(corr, 0, 1, axis=1)
-    # print(f'corr shape: {corr.shape}')
-
-    # auto corr calc - delayed orient_0
+    # corr to init
     delay = 25
-    t = t[delay:]
+    t = t[:-delay]
     t_len -= delay
     orient = ag_data[:,delay:,2]
     orient_0 = orient[:,0]
     orient_0 = np.tile(orient_0,(t_len,1)).transpose()
-    corr = np.cos(orient - orient_0)
-    corr = np.insert(corr, 0, 1, axis=1)
+    corr_init_angle_diff = orient - orient_0
+    corr_init_angle_diff_scaled = (corr_init_angle_diff + np.pi) % (2*np.pi) - np.pi
+    corr_init = np.cos(corr_init_angle_diff)
+    # corr_init = np.insert(corr_init, 0, 1, axis=1)
     # print(f'corr shape: {corr.shape}')
 
-    # construct plot
-    fig,ax = plt.subplots(1,2, figsize=(10,5))
+    # patch position
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+    pt_target = np.array(eval(envconf["RESOURCE_POS"]))
+    pt_target[1] = 1000 - pt_target[1]
 
-    for r in range(num_runs)[::100]:
-        ax[0].plot(t, corr[r,:], c='k', alpha=1/255)
-    ax[0].set_ylim(-1.05,1.05)
+    # distance to patch
+    x = ag_data[:,delay:,0]
+    y = ag_data[:,delay:,1]
+    pt_self = np.array([x,y])
+    disp = pt_self.transpose() - pt_target
+    dist = np.linalg.norm(disp, axis=2)
 
-    corr_avg = np.mean(corr[:,:], 0)
-    ax[1].plot(t, corr_avg)
-    ax[1].set_ylim(-1.05,1.05)
-    ax[1].axhline(color='gray', ls='--')
+    # # corr to patch
+    # angle_to_target = np.arctan2(disp[:,:,1], disp[:,:,0]) + np.pi # shift by pi for [0-2pi]
+    # # print('max/min angle_to_target: ', np.max(angle_to_target), np.min(angle_to_target))
+    # corr_patch_angle_diff = angle_to_target - orient.transpose()
+    # corr_patch = np.cos(corr_patch_angle_diff)
+    # # print(f'corr shape: {angle_to_target.shape}')
 
-    plt.savefig(fr'{save_name}_corr_orient.png')
+    ### temporal correlations ###
+
+    fig = plt.figure(figsize=(3,3))
+    ax0 = plt.subplot()
+    # fig = plt.figure(figsize=(15,5))
+    # ax0 = plt.subplot(131)
+    # ax1 = plt.subplot(132)
+    # ax2 = plt.subplot(133, projection='polar')
+
+    corr_init_avg = np.mean(corr_init, 0)
+    ax0.plot(t, corr_init_avg, 'k')
+    ax0.axhline(color='gray', ls='--')
+
+    peaks,_ = scipy.signal.find_peaks(corr_init_avg[:300-delay], prominence=.05)
+    # if len(peaks) >= 1:
+    #     ax0.plot(t[peaks],corr_init_avg[peaks],'o',color='dodgerblue')
+    peaks_neg,_ = scipy.signal.find_peaks(-corr_init_avg[:300-delay], prominence=.05)
+    # if len(peaks_neg) >= 1:
+    #     ax0.plot(t[peaks_neg],corr_init_avg[peaks_neg],'o',color='dodgerblue')
+    corr_peaks = len(peaks) + len(peaks_neg)
+
+    ax0.set_xlim(-20,520)
+    ax0.set_ylim(-1.05,1.05)
+    ax0.set_ylim(-0.05,1.05)
+    ax0.set_xlabel('Timesteps')
+    ax0.set_ylabel('Orientation Correlation')
+
+    plt.tight_layout()
+    plt.savefig(fr'{save_name}_corr_orient_{dpi}.png', dpi=dpi)
     plt.close()
 
 
-def plot_agent_target_corr(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True):
+    ### spatial correlation trajectories ###
+
+    fig = plt.figure(figsize=(3,3))
+    ax1 = plt.subplot()
+
+    # corr_init_times = []
+    for r in range(num_runs)[::50]:
+        # ax[0,0].plot(t, corr_init[r,:], c='k', alpha=5/255)
+        # ax[0,3].plot(dist[:,r], corr_init[r,:], c='k', alpha=5/255)
+        ax1.plot(dist[:,r], -corr_init_angle_diff_scaled[r,:], c='k', alpha=5/255) # negative to match orientation of polar plot
+
+        # x = corr_init_angle_diff[r,:]
+        # # corr = np.array([1. if ts==0 else np.corrcoef(x[ts:],x[:-ts])[0][1] for ts,ts_float in enumerate(t)])
+        # corr = np.correlate((x-x.mean()),(x-x.mean()),'full')[len(x)-1:]/np.var(x)/len(x)
+        # ax[1].plot(t, corr, c='k', alpha=5/255)
+        # peaks,_ = scipy.signal.find_peaks(corr, prominence=.1)
+        # if len(peaks) >= 1:
+        #     corr_init_times.append(peaks[0])
+        #     ax[1].plot(t[peaks[0]],corr[peaks[0]],'o',color='dodgerblue',alpha=.1)
+    # corr_median = np.median(np.array(corr_init_times))
+    # ax[1].axvline(t[int(corr_median)], color='gray', ls='--')
+    # p1 = f'median peak of indiv init autocorrelations: {corr_median}'
+    # print(p1)
+
+    # plot trajectories for X initializations
+
+    # ax1.plot(np.arange(11),np.arange(11))
+    ins = ax1.inset_axes([0.7,0.05,0.25,0.25])
+    ins.set_yticks([])
+    ins.set_xticks([])
+
+    inits = [
+        [700, 200, np.pi], #BR-W
+        [800, 900, 3*np.pi/2], #TR-S
+        [100, 200, np.pi/2], #BL-N
+        [100, 900, 3*np.pi/2], #TL-S
+    ]
+    colors = [
+        'cornflowerblue',
+        'tomato',
+        'forestgreen',
+        'gold',
+    ]
+    for pt,color in zip(inits,colors):
+        # search across xy plane
+        distance, index_xy = scipy.spatial.KDTree(ag_data[:,0,:2]).query(pt[:2])
+        # search locally for best ori
+        index_ori = (np.abs(ag_data[index_xy:index_xy+16,0,2] - pt[2])).argmin()
+        # combine
+        index = index_xy + index_ori
+
+        # ax[0,0].plot(t, corr_init[index,:], c=color, alpha=.5)
+        # ax[0,2].plot(dist[:,index], corr_init[index,:], c=color, alpha=.5)
+        # ax[0,3].plot(dist[:,index], corr_init_angle_diff[index,:], c=color, alpha=.5)
+        # ax[1,0].plot(t, corr_patch[:,index], c=color, alpha=.5)
+        # ax[1,2].plot(dist[:,index], corr_patch[:,index], c=color, alpha=.5)
+        # ax[1,3].plot(dist[:,index], corr_patch_angle_diff[:,index], c=color, alpha=.5)
+        ins.plot(dist[:,index], corr_init_angle_diff_scaled[index,:], c=color, alpha=.5, linewidth=1)
+
+    # labels = [r'-$2\pi$', r'-$3\pi/2$', r'-$\pi$', r'-$\pi/2$', '$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
+    labels = [r'-$\pi$', r'-$\pi/2$', '$0$', r'$\pi/2$', r'$\pi$']
+
+    ax1.set_xlim(-20,820)
+    ax1.set_yticks(np.arange(-np.pi, np.pi+0.01, np.pi/2))
+    ax1.set_yticklabels(labels)
+    ax1.set_xlabel('Distance to Patch')
+    ax1.set_ylabel('Relative Orientation')
+
+    plt.tight_layout()
+    plt.savefig(fr'{save_name}_corr_trajs_{dpi}.png', dpi=dpi)
+    plt.close()
+
+
+    ### spatial correlation - polar hist ###
+
+    fig = plt.figure(figsize=(3,3))
+    ax2 = plt.subplot(projection='polar')
+
+    dist = dist.flatten()
+    m = np.ma.masked_less(dist, 100)
+
+    corr_init_angle_diff = corr_init_angle_diff_scaled.transpose().flatten()
+    corr_init_angle_diff_masked = (1-m.mask)*corr_init_angle_diff
+    corr_init_angle_diff_comp = corr_init_angle_diff_masked[corr_init_angle_diff_masked != 0]
+
+    # n1,bins,patches = ax[4].hist(corr_init_angle_diff_comp, bins=100, density=True)
+    # ax[4].axvline(np.mean(corr_init_angle_diff_comp), color='gray', ls='--')
+
+    # ax[4].set_yscale('log')
+    # ax[4].set_ylim(10**-3,10**2)
+    # ax[4].set_ylabel('Frequency')
+    # ax[4].set_xlabel('Orientation Persistence')
+    # ax[4].set_xticks(np.arange(-np.pi, np.pi+0.01, np.pi/2))
+    # ax[4].set_xticklabels(labels)
+
+    # Visualise by area of bins
+    # circular_hist(ax, corr_init_angle_diff_comp, bins=100, offset=np.pi/2)
+    # circular_hist(ax[0], corr_init_angle_diff_comp, bins=100, offset=np.pi/2)
+    n, bins, patches = circular_hist(ax2, corr_init_angle_diff_comp, bins=100, offset=np.pi/2, colored=True)
+    # # Visualise by radius of bins
+    # circular_hist(ax[1], corr_init_angle_diff_comp, bins=100, offset=np.pi/2, density=False)
+
+    x = corr_init_angle_diff_comp
+    x = (x + np.pi) % (2*np.pi) - np.pi
+    histo_avg = np.mean(corr_init_angle_diff_comp)/np.pi*2
+    ax2.axvline(histo_avg, color='gray', ls='--')
+
+    peaks,_ = scipy.signal.find_peaks(n, prominence=25000)
+    histo_peaks = len(peaks)
+
+    print(f'num peaks: {corr_peaks} // histo avg: {-round(histo_avg,2)} // histo peaks: {histo_peaks}')
+
+    plt.tight_layout()
+    plt.savefig(fr'{save_name}_corr_polar_{dpi}.png', dpi=dpi)
+    plt.close()
+
+    return corr_peaks, -histo_avg, histo_peaks
+
+
+def plot_agent_valnoise_dists(run_name, noise_types, val='cen', dpi=None):
+    print(f'plotting valnoise - {run_name}')
+    num_noise_types = len(noise_types)
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+
+    if val == 'top': filename = 'val_matrix'
+    elif val == 'cen': filename = 'val_matrix_cen'
+
+    # init plot details
+    fig, ax1 = plt.subplots(figsize=(3,3)) 
+    cmap = plt.get_cmap('plasma')
+    cmap_range = num_noise_types
+    xtick_locs = []
+    labels = []
+    medians = []
+
+    for n_num, (label, noise_type) in enumerate(noise_types):
+
+        if noise_type == 'no_noise':
+            with open(fr'{data_dir}/{run_name}/{filename}.bin','rb') as f:
+                data = pickle.load(f)
+        else:
+            with open(fr'{data_dir}/{run_name}/{filename}_{noise_type}_noise.bin','rb') as f:
+                data = pickle.load(f)
+
+        xtick_loc = n_num/num_noise_types
+        xtick_locs.append(xtick_loc)
+        labels.append(label)
+
+        l0 = ax1.violinplot(data.flatten(), 
+                    positions=[xtick_loc],
+                    widths=1/num_noise_types, 
+                    showmedians=True,
+                    showextrema=False,
+                    )
+        for p in l0['bodies']:
+            p.set_facecolor(cmap(n_num/cmap_range))
+            p.set_edgecolor(cmap(n_num/cmap_range))
+        l0['cmedians'].set_edgecolor(cmap(n_num/cmap_range))
+
+        # color = l0["bodies"][0].get_facecolor().flatten()
+        # violin_labs.append((mpatches.Patch(color=color), group_name))
+
+        dist_median = np.median(data)
+        medians.append((noise_type, dist_median))
+        print(f'noise type: {noise_type} // median: {dist_median}')
+
+    # plt.grid(axis = 'x')
+    # plt.xticks(np.arange(0, n_num+1, 1))
+    plt.xticks(xtick_locs)
+    # ax1.xaxis.set_ticklabels([])
+    # ax1.set_xticks([])
+    ax1.set_xticklabels(labels)
+    ax1.set_xlabel('Visual Angle Noise')
+    ax1.set_ylabel('Time to Find Patch')
+    ax1.set_ylim(-20,1020)
+
+    plt.tight_layout()
+    plt.savefig(fr'{data_dir}/{run_name}_valnoise_{dpi}.png', dpi=dpi)
+    plt.close()
+
+    return medians
+
+
+def plot_agent_turn_histo(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True):
     print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -883,41 +1194,48 @@ def plot_agent_target_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     # print('patch pos: ', pt_target)
 
     num_runs,t_len,_ = ag_data.shape
-    t = np.linspace(0,t_len,t_len)
     # print(f'ag_data shape: {num_runs, len(t)}')
 
     delay = 25
-    t = t[delay:]
-
     x = ag_data[:,delay:,0]
     y = ag_data[:,delay:,1]
     orient = ag_data[:,delay:,2]
+    turn = ag_data[:,delay:,3]
     # print('avg final pos: ', np.mean(x[:,-1]), np.mean(y[:,-1]))
+    # print('max/min orient: ', np.max(orient), np.min(orient))
 
     pt_self = np.array([x,y])
     disp = pt_self.transpose() - pt_target
-    disp_norm = disp / np.linalg.norm(disp)
-    angle_to_target = np.arctan2(disp_norm[:,:,1], disp_norm[:,:,0])
-    angle_diff = abs(angle_to_target - orient.transpose())
-    # print(f'corr shape: {angle_to_target.shape}')
+    dist = np.linalg.norm(disp, axis=2)
 
-    # construct plot
-    fig,ax = plt.subplots(figsize=(5,5))
-    # fig,ax = plt.subplots(1,2, figsize=(10,5))
+    # use dist to filter for only those >100 units away
+    m = np.ma.masked_less(dist.flatten(), 100)
+    turn_masked = (1-m.mask)*turn.flatten()
 
-    for r in range(num_runs)[::50]:
-        # ax.plot(t,angle_to_target[:,r], c='k', alpha=.025)
-        ax.plot(t,angle_diff[:,r], c='k', alpha=1/255)
-    # ax[0].set_ylim(-.1,2*np.pi+.1)
+    # histogram by turn
+    # fig,ax = plt.subplots(figsize=(5,5))
+    fig,ax = plt.subplots(1,2,figsize=(10,5))
+    ax[0].hist(turn.flatten(), bins=9)
+    ax[1].hist(turn_masked, bins=9)
 
-    # corr_avg = np.mean(angle_diff, 1)
-    # ax[1].plot(t, corr_avg)
-    # ax[1].set_ylim(-.1,5*np.pi+.1)
-    # ax[1].axhline(color='gray', ls='--')
+    ax[0].set_yscale('log')
+    ax[1].set_yscale('log')
 
-    plt.savefig(fr'{save_name}_corr_target.png')
+    ax[1].set_ylabel('Frequency')
+    ax[1].set_xlabel('Turning Angle')
+
+    labels = [r'-$\pi/2$', r'-$3\pi/8$', r'-$\pi/4$', r'-$\pi/8$', '$0$', r'$\pi/8$', r'$\pi/4$', r'$3\pi/8$', r'$\pi/2$']
+    ax[1].set_xticks(np.arange(-np.pi/2, np.pi/2+0.01, np.pi/8))
+    ax[1].set_xticklabels(labels)
+
+    ax[0].set_ylabel('Frequency')
+    ax[0].set_xlabel('Turning Angle')
+    ax[0].set_xticks(np.arange(-2*np.pi, 2*np.pi+0.01, np.pi/2))
+    ax[0].set_xticklabels(labels)
+    plt.subplots_adjust(wspace=.25)
+
+    plt.savefig(fr'{save_name}_turn_histo.png')
     plt.close()
-
 
 
 # -------------------------- stationary vis -------------------------- #
@@ -1483,10 +1801,64 @@ def plot_agent_trajalls_pca(exp_name, gen_ext, space_step, orient_step, timestep
                 plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=var_pos, change=True)
 
 
+# -------------------------- script -------------------------- #
+
+def run_gamut(names):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
+        data = pickle.load(f)
+
+    rank = 'cen'
+    space_step = 25
+    orient_step = np.pi/8
+    timesteps = 500
+    eye = True
+    extra = ''
+    dpi = 50
+    noise_types = [
+        (0, 'no_noise'), 
+        (0.05, 'angle_n05'), 
+        (0.10, 'angle_n10'),
+        ]
+
+    for name in names:
+
+        gen, valfit = find_top_val_gen(name, rank)
+        print(f'{name} @ {gen} w {valfit} fitness')
+
+        # filter out poor performers
+        if valfit >= 500:
+            print('skip')
+            print('')
+            continue
+        if name in data:
+            print('already there')
+            print('')
+            continue
+
+        build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True)
+        corr_peaks, histo_avg, histo_peaks = plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps, dpi=dpi)
+        # angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=dpi)
+
+        # save in dict + update pickle
+        data[name] = (corr_peaks, histo_avg, histo_peaks)
+        # data[name] = (corr_peaks, histo_avg, histo_peaks, angle_medians)
+        print(f'data dict len: {len(data)}')
+        print('')
+
+        with open(fr'{data_dir}/traj_matrices/gamut.bin', 'wb') as f:
+            pickle.dump(data, f)
+
+        # delete .bin file using same code as for saving in build_agent_trajs_parallel()
+        save_name = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
+        os.remove(save_name)
+
 
 # -------------------------- misc -------------------------- #
 
-def find_top_val_gen(exp_name, rank='top'):
+def find_top_val_gen(exp_name, rank='cen'):
 
     # parse val results text file
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -1553,22 +1925,35 @@ if __name__ == '__main__':
     # orient_step = np.pi/2
 
     timesteps = 500
+    noise_types = [
+        (0, 'no_noise'), 
+        (0.05, 'angle_n05'), 
+        (0.10, 'angle_n10'),
+        ]
+    # noise_types = [
+    #     ('no noise', 'no_noise'), 
+    #     ('angle: .05', 'angle_n05'),
+    #     ('angle: .10', 'angle_n10'),
+    #     ('dist: .025', 'dist_n025'),
+    #     ('dist: .050', 'dist_n05'),
+    #     ]
 
     names = []
 
     # names.append('sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18')
-    # for i in [1,2,3,4,5,6,7,8,9,11,12,13,14,15]:
-    for i in [1,3,4]:
-    # # for i in [10]:
-        names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
-    # for i in [0,1,2,3,4,5,6,9,13,14,16,17,18,19]:
+    # for i in [1,2,4,5,6,7,11,12,13,14,15]:
+    # for i in [3,4,9]:
+        # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
+    # for i in [0,1,2,5,6,9,13,14,16,17,18,19]:
+    # for i in [3]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{str(i)}')
 
     # for i in [0,1,2,3,5,7,8,9,10,13,14,16,18]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{str(i)}')
 
-    for i in [2,3,5]: 
-        names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{str(i)}')
+    # for i in [2]: 
+    # for i in [3,5]: 
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n0_rep{str(i)}')
     # for i in [0,2,4,8,12,17]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{str(i)}')
     # for i in [0,3,8,12,13]:
@@ -1586,20 +1971,44 @@ if __name__ == '__main__':
     # for i in [1,2,8,10,11,12]:
     #     names.append(f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{str(i)}')
 
+    # data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
+    #     data = pickle.load(f)
+
     for name in names:
         gen, valfit = find_top_val_gen(name, 'cen')
-        print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
+        print(f'{name} @ {gen} w {valfit} fitness')
         
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
-        # plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps)
-        plot_agent_target_corr(name, gen, space_step, orient_step, timesteps)
-    
+        # # filter out poor performers
+        # if valfit >= 500:
+        #     print('skip')
+        #     print('')
+        #     continue
+        # if name in data:
+        #     print('already there')
+        #     print('')
+        #     continue
 
-    # for i in [12]:
-    #     names.append(f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{str(i)}')
-    #     build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
-    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
+        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True)
+        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='3d')
+        # corr_peaks, histo_avg, histo_peaks = plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps, dpi=100)
+        # angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=100)
+
+        # # save in dict + update pickle
+        # data[name] = (corr_peaks, histo_avg, histo_peaks, angle_medians)
+        # print(f'data dict len: {len(data)}')
+        # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'wb') as f:
+        #     pickle.dump(data, f)
+
+
+    # name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
+    # gen = 'gen941'
+    # plot_agent_trajs(name, gen, space_step, orient_step, timesteps)
+    # for e in ['FOV39','FOV41','TLx100','TLy100']:
+    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra=e)
+    # for e in ['','move75','move125']:
+    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=True, extra=e)
 
 
     # # build PRW data
@@ -1612,57 +2021,60 @@ if __name__ == '__main__':
     #     # build_agent_trajs_parallel_PRW(dummy_exp, space_step, orient_step, timesteps, rot_diff)
     #     # plot_agent_trajs_PRW(dummy_exp, space_step, orient_step, timesteps, rot_diff)
     #     plot_agent_corr_PRW(space_step, orient_step, timesteps, rot_diff)
-    
 
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
 
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
 
-    # for name in names:
-    #     gen, valfit = find_top_val_gen(name, 'cen')
-    #     print(f'build/plot matrix for: {name} @ {gen} w {valfit} fitness')
-        
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=True)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='3d')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='clip')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='turn')
-        # plot_agent_corr(name, gen, space_step, orient_step, timesteps)
+    seeds = [10000,20000,30000,40000]
 
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='3d_n0')
+    for s in seeds:
+        for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+            names.append(name)
+    for s in seeds:
+        for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+            names.append(name)
+    for s in seeds:
+        for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+            names.append(name)
+    for s in seeds:
+        for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+            names.append(name)
+    for s in seeds:
+        for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+            names.append(name)
+    for s in seeds:
+        for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+            names.append(name)
 
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n_pos')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_pos')
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n_neg')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n_neg')
-    
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, landmarks=True)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, landmarks=True)
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='n0', landmarks=True)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='n0', landmarks=True)
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='nhalf', landmarks=True)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=False, extra='nhalf', landmarks=True)
-
-        # build_agent_trajalls_parallel(name, gen, space_step, orient_step, timesteps)
-        # plot_agent_trajalls(name, gen, space_step, orient_step, timesteps)
-
-        # analyses = ['pca', 'ica']
-        # datasets = ['CNN']
-        # comps = [2,3]
-        # plot_agent_trajalls_pca(name, gen, space_step, orient_step, timesteps, analyses, datasets, comps)
-
-        # build_Nact_matrix_parallel(name, gen, space_step, orient_step)
-        # plot_Nact_imshow(name, gen, space_step, orient_step)
-        # anim_Nact(name, space_step, orient_step)
-
-        # plot_Nact_action_phase(name, gen, space_step, orient_step)
-
-        # build_action_matrix(name, gen, space_step, orient_step)
-        # plot_action_volume(name, gen, space_step, orient_step, 'low')
-        # plot_action_volume(name, gen, space_step, orient_step, 'high')
-        # transform_action_mesh(name, gen, space_step, orient_step)
-
-        # build_agent_visfield_parallel(name, space_step, orient_step)
-        # plot_visfield_imshow(name, space_step, orient_step)
-        # anim_visfield(name, gen, space_step, orient_step)
+    run_gamut(names)
