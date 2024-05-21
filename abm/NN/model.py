@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
 from abm.NN.memory import FNN, FNN2, FNN_noise, CTRNN, GRU
 from abm.NN.vision import ConvNeXt as CNN
@@ -12,6 +13,7 @@ class WorldModel(nn.Module):
                  arch=((4,8),[1],[4],1,2,1),
                  activ='relu',
                  RNN_type='fnn',
+                #  CL_type='linear',
                  param_vector=None,
                  ):
         super().__init__()
@@ -48,8 +50,24 @@ class WorldModel(nn.Module):
 
         # init linear controller layer (LCL)
         LCL_in_size = RNN_hidden_size
-        # LCL_in_size = RNN_hidden_size + CNN_out_size ## concatenate with vis if using residual
         self.lcl = nn.Linear(LCL_in_size, LCL_output_size)
+        # self.CL_type = CL_type
+        # if CL_type == 'linear':
+        #     LCL_in_size = RNN_hidden_size
+        #     self.lcl = nn.Linear(LCL_in_size, LCL_output_size)
+        # elif CL_type == 'skip':
+        #     LCL_in_size = RNN_hidden_size + CNN_out_size 
+        #     self.lcl = nn.Linear(LCL_in_size, LCL_output_size)
+        # elif CL_type == 'variational':
+        #     LCL_in_size = RNN_hidden_size
+        #     self.fc_mu = nn.Linear(LCL_in_size, LCL_output_size)
+        #     self.fc_sigma = nn.Linear(LCL_in_size, LCL_output_size)
+
+        # init discrete action space
+        self.model_out_type = 'cont'
+        # self.model_out_type = 'disc'
+        # a_size = LCL_output_size
+        # self.actions = np.linspace(-1 + 2/a_size, 1, a_size)
 
         # initialize w+b according to passed vector (via optimizer) or init distribution
         if param_vector is not None:
@@ -101,15 +119,29 @@ class WorldModel(nn.Module):
         # concatenate + pass through memory module
         RNN_in = torch.cat((vis_features, other_input), dim=1)
         RNN_out, hidden = self.rnn(RNN_in, hidden)
-        # LCL_in = RNN_in + RNN_out # skip connection
 
         # pass through final layer
         LCL_out = self.lcl(RNN_out)
-        # action = LCL_in + LCL_out # skip connection
-        action = torch.tanh(LCL_out) # scale to [-1:1]
+        # if self.CL_type == 'linear':
+        #     LCL_out = self.lcl(RNN_out)
+        # elif self.CL_type == 'skip':
+        #     LCL_in = RNN_in + RNN_out
+        #     LCL_out = self.lcl(RNN_out) + LCL_in
+        # elif self.CL_type == 'variational':
+        #     self.mu = self.fc_mu(RNN_out)
+        #     self.log_sigma = self.fc_sigma(RNN_out)
+        #     eps = torch.randn(self.mu.shape[0], self.mu.shape[1])
+        #     LCL_out = self.mu + torch.exp(self.log_sigma / 2) * eps
 
-        # action = action.detach().numpy()[0] # --> NN_output.size > 1
-        action = action.detach().numpy()[0][0] # --> NN_output.size = 1
+        if self.model_out_type == 'cont':
+            # scale to action space [-1,1] + convert to numpy
+            action = torch.tanh(LCL_out)
+            # action = action.detach().numpy()[0] # --> NN_output.size > 1
+            action = action.detach().numpy()[0][0] # --> NN_output.size = 1
+
+        elif self.model_out_type == 'disc':
+            decision = torch.argmax(LCL_out[0])
+            action = self.actions[decision]
 
         return action, hidden
 

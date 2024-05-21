@@ -2,6 +2,7 @@ from abm.start_sim import reconstruct_NN
 from abm.sprites.agent import Agent
 # from abm.sprites.agent_LM import Agent
 from abm.sprites.landmark import Landmark
+from abm.monitoring.plot_funcs import plot_map_iterative_traj, plot_map_iterative_traj_3d, plot_map_iterative_trajall
 
 import dotenv as de
 from pathlib import Path
@@ -10,245 +11,10 @@ import scipy
 import torch
 import multiprocessing as mp
 import _pickle as pickle
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import os
-
-
-# -------------------------- neuron activity -------------------------- #
-
-def agent_Nact_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
-
-    agent = Agent(
-            id=0,
-            position=(x,y),
-            orientation=orient,
-            max_vel=int(envconf["MAXIMUM_VELOCITY"]),
-            FOV=float(envconf['AGENT_FOV']),
-            vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
-            vision_range=int(envconf["VISION_RANGE"]),
-            num_class_elements=4,
-            consumption=1,
-            model=NN,
-            boundary_endpts=boundary_endpts,
-            window_pad=30,
-            radius=int(envconf["RADIUS_AGENT"]),
-            color=(0,0,0),
-        )
-
-    # gather visual input
-    agent.visual_sensing([])
-    vis_field_onehot = agent.encode_one_hot(agent.vis_field)
-
-    # pass through CNN
-    vis_input = torch.from_numpy(vis_field_onehot).float().unsqueeze(0)
-    vis_features = agent.model.cnn(vis_input)
-
-    # from null initial activity (+ zero contact field)
-    other_input = torch.zeros( int(envconf["RNN_OTHER_INPUT_SIZE"]) ).unsqueeze(0)
-    hidden = torch.zeros(int(envconf["RNN_HIDDEN_SIZE"])).unsqueeze(0)
-
-    RNN_in = torch.cat((vis_features, other_input), dim=1)
-    RNN_out, hidden = agent.model.rnn(RNN_in, hidden)
-
-    action = agent.model.lcl(RNN_out)
-    action = torch.tanh(action) # scale to [-1:1]
-
-    # Nact = np.concatenate((vis_features, RNN_out, action), axis=None)
-    Nact = action
-    
-    return Nact
-
-
-def build_Nact_matrix_parallel(exp_name, gen_ext, space_step, orient_step):
-
-    # pull pv + envconf from save folders
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
-    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
-    with open(NN_pv_path,'rb') as f:
-        pv = pickle.load(f)
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    # reconstruct model
-    NN, arch = reconstruct_NN(envconf, pv)
-
-    # construct boundary endpts
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
-    x_min, x_max = 0, width
-    y_min, y_max = 0, height
-    boundary_endpts = [
-            np.array([ x_min, y_min ]),
-            np.array([ x_max, y_min ]),
-            np.array([ x_min, y_max ]),
-            np.array([ x_max, y_max ])
-            ]
-
-    # every grid position/direction
-    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
-    x_range = np.arange(x_min + coll_boundary_thickness, x_max - coll_boundary_thickness + 1, space_step)
-    y_range = np.arange(y_min + coll_boundary_thickness, y_max - coll_boundary_thickness + 1, space_step)
-    orient_range = np.arange(0, 2*np.pi, orient_step) 
-
-    # construct matrix of each neuron activity for each grid pos/dir
-    vis_field_res = list(map(int,envconf["CNN_DIMS"].split(',')))[-1]
-    rnn_hidden_size = int(envconf["RNN_HIDDEN_SIZE"])
-    lcl_output_size = int(envconf["LCL_OUTPUT_SIZE"])
-    Nact_size = vis_field_res + rnn_hidden_size + lcl_output_size
-
-    Nact_matrix = np.zeros((len(x_range),
-                            len(y_range),
-                            len(orient_range),
-                            Nact_size))
-    print(f'Nact matrix shape (x, y, orient, # neurons): {Nact_matrix.shape}')
-
-    # pack inputs for multiprocessing map
-    mp_inputs = []
-    for x in x_range:
-        for y in y_range:
-            for orient in orient_range:
-                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient) )
-    
-    # run agent NNs in parallel
-    with mp.Pool() as pool:
-        results = pool.starmap_async( agent_Nact_from_xyo, mp_inputs)
-        pool.close()
-        pool.join()
-
-    # unpack results into matrix + save
-    results_list = results.get()
-    n = 0
-    for i, x in enumerate(x_range):
-        for j, y in enumerate(y_range):
-            for k, orient in enumerate(orient_range):
-                Nact_matrix[i,j,k,:] = results_list[n]
-                n += 1
-
-    Path(fr'{data_dir}/Nact_matrices').mkdir(parents=True, exist_ok=True)
-    with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'wb') as f:
-        pickle.dump(Nact_matrix, f)
-    
-    return Nact_matrix
-
-
-def plot_Nact_imshow(exp_name, gen_ext, space_step, orient_step):
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
-        mat = pickle.load(f)
-
-    num_x, num_y, num_orient, num_neurons = mat.shape
-    orient_range = np.linspace(0, 2*np.pi, num_orient+1)[:-1]
-
-    fig, axs = plt.subplots(
-        nrows=num_orient, 
-        ncols=num_neurons, 
-        figsize=(25, 25), 
-        subplot_kw={'xticks': [], 'yticks': []}
-        )
-
-    # plot spatial activity for every neuron (columns) at every orientation (rows)
-    # normalize min/max activity for each neuron with respect to itself (at every position x orientation)
-    ax = np.array(axs)
-    X, Y = np.meshgrid(np.linspace(0, 40, num_x), np.linspace(0, 40, num_y))
-    print(X.shape)
-    for n in range(num_neurons):
-
-        min_act = mat[:,:,:,n].flatten().min()
-        max_act = mat[:,:,:,n].flatten().max()
-        act_bound = max(abs(min_act),abs(max_act))
-        print(n, min_act, max_act)
-
-        for o in range(num_orient):
-            ax[o,n].imshow(np.transpose(mat[:,:,o,n]), # since imshow plots (y,x)
-                        #    vmin = min_act, 
-                        #    vmax = max_act,
-                           vmin = -act_bound, 
-                           vmax = act_bound,
-                           )
-            # ax[o,n].set_title(f'orient: {int(orient_range[o]*180/np.pi)} | neuron: {n}', fontsize=10)
-
-            # convert actions into relative orientation changes
-            actions = np.transpose(mat[:,:,o,-1])
-            turns = actions * np.pi / 2
-            change = turns + orient_range[o]
-
-            U = np.cos(change)
-            V = np.sin(change)
-            
-            # ax[int(n/2)].streamplot( X, Y, U, V )
-            # ax[o,-1].quiver( X, Y, U, V, pivot='mid' )
-            ax[o,-1].quiver( X[::2,::2], Y[::2,::2], U[::2,::2], V[::2,::2], pivot='mid' )
-
-    plt.savefig(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.png')
-    plt.close()
-
-
-def plot_Nact_action_phase(exp_name, gen_ext, space_step, orient_step):
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
-        mat = pickle.load(f)
-
-    num_x, num_y, num_orient, num_neurons = mat.shape
-    orient_range = np.linspace(0, 2*np.pi, num_orient+1)[:-1]
-
-    fig, axs = plt.subplots(
-        nrows=num_orient, 
-        ncols=1, 
-        figsize=(1.8, 32), 
-        # figsize=(4, 32),
-        subplot_kw={'xticks': [], 'yticks': []}
-        )
-
-    # set up space
-    X, Y = np.meshgrid(np.linspace(0, 100, num_x), np.linspace(0, 100, num_y))
-
-    # plot for every orientation
-    ax = np.array(axs)
-    for o in range(num_orient):
-
-        # convert actions into relative orientation changes
-        actions = np.flip(np.transpose(mat[:,:,o,-1]),axis=0)
-        turns = actions * np.pi / 2
-        change = turns + orient_range[o]
-
-        U = np.cos(change)
-        V = np.sin(change)
-        
-        # ax[int(n/2)].streamplot( X, Y, U, V )
-        ax[o].quiver( X[::2,::2], Y[::2,::2], U[::2,::2], V[::2,::2], pivot='mid' )
-
-    plt.savefig(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action_phase.png')
-    plt.close()
-
-
-def anim_Nact(exp_name, gen_ext, space_step, orient_step):
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
-        mat = pickle.load(f)
-    
-    num_x, num_y, num_orient, num_neurons = mat.shape
-    
-    fig = plt.figure()
-    frames = []
-
-    n = -1 # output neuron only
-
-    min = mat[:,:,:,n].flatten().min()
-    max = mat[:,:,:,n].flatten().max()
-
-    for o in range(num_orient):
-
-        frames.append([plt.imshow(np.transpose(mat[:,:,o,0]), vmin = min, vmax = max, animated=True)])
-
-    ani = animation.ArtistAnimation(fig, frames, interval=50, blit=True, repeat_delay=1000)
-    
-    ani.save(fr'{data_dir}/Nact_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.mp4')
-    plt.close()
 
 
 # -------------------------- action -------------------------- #
@@ -271,7 +37,7 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
             radius=int(envconf["RADIUS_AGENT"]),
             color=(0,0,0),
             vis_transform='',
-            # vis_transform=str(envconf["VIS_TRANSFORM"]),
+            percep_angle_noise_std=0,
         )
 
     # gather visual input
@@ -291,6 +57,7 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
 
     action = agent.model.lcl(RNN_out)
     action = torch.tanh(action) # scale to [-1:1]
+    action = action.detach().numpy()[0][0]
     
     return action
 
@@ -309,8 +76,7 @@ def build_action_matrix(exp_name, gen_ext, space_step, orient_step):
     NN, arch = reconstruct_NN(envconf, pv)
 
     # construct boundary endpts
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
     x_min, x_max = 0, width
     y_min, y_max = 0, height
     boundary_endpts = [
@@ -337,183 +103,153 @@ def build_action_matrix(exp_name, gen_ext, space_step, orient_step):
                             ))
     print(f'act matrix shape (x, y, orient): {act_matrix.shape}')
 
-
     for i, x in enumerate(x_range):
         for j, y in enumerate(y_range):
             for k, orient in enumerate(orient_range):
                 act_matrix[i,j,k] = agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient)
 
-
-    # # pack inputs for multiprocessing map
-    # mp_inputs = []
-    # for x in x_range:
-    #     for y in y_range:
-    #         for orient in orient_range:
-    #             mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient) )
-    
-    # # run agent NNs in parallel
-    # with mp.Pool() as pool:
-    #     results = pool.starmap_async( agent_action_from_xyo, mp_inputs)
-    #     pool.close()
-    #     pool.join()
-
-    # # unpack results into matrix + save
-    # results_list = results.get()
-    # n = 0
-    # for i, x in enumerate(x_range):
-    #     for j, y in enumerate(y_range):
-    #         for k, orient in enumerate(orient_range):
-    #             act_matrix[i,j,k] = results_list[n]
-    #             n += 1
-
-    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'wb') as f:
+    with open(fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action.bin', 'wb') as f:
         pickle.dump(act_matrix, f)
     
     return act_matrix
 
 
-def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='high'):
+
+def plot_action_map(exp_name, gen_ext, space_step, orient_step, plot_type='', dpi=50):
+    print(f'plotting action map - {exp_name} @ {dpi} dpi')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
-        mat = pickle.load(f)
-
-    # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
-    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
-    with open(NN_pv_path,'rb') as f:
-        pv = pickle.load(f)
     env_path = fr'{data_dir}/{exp_name}/.env'
     envconf = de.dotenv_values(env_path)
 
-    # gather grid params
-    x_min, x_max = 0, int(envconf["ENV_WIDTH"])
-    y_min, y_max = 0, int(envconf["ENV_HEIGHT"])
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x_min, x_max = 0, width
+    y_min, y_max = 0, height
     coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
     x_range = np.linspace(x_min + coll_boundary_thickness, 
                         x_max - coll_boundary_thickness + 1, 
-                        int((x_max - coll_boundary_thickness*2) / space_step))
+                        int((width - coll_boundary_thickness*2) / space_step))
     y_range = np.linspace(y_min + coll_boundary_thickness, 
                         y_max - coll_boundary_thickness + 1, 
-                        int((y_max - coll_boundary_thickness*2) / space_step))
+                        int((height - coll_boundary_thickness*2) / space_step))
     orient_range = np.arange(0, 2*np.pi, orient_step) 
 
-    # construct vectors for each grid pos/dir
-    xs, ys, os = [], [], []
-    for x in x_range:
-        for y in y_range:
-            for o in orient_range:
-                xs.append(x)
-                ys.append(y)
-                os.append(o)
+    fig, axes = plt.subplots() 
+    axes.set_xlim(0, x_max)
+    axes.set_ylim(0, y_max)
+    h,w = 8,8
+    l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+    fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
 
-    # set up plot
-    fig = plt.figure(
-        figsize=(25, 25), 
-        )
-    ax = fig.add_subplot(projection='3d')
+    save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action'
+    with open(save_name+'.bin', 'rb') as f:
+        act_matrix = pickle.load(f)
+    # print(act_matrix.shape)
 
-    # transform action data
-    actions = abs(mat)
-    if transform == 'low':
-        actions = ( actions.max() - actions ) / actions.max()
-    elif transform == 'high':
-        actions = actions / actions.max()
-    actions = actions.flatten()
+    norm = mpl.colors.Normalize(vmin=0, vmax=np.pi*2)
+    diffs = []
+    for i, x in enumerate(x_range):
+        for j, y in enumerate(y_range[::-1]): # flip y-axis
 
-    # plot abs(action) for every position (x,y) at every orientation (z)
-    ax.scatter(xs, ys, os,
-        cmap = 'Blues',
-        c = actions,
-        alpha = .1*actions,
-        s = 100*actions,
-        )
+            xs = x + 1.5*np.cos(orient_range)
+            ys = y + 1.5*np.sin(orient_range)
+            actions = np.abs(act_matrix[i,j,:])
 
-    plt.savefig(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_{transform}.png')
-    plt.close()
+            # plot points in circle around each pos + inverted actions (low turn : high speed : bigger point)
+            if plot_type == '':
+                axes.add_collection(plt.scatter(xs, ys, c=orient_range, cmap='hsv', alpha=(1-actions)**3, s=0.01))
+            elif plot_type == '_inv':
+                axes.add_collection(plt.scatter(xs, ys, c=orient_range, cmap='hsv', alpha=(actions)**3, s=0.01))
+            elif plot_type == '_grad':
+                diff = np.max(actions) - np.min(actions)
+                diffs.append(diff)
+                # print(x,y,diff)
+                axes.add_collection(plt.scatter(x, y, c=diff**3, cmap='Blues_r', alpha=diff**3, s=1))
+                # axes.add_collection(plt.scatter(x, y, c=diff**3, cmap='Blues_r', norm=norm, alpha=.8, s=1))
+            elif plot_type == '_actvec':
+                act_vec = orient_range[np.argmin(actions)]
+                axes.add_collection(plt.scatter(x, y, c=act_vec, cmap='hsv', norm=norm, alpha=.8, s=1))
+            else:
+                raise ValueError('Invalid plot type')
 
+    if plot_type == '_grad':
+        diffs = np.array(diffs)
+        axes.set_title(f'max diff: {np.max(diffs):.2f}, min diff: {np.min(diffs):.2f}, avg diff: {np.mean(diffs):.2f}')
 
-def transform_action_mesh(exp_name, gen_ext, space_step, orient_step):
+    res_radius = int(envconf["RADIUS_RESOURCE"])
+    x,y = tuple(eval(envconf["RESOURCE_POS"]))
+    res_data = np.zeros((1,1,3)) # 1 patch
+    res_data[0,0,:] = np.array((x, height - y, res_radius))
+    N_res = res_data.shape[0]
+    for res in range(N_res):
+        pos_x = res_data[res,0,0]
+        pos_y = res_data[res,0,1]
+        radius = res_data[res,0,2]
+        axes.add_patch( plt.Circle((pos_x, pos_y), radius, edgecolor='k', fill=False, zorder=1) )
     
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
-        action_mat = pickle.load(f)
-
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-    max_vel = int(envconf["MAXIMUM_VELOCITY"])
-    orient_range = np.arange(0, 2*np.pi, orient_step) 
-
-    # construct meshgrid for change in x, y, o
-    dO = action_mat * np.pi/2
-    velocity = max_vel * (1 - abs(action_mat))
-    dX = velocity * np.cos(orient_range + dO)
-    dY = velocity * -np.sin(orient_range + dO)
-
-    print(f'meshgrid shape (dX, dY, dO): {dX.shape}, {dY.shape}, {dO.shape}')
-    meshgrid = (dX, dY, dO)
-
-    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_vel.bin', 'wb') as f:
-        pickle.dump(meshgrid, f)
-
-
-def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='high'):
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
-        mat = pickle.load(f)
-
-    # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
-    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
-    with open(NN_pv_path,'rb') as f:
-        pv = pickle.load(f)
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    # gather grid params
-    x_min, x_max = 0, int(envconf["ENV_WIDTH"])
-    y_min, y_max = 0, int(envconf["ENV_HEIGHT"])
-    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
-    x_range = np.linspace(x_min + coll_boundary_thickness, 
-                        x_max - coll_boundary_thickness + 1, 
-                        int((x_max - coll_boundary_thickness*2) / space_step))
-    y_range = np.linspace(y_min + coll_boundary_thickness, 
-                        y_max - coll_boundary_thickness + 1, 
-                        int((y_max - coll_boundary_thickness*2) / space_step))
-    orient_range = np.arange(0, 2*np.pi, orient_step) 
-
-    # construct vectors for each grid pos/dir
-    xs, ys, os = [], [], []
-    for x in x_range:
-        for y in y_range:
-            for o in orient_range:
-                xs.append(x)
-                ys.append(y)
-                os.append(o)
-
-    # set up plot
-    fig = plt.figure(
-        figsize=(25, 25), 
-        )
-    ax = fig.add_subplot(projection='3d')
-
-    # transform action data
-    actions = abs(mat)
-    if transform == 'low':
-        actions = ( actions.max() - actions ) / actions.max()
-    elif transform == 'high':
-        actions = actions / actions.max()
-    actions = actions.flatten()
-
-    # plot abs(action) for every position (x,y) at every orientation (z)
-    ax.scatter(xs, ys, os,
-        cmap = 'Blues',
-        c = actions,
-        alpha = .1*actions,
-        s = 100*actions,
-        )
-
-    plt.savefig(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_{transform}.png')
+    plt.savefig(fr'{save_name}{plot_type}.png', dpi=dpi)
     plt.close()
+
+
+
+# def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='high'):
+
+#     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+#     with open(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}.bin', 'rb') as f:
+#         mat = pickle.load(f)
+
+#     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
+#     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
+#     with open(NN_pv_path,'rb') as f:
+#         pv = pickle.load(f)
+#     env_path = fr'{data_dir}/{exp_name}/.env'
+#     envconf = de.dotenv_values(env_path)
+
+#     # gather grid params
+#     x_min, x_max = 0, int(envconf["ENV_WIDTH"])
+#     y_min, y_max = 0, int(envconf["ENV_HEIGHT"])
+#     coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
+#     x_range = np.linspace(x_min + coll_boundary_thickness, 
+#                         x_max - coll_boundary_thickness + 1, 
+#                         int((x_max - coll_boundary_thickness*2) / space_step))
+#     y_range = np.linspace(y_min + coll_boundary_thickness, 
+#                         y_max - coll_boundary_thickness + 1, 
+#                         int((y_max - coll_boundary_thickness*2) / space_step))
+#     orient_range = np.arange(0, 2*np.pi, orient_step) 
+
+#     # construct vectors for each grid pos/dir
+#     xs, ys, os = [], [], []
+#     for x in x_range:
+#         for y in y_range:
+#             for o in orient_range:
+#                 xs.append(x)
+#                 ys.append(y)
+#                 os.append(o)
+
+#     # set up plot
+#     fig = plt.figure(
+#         figsize=(25, 25), 
+#         )
+#     ax = fig.add_subplot(projection='3d')
+
+#     # transform action data
+#     actions = abs(mat)
+#     if transform == 'low':
+#         actions = ( actions.max() - actions ) / actions.max()
+#     elif transform == 'high':
+#         actions = actions / actions.max()
+#     actions = actions.flatten()
+
+#     # plot abs(action) for every position (x,y) at every orientation (z)
+#     ax.scatter(xs, ys, os,
+#         cmap = 'Blues',
+#         c = actions,
+#         alpha = .1*actions,
+#         s = 100*actions,
+#         )
+
+#     plt.savefig(fr'{data_dir}/act_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_{transform}.png')
+#     plt.close()
 
 
 # -------------------------- early trajectory -------------------------- #
@@ -798,7 +534,6 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
     #     traj_plot_data = pickle.load(f)
 
     if extra.startswith('3d'):
-        from abm.monitoring.plot_funcs import plot_map_iterative_traj_3d
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='scatter', var='cturn')
         plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='scatter', var='str_manif')
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='cturn')
@@ -808,7 +543,6 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only')
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only', sv_typ='anim')
     else:
-        from abm.monitoring.plot_funcs import plot_map_iterative_traj
         if not landmarks:
             plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra)
         else:
@@ -822,6 +556,8 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
             )
             plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra, landmarks=lms)
 
+
+# -------------------------- correlations -------------------------- #
 
 def circular_hist(ax, x, bins=16, density=True, offset=0, gaps=True, colored=False):
     """
@@ -1178,64 +914,62 @@ def plot_agent_valnoise_dists(run_name, noise_types, val='cen', dpi=None):
     return medians
 
 
-def plot_agent_turn_histo(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True):
-    print(f'plotting {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
+def plot_binned_orient_turn_gradients(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, dpi=None):
+    print(f'plotting corr - {exp_name} @ {dpi} dpi')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
 
+    # build resource coord matrix
+    res_radius = int(envconf["RADIUS_RESOURCE"])
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x,y = tuple(eval(envconf["RESOURCE_POS"]))
+    res_data = np.zeros((1,1,3)) # 1 patch
+    res_data[0,0,:] = np.array((x, height - y, res_radius))
+
+    # pull in ag data
     save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
+    print(ag_data.shape)
 
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-    pt_target = np.array(eval(envconf["RESOURCE_POS"]))
-    pt_target[1] = 1000 - pt_target[1]
-    # print('patch pos: ', pt_target)
+    # flatten ag arrays
+    x = ag_data[:,:,0].flatten()
+    y = ag_data[:,:,1].flatten()
+    orient = ag_data[:,:,2].flatten()
+    turn = ag_data[:,:,3].flatten()
 
-    num_runs,t_len,_ = ag_data.shape
-    # print(f'ag_data shape: {num_runs, len(t)}')
+    # slice data into binned orients + mask outsiders
+    num_cuts = 8
+    angle_slices = np.linspace(0, 2*np.pi, num_cuts+1)
 
-    delay = 25
-    x = ag_data[:,delay:,0]
-    y = ag_data[:,delay:,1]
-    orient = ag_data[:,delay:,2]
-    turn = ag_data[:,delay:,3]
-    # print('avg final pos: ', np.mean(x[:,-1]), np.mean(y[:,-1]))
-    # print('max/min orient: ', np.max(orient), np.min(orient))
+    for i in range(num_cuts):
 
-    pt_self = np.array([x,y])
-    disp = pt_self.transpose() - pt_target
-    dist = np.linalg.norm(disp, axis=2)
+        print(f'slice: {round(angle_slices[i],2), round(angle_slices[i+1],2)}')
+        m = np.ma.masked_outside(orient, angle_slices[i], angle_slices[i+1])
 
-    # use dist to filter for only those >100 units away
-    m = np.ma.masked_less(dist.flatten(), 100)
-    turn_masked = (1-m.mask)*turn.flatten()
+        x_masked = (1-m.mask)*x
+        x_masked = x_masked[x_masked != 0]
 
-    # histogram by turn
-    # fig,ax = plt.subplots(figsize=(5,5))
-    fig,ax = plt.subplots(1,2,figsize=(10,5))
-    ax[0].hist(turn.flatten(), bins=9)
-    ax[1].hist(turn_masked, bins=9)
+        y_masked = (1-m.mask)*y
+        y_masked = y_masked[y_masked != 0]
 
-    ax[0].set_yscale('log')
-    ax[1].set_yscale('log')
+        # orient_masked = (1-m.mask)*orient
+        # orient_masked = orient_masked[orient_masked != 0]
+        # print(np.min(orient_masked), np.max(orient_masked))
 
-    ax[1].set_ylabel('Frequency')
-    ax[1].set_xlabel('Turning Angle')
+        turn_masked = (1-m.mask)*turn
+        turn_masked = turn_masked[turn_masked != 0]
+        # print(np.min(turn_masked), np.max(turn_masked))
 
-    labels = [r'-$\pi/2$', r'-$3\pi/8$', r'-$\pi/4$', r'-$\pi/8$', '$0$', r'$\pi/8$', r'$\pi/4$', r'$3\pi/8$', r'$\pi/2$']
-    ax[1].set_xticks(np.arange(-np.pi/2, np.pi/2+0.01, np.pi/8))
-    ax[1].set_xticklabels(labels)
+        ag_data = np.array([x_masked, y_masked, turn_masked]).transpose()
+        ag_data = np.expand_dims(ag_data, axis=0)
+        print(ag_data.shape)
 
-    ax[0].set_ylabel('Frequency')
-    ax[0].set_xlabel('Turning Angle')
-    ax[0].set_xticks(np.arange(-2*np.pi, 2*np.pi+0.01, np.pi/2))
-    ax[0].set_xticklabels(labels)
-    plt.subplots_adjust(wspace=.25)
-
-    plt.savefig(fr'{save_name}_turn_histo.png')
-    plt.close()
+        traj_plot_data = (ag_data, res_data)
+        
+        plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name+f'_turn_slice{i}', ellipses=False, ex_lines=False, extra='turn')
 
 
 # -------------------------- stationary vis -------------------------- #
@@ -1358,7 +1092,6 @@ def plot_agent_trajs_PRW(exp_name, space_step, orient_step, timesteps, rot_diff)
     res_data[0,0,:] = np.array((x, y_max - y, res_radius))
     traj_plot_data = (ag_data, res_data)
 
-    from abm.monitoring.plot_funcs import plot_map_iterative_traj
     plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name)
 
 
@@ -1581,226 +1314,6 @@ def anim_visfield(exp_name, gen_ext, space_step, orient_step):
     plt.close()
 
 
-
-# -------------------------- traj + Nact + vis -------------------------- #
-
-def agent_trajall_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, vis_field_res, Nact_size):
-
-    agent = Agent(
-            id=0,
-            position=(x,y),
-            orientation=orient,
-            max_vel=2,
-            FOV=0.4,
-            vis_field_res=vis_field_res,
-            vision_range=2000,
-            num_class_elements=4,
-            consumption=1,
-            model=NN,
-            boundary_endpts=boundary_endpts,
-            window_pad=30,
-            radius=10,
-            color=(0,0,0),
-            vis_transform='',
-            # vis_transform=str(envconf["VIS_TRANSFORM"]),
-        )
-    
-    # from null initial activity (+ constant zero food presence sense)
-    hidden = torch.zeros(int(envconf["RNN_HIDDEN_SIZE"])).unsqueeze(0)
-    other_input = torch.zeros( int(envconf["RNN_OTHER_INPUT_SIZE"]) ).unsqueeze(0)
-
-    # initialize data storing matrix + step through trajectory
-    data_vector_size = 3 + vis_field_res + Nact_size # first 3 are for (x,y,o)
-    traj_data = np.zeros((timesteps, data_vector_size)) 
-    for t in range(timesteps):
-
-        # store current positional info
-        x,y = agent.position
-        traj_data[t,:3] = np.array((x,y,agent.orientation))
-
-        # gather visual input
-        agent.visual_sensing([])
-        vis_field_onehot = agent.encode_one_hot(agent.vis_field)
-
-        # translate to vector + store
-        vis_field = np.zeros(vis_field_res)
-        for n,i in enumerate(agent.vis_field):
-            if i == 'wall_north': vis_field[n] = 1
-            elif i == 'wall_east': vis_field[n] = 2
-            elif i == 'wall_south': vis_field[n] = 3
-            else: # i == 'wall_west': 
-                vis_field[n] = 4
-        traj_data[t,3:3+vis_field_res] = vis_field
-
-        # pass through model.forward
-        vis_input = torch.from_numpy(vis_field_onehot).float().unsqueeze(0)
-        vis_features = agent.model.cnn(vis_input)
-        RNN_in = torch.cat((vis_features, other_input), dim=1)
-        RNN_out, hidden = agent.model.rnn(RNN_in, hidden)
-        action = agent.model.lcl(RNN_out)
-        action = torch.tanh(action)
-        action = action
-
-        # align neural activities + store
-        Nact = np.concatenate((vis_features, RNN_out, action), axis=None)
-        traj_data[t,-Nact_size:] = Nact
-
-        # move agent
-        agent.move(action.detach().numpy()[0][0])
-
-    return traj_data
-
-def build_agent_trajalls_parallel(exp_name, gen_ext, space_step, orient_step, timesteps):
-
-    # pull pv + envconf from save folders
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
-    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
-    with open(NN_pv_path,'rb') as f:
-        pv = pickle.load(f)
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    # reconstruct model
-    NN, arch = reconstruct_NN(envconf, pv)
-
-    # construct boundary endpts
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
-    x_min, x_max = 0, width
-    y_min, y_max = 0, height
-    boundary_endpts = [
-            np.array([ x_min, y_min ]),
-            np.array([ x_max, y_min ]),
-            np.array([ x_min, y_max ]),
-            np.array([ x_max, y_max ])
-            ]
-
-    # every grid position/direction
-    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
-    x_range = np.arange(x_min + coll_boundary_thickness, x_max - coll_boundary_thickness + 1, space_step)
-    y_range = np.arange(y_min + coll_boundary_thickness, y_max - coll_boundary_thickness + 1, space_step)
-    orient_range = np.arange(0, 2*np.pi, orient_step)
-
-    # calculate data vector size
-    vis_field_res = int(envconf["VISUAL_FIELD_RESOLUTION"])
-    encoded_vis_size = list(map(int,envconf["CNN_DIMS"].split(',')))[-1]
-    rnn_hidden_size = int(envconf["RNN_HIDDEN_SIZE"])
-    lcl_output_size = int(envconf["LCL_OUTPUT_SIZE"])
-    Nact_size = encoded_vis_size + rnn_hidden_size + lcl_output_size
-    data_vector_size = 3 + vis_field_res + Nact_size # first 3 are for (x,y,o)
-    
-    # construct matrix of each traj for each grid pos/dir
-    num_inits = len(x_range) * len(y_range) * len(orient_range)
-    data_matrix = np.zeros( (num_inits, timesteps, data_vector_size) ) 
-    print(f'traj matrix shape (initializations, timesteps, stored values): {data_matrix.shape}')
-    
-    # pack inputs for multiprocessing map
-    mp_inputs = []
-    for x in x_range:
-        for y in y_range:
-            for orient in orient_range:
-                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, vis_field_res, Nact_size) )
-    
-    # run agent NNs in parallel
-    with mp.Pool() as pool:
-        results = pool.starmap_async( agent_trajall_from_xyo, mp_inputs )
-        pool.close()
-        pool.join()
-
-    # unpack results into matrix
-    results_list = results.get()
-    for t, traj_data in enumerate(results_list):
-        data_matrix[t,:,:] = traj_data
-    
-    # transform data to plotting coords
-    # traj_matrix[:,:,0] = traj_matrix[:,:,0] # pos_x = pos_x
-    data_matrix[:,:,1] = y_max - data_matrix[:,:,1]
-
-    # build resource coord matrix
-    ag_data = np.zeros((1,1,3)) # 1 patch
-    # ag_data = np.zeros((2,1,3)) # 2 patches
-    res_radius = int(envconf["RADIUS_RESOURCE"])
-    x,y = width*.4, height*.4
-
-    ag_data[0,0,:] = np.array((x, y_max - y, res_radius))
-    # ag_data[1,0,:] = np.array((x, y_max - y, res_radius))
-
-    # pack + save
-    plot_data = data_matrix, ag_data
-    Path(fr'{data_dir}/trajall_matrices').mkdir(parents=True, exist_ok=True)
-    with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}.bin', 'wb') as f:
-        pickle.dump(plot_data, f)
-    
-
-def plot_agent_trajalls(exp_name, gen_ext, space_step, orient_step, timesteps):
-
-    from abm.monitoring.plot_funcs import plot_map_iterative_trajall
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
-
-    with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}.bin', 'rb') as f:
-        traj_plot_data = pickle.load(f)
-
-    save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_vischange'
-    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True)
-    # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_visflat'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=False)
-    # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallN'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=1)
-    # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallE'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=2)
-    # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallS'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=3)
-    # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_viswallW'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=0, change=True, wall=4)
-
-    # loop over encoded vis (CNN output)
-    vis_field_res = int(envconf["VISUAL_FIELD_RESOLUTION"])
-    encoded_vis_size = list(map(int,envconf["CNN_DIMS"].split(',')))[-1]
-    for i in range(encoded_vis_size):
-        var_pos = 3 + vis_field_res + i
-        save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_NactCNN{i}'
-        plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=var_pos)
-
-    save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_action'
-    plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=-1)
-    # save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_action_inv'
-    # plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=-1, inv=True)
-
-
-
-def plot_agent_trajalls_pca(exp_name, gen_ext, space_step, orient_step, timesteps, analyses, datasets, comps):
-
-    from abm.monitoring.plot_funcs import plot_map_iterative_trajall
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    width=int(envconf["ENV_WIDTH"])
-    height=int(envconf["ENV_HEIGHT"])
-
-    # pca or ica
-    for analysis in analyses:
-
-        # input, CNN, or output
-        for name in datasets:
-            with open(fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{analysis}_{name}_projdata.bin', 'rb') as f:
-                traj_plot_data = pickle.load(f)
-
-            # plot first X components
-            for comp in comps:
-                var_pos = 3 + comp
-                save_name = fr'{data_dir}/trajall_matrices/{exp_name}_{gen_ext}_traj_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{analysis}_{name}_c{comp}'
-                plot_map_iterative_trajall(traj_plot_data, x_max=width, y_max=height, save_name=save_name, var_pos=var_pos, change=True)
-
-
 # -------------------------- script -------------------------- #
 
 def run_gamut(names):
@@ -1904,17 +1417,13 @@ def find_top_val_gen(exp_name, rank='cen'):
 
 if __name__ == '__main__':
 
-    ## anim / action vol
-    # space_step = 5
-    # orient_step = np.pi/64
-
-    ## traj / Nact
-    space_step = 25
-    orient_step = np.pi/8
+    # # traj / Nact
+    # space_step = 25
+    # orient_step = np.pi/8
 
     ## action
-    # space_step = 100
-    # orient_step = np.pi/8
+    space_step = 5
+    orient_step = np.pi/8
 
     ## traj - turn
     # space_step = 100
@@ -1941,15 +1450,22 @@ if __name__ == '__main__':
     names = []
 
     # names.append('sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18')
-    # for i in [1,2,4,5,6,7,11,12,13,14,15]:
     # for i in [3,4,9]:
-        # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
-    # for i in [0,1,2,5,6,9,13,14,16,17,18,19]:
-    # for i in [3]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{str(i)}')
+    # for i in [1,3,4,9,14,15]:
+    # for i in [2,5,6,7,11,12,13]:
+    for i in [1,2,3,4,5,6,7,9,11,12,13,14,15]:
+    # for i in [0,10,17,18]:
+    # for i in [0,1,2,3,4,5,6,7,9,10,11,12,13,14,15,17,18]:
+        names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
+    # for i in [3,4,9,13]:
+    # for i in [0,1,2,5,6,14,16,17,18,19]:
+    for i in [0,1,3,4,2,5,6,9,13,14,16,17,18,19]:
+        names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{str(i)}')
 
-    # for i in [0,1,2,3,5,7,8,9,10,13,14,16,18]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{str(i)}')
+    for i in [0,1,2,3,5,7,8,9,10,13,14,16,18]:
+    # for i in [6,11]:
+    # for i in [0,1,2,3,5,6,7,8,9,10,11,13,14,16,18]:
+        names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{str(i)}')
 
     # for i in [2]: 
     # for i in [3,5]: 
@@ -1971,6 +1487,11 @@ if __name__ == '__main__':
     # for i in [1,2,8,10,11,12]:
     #     names.append(f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{str(i)}')
 
+    # for i in [1,3,7,10]:
+    #     names.append(f'sc_CNN14_FNN8_p50e20_vis8_PGPE_ss20_mom8_gru_rep{i}')
+    # for i in [1,10,11,15]:
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_silu_rep{i}')
+
     # data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
     #     data = pickle.load(f)
@@ -1978,22 +1499,19 @@ if __name__ == '__main__':
     for name in names:
         gen, valfit = find_top_val_gen(name, 'cen')
         print(f'{name} @ {gen} w {valfit} fitness')
-        
-        # # filter out poor performers
-        # if valfit >= 500:
-        #     print('skip')
-        #     print('')
-        #     continue
-        # if name in data:
-        #     print('already there')
-        #     print('')
-        #     continue
 
         # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='3d')
+        # # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='3d')
         # corr_peaks, histo_avg, histo_peaks = plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps, dpi=100)
-        # angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=100)
+        # # angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=100)
+
+        # plot_binned_orient_turn_gradients(name, gen, space_step, orient_step, timesteps, dpi=100)
+        # build_action_matrix(name, gen, space_step, orient_step)
+        # plot_action_map(name, gen, space_step, orient_step, plot_type='', dpi=500)
+        # plot_action_map(name, gen, space_step, orient_step, plot_type='_inv', dpi=1000)
+        # plot_action_map(name, gen, space_step, orient_step, plot_type='_grad', dpi=100)
+        plot_action_map(name, gen, space_step, orient_step, plot_type='_actvec', dpi=100)
 
         # # save in dict + update pickle
         # data[name] = (corr_peaks, histo_avg, histo_peaks, angle_medians)
@@ -2049,32 +1567,32 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-        names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-        names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+    #     names.append(name)
 
-    seeds = [10000,20000,30000,40000]
+    # seeds = [10000,20000,30000,40000]
 
-    for s in seeds:
-        for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-            names.append(name)
-    for s in seeds:
-        for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-            names.append(name)
-    for s in seeds:
-        for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-            names.append(name)
-    for s in seeds:
-        for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-            names.append(name)
-    for s in seeds:
-        for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-            names.append(name)
-    for s in seeds:
-        for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-            names.append(name)
+    # for s in seeds:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in seeds:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in seeds:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in seeds:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in seeds:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
+    # for s in seeds:
+    #     for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
+    #         names.append(name)
 
-    run_gamut(names)
+    # run_gamut(names)
