@@ -41,4 +41,4 @@ Govoni, P., Romanczuk, P. Fundamental Visual Navigation Algorithms: Indirect Seq
 
 **License:** <br>
 Copyright © 2022 [Patrick Govoni](https://github.com/pgovoni21). <br>
-This project is [MIT](https://github.com/pgovoni21/vis-nav-abm/blob/main/LICENSE) licensed.
+This project is [MIT](https://github.com/pgovoni21/vis-nav-abm?tab=MIT-1-ov-file) licensed.
