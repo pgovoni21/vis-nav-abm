@@ -6,7 +6,7 @@
 **Supervisors:** Prof. Pawel Romanczuk <br>
 **Affiliation:** Institute for Theoretical Biology, Department of Biology, Humboldt Universität zu Berlin <br>
 **Group:** Collective Information Processing Lab <br>
-**Timespan:** 2023-2024
+**Timespan:** 2023-Present
 
 **Abstract:** <br>
 Effective foraging in a predictable local environment requires coordinating movement with observable
