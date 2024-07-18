@@ -1,5 +1,4 @@
-# Fundamental Visual Navigation Algorithms: 
-# Indirect Sequential, Biased Diffusive, & Direct Pathing
+# Fundamental Visual Navigation Algorithms: *Indirect Sequential, Biased Diffusive, & Direct Pathing*
 
 <img src="./site_media/flow.png" width="800"/>
 
