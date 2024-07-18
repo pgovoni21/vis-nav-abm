@@ -21,14 +21,14 @@ navigation. Surprisingly, three distinct classes of algorithms emerged, each wit
 and tradeoffs, and each appear to be highly relevant to observable biological navigation behaviors.
 
 <p float="left">
-  <img src="./site_media/sim_IS_respawn.gif" width="300" />
-  <img src="./site_media/sim_BD_respawn.gif" width="300" />
-  <img src="./site_media/sim_DP_respawn.gif" width="300" />
+  <img src="./site_media/sim_IS_respawn.gif" width="250" />
+  <img src="./site_media/sim_BD_respawn.gif" width="250" />
+  <img src="./site_media/sim_DP_respawn.gif" width="250" />
 </p>
 <p float="left">
-  <img src="./site_media/trajs_IS.png" width="300" />
-  <img src="./site_media/trajs_BD.png" width="300" />
-  <img src="./site_media/trajs_DP.png" width="300" />
+  <img src="./site_media/trajs_IS.png" width="250" />
+  <img src="./site_media/trajs_BD.png" width="250" />
+  <img src="./site_media/trajs_DP.png" width="250" />
 </p>
 
 <img src="./site_media/convergence.png" width="800"/>
