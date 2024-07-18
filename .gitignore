@@ -248,8 +248,7 @@ cython_debug/
 *_copy.env
 
 # ignore data
-abm/data/
-abm/data/metaprotocol/
+abm/data/*
 vids/
 *.bin
 ...start.bat
