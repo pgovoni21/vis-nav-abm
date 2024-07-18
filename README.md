@@ -1,5 +1,7 @@
 # Fundamental Visual Navigation Algorithms: Indirect Sequential, Biased Diffusive, & Direct Pathing
 
+<img src="./site_media/flow.png" width="800"/>
+
 **Author of Model:** Patrick Govoni <br>
 **Supervisors:** Prof. Pawel Romanczuk <br>
 **Affiliation:** Institute for Theoretical Biology, Department of Biology, Humboldt Universität zu Berlin <br>
@@ -17,6 +19,19 @@ As a generalizable, minimal alternative to empirical means, we evolve and study 
 networks to explore information processing algorithms an organism may use for visual spatial
 navigation. Surprisingly, three distinct classes of algorithms emerged, each with its own set of rules
 and tradeoffs, and each appear to be highly relevant to observable biological navigation behaviors.
+
+<p float="left">
+  <img src="./site_media/sim_IS_respawn.gif" width="300" />
+  <img src="./site_media/sim_BD_respawn.gif" width="300" />
+  <img src="./site_media/sim_DP_respawn.gif" width="300" />
+</p>
+<p float="left">
+  <img src="./site_media/trajs_IS.png" width="300" />
+  <img src="./site_media/trajs_BD.png" width="300" />
+  <img src="./site_media/trajs_DP.png" width="300" />
+</p>
+
+<img src="./site_media/convergence.png" width="800"/>
 
 **Manuscript:** <br>
 [Preprint]() <br>
