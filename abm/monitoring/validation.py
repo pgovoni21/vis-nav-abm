@@ -17,8 +17,8 @@ def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=Non
     exp_path = fr'{data_dir}/{name}'
     env_path = fr'{exp_path}/.env'
 
-    # if Path(fr'{exp_path}/val_matrix_cen.bin').is_file():
-    #     return print(f'val_matrix_cen already exists')
+    if Path(fr'{exp_path}/val_matrix_cen.txt').is_file():
+        return print(f'val_matrix_cen already exists')
     
     with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
         data = pickle.load(f)
@@ -203,10 +203,8 @@ if __name__ == '__main__':
 
     names = []
 
-    for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-        names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{x+1}' for x in range(19)]:
+    #     names.append(name)
 
     # for name in names:
     #     rerun_NNs(name)
@@ -357,10 +355,7 @@ if __name__ == '__main__':
     # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{x}' for x in range(20)]:
     #     names.append(name)
 
-    for name in [f'sc_CNN14_FNN64x64_p50e20_vis8_PGPE_ss20_mom8_act32_rep{x}' for x in range(0)]:
-        names.append(name)
-
-    for name in names:
-        rerun_NNs(name)
-        # rerun_NNs(name, noise_type='angle_n05')
+    # for name in names:
+        # rerun_NNs(name)
+        # rerun_NNs(name, noise_type='angle_n10')
         # rerun_NNs(name, noise_type='dist_n025')

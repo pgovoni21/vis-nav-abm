@@ -1176,6 +1176,10 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
 
     decorr_idx = np.argmax(corr_init_avg < 0.5)
     decorr_time = t[decorr_idx]
+    decorr_val = corr_init_avg[decorr_idx]
+
+    ax0.vlines(decorr_time, 0, decorr_val, color='red', ls='--')
+    # ax0.set_title(f'Decorr Time: {decorr_time:.2f}')
 
     ax0.set_xlim(-20,520)
     ax0.set_ylim(-1.05,1.05)
@@ -1477,68 +1481,11 @@ def plot_agent_valnoise_dists(run_name, noise_types, val='cen', dpi=None):
     return medians
 
 
-def plot_binned_orient_turn_gradients(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, dpi=None):
-    print(f'plotting corr - {exp_name} @ {dpi} dpi')
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    # build resource coord matrix
-    res_radius = int(envconf["RADIUS_RESOURCE"])
-    width, height = tuple(eval(envconf["ENV_SIZE"]))
-    x,y = tuple(eval(envconf["RESOURCE_POS"]))
-    res_data = np.zeros((1,1,3)) # 1 patch
-    res_data[0,0,:] = np.array((x, height - y, res_radius))
-
-    # pull in ag data
-    save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
-    with open(save_name+'.bin', 'rb') as f:
-        ag_data = pickle.load(f)
-    print(ag_data.shape)
-
-    # flatten ag arrays
-    x = ag_data[:,:,0].flatten()
-    y = ag_data[:,:,1].flatten()
-    orient = ag_data[:,:,2].flatten()
-    turn = ag_data[:,:,3].flatten()
-
-    # slice data into binned orients + mask outsiders
-    num_cuts = 8
-    angle_slices = np.linspace(0, 2*np.pi, num_cuts+1)
-
-    for i in range(num_cuts):
-
-        print(f'slice: {round(angle_slices[i],2), round(angle_slices[i+1],2)}')
-        m = np.ma.masked_outside(orient, angle_slices[i], angle_slices[i+1])
-
-        x_masked = (1-m.mask)*x
-        x_masked = x_masked[x_masked != 0]
-
-        y_masked = (1-m.mask)*y
-        y_masked = y_masked[y_masked != 0]
-
-        # orient_masked = (1-m.mask)*orient
-        # orient_masked = orient_masked[orient_masked != 0]
-        # print(np.min(orient_masked), np.max(orient_masked))
-
-        turn_masked = (1-m.mask)*turn
-        turn_masked = turn_masked[turn_masked != 0]
-        # print(np.min(turn_masked), np.max(turn_masked))
-
-        ag_data = np.array([x_masked, y_masked, turn_masked]).transpose()
-        ag_data = np.expand_dims(ag_data, axis=0)
-        print(ag_data.shape)
-
-        traj_plot_data = (ag_data, res_data)
-        
-        plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name+f'_turn_slice{i}', ellipses=False, ex_lines=False, extra='turn')
-
 
 # -------------------------- persistent random walk (null model) -------------------------- #
 
 
-def agent_traj_from_xyo_PRW(envconf, NN, boundary_endpts, x, y, orient, timesteps, behavior, rot_diff, curve=None, limit=None):
+def agent_traj_from_xyo_PRW(envconf, NN, boundary_endpts, x, y, orient, timesteps, behavior, rot_diff, curve=None, limit=None, bias=None):
 
     agent = Agent(
             id=0,
@@ -1558,9 +1505,12 @@ def agent_traj_from_xyo_PRW(envconf, NN, boundary_endpts, x, y, orient, timestep
             vis_transform='',
             percep_angle_noise_std=0,
         )
+    
+    patch = np.array(eval(envconf["RESOURCE_POS"]))
+
+    if behavior == 'ratchet' or behavior == 'ratchet-biased': curve_acc = np.random.uniform(0,limit)
 
     traj = np.zeros((timesteps,4))
-    if behavior == 'ratchet': curve_acc = 0
     for t in range(timesteps):
 
         agent.gather_self_percep_info()
@@ -1575,6 +1525,27 @@ def agent_traj_from_xyo_PRW(envconf, NN, boundary_endpts, x, y, orient, timestep
             if curve_acc >= limit:
                 action -= curve_acc
                 curve_acc = 0
+        elif behavior == 'straight-biased':
+            disp_from_patch = patch - agent.position
+            angle_to_patch = np.arctan2(-disp_from_patch[1], disp_from_patch[0])
+            angle_diff = angle_to_patch - agent.orientation
+            angle_diff = (angle_diff + np.pi) % (2*np.pi) - np.pi
+            angle_diff_scaled = angle_diff / np.pi
+            action = (2*rot_diff)**.5 * np.random.uniform(-1,1) + angle_diff_scaled*bias
+        elif behavior == 'curve-biased':
+            disp_from_patch = patch - agent.position
+            angle_to_patch = np.arctan2(-disp_from_patch[1], disp_from_patch[0])
+            angle_diff = angle_to_patch - agent.orientation
+            angle_diff = (angle_diff + np.pi) % (2*np.pi) - np.pi
+            angle_diff_scaled = angle_diff / np.pi
+            action = (2*rot_diff)**.5 * np.random.uniform(-1,1) + curve + angle_diff_scaled*bias
+        elif behavior == 'ratchet-biased':
+            disp_from_patch = patch - agent.position
+            angle_to_patch = np.arctan2(-disp_from_patch[1], disp_from_patch[0])
+            angle_diff = angle_to_patch - agent.orientation
+            angle_diff = (angle_diff + np.pi) % (2*np.pi) - np.pi
+            angle_diff_scaled = angle_diff / np.pi
+        # print(agent.position, patch, angle_to_patch, angle_diff, angle_diff_scaled, action)
 
         agent.move(action)
 
@@ -1585,7 +1556,7 @@ def agent_traj_from_xyo_PRW(envconf, NN, boundary_endpts, x, y, orient, timestep
     return traj
 
 
-def build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None):
+def build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=None):
     print(f'building {behavior} PRW w {rot_diff} rot_diff, @ {space_step}, {int(np.pi/orient_step)}, {timesteps}, {curve}, {limit}')
 
     # pull pv + envconf from save folders
@@ -1596,11 +1567,15 @@ def build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior,
 
     rd_str = str(rot_diff).replace(".","p")
     cv_str = str(curve).replace(".","p")
-    lm_str = str(round(np.pi/orient_step, 2)).replace(".","p") if limit is not None else None
-    save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
-    # if os.path.exists(save_name+'.bin'):
-    #     print(f'data already exists')
-    #     return
+    lm_str = str(round(limit/np.pi, 2)).replace(".","p") if limit is not None else None
+    if bias is None:
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    else:
+        b_str = str(bias).replace(".","p")
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}_b{b_str}'
+    if os.path.exists(save_name+'.bin'):
+        print(f'data already exists')
+        return
 
     # construct dummy model
     from abm.NN.model import WorldModel as Model
@@ -1626,13 +1601,13 @@ def build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior,
     num_inits = len(x_range) * len(y_range) * len(orient_range)
     traj_matrix = np.zeros( (num_inits, timesteps, 4) ) # (pos_x, pos_y, _, _) --> to match self.data_agent format
     print(f'traj matrix shape (# initializations, timesteps, ): {traj_matrix.shape}')
-    
+
     # pack inputs for multiprocessing map
     mp_inputs = []
     for x in x_range:
         for y in y_range:
             for orient in orient_range:
-                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, behavior, rot_diff, curve, limit) )
+                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, behavior, rot_diff, curve, limit, bias) )
     
     # run agent NNs in parallel
     with mp.Pool() as pool:
@@ -1650,7 +1625,7 @@ def build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior,
         pickle.dump(traj_matrix, f)
 
 
-def plot_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None):
+def plot_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=None):
     print(f'plotting {behavior} PRW w {rot_diff} rot_diff, @ {space_step}, {int(np.pi/orient_step)}, {timesteps}, {curve}, {limit}')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -1660,10 +1635,17 @@ def plot_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff,
 
     rd_str = str(rot_diff).replace(".","p")
     cv_str = str(curve).replace(".","p")
-    lm_str = str(round(np.pi/orient_step, 2)).replace(".","p") if limit is not None else None
-    save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    lm_str = str(round(limit/np.pi, 2)).replace(".","p") if limit is not None else None
+    if bias is None:
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    else:
+        b_str = str(bias).replace(".","p")
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}_b{b_str}'
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
+    if os.path.exists(save_name+'_50.bin'):
+        print(f'traj plot already exists')
+        return
 
     res_data = np.zeros((1,1,3))
     res_radius = int(envconf["RADIUS_RESOURCE"])
@@ -1676,15 +1658,18 @@ def plot_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff,
     plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name)
 
 
-def plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100):
-    print(f'building {behavior} PRW oricorr w {rot_diff} rot_diff, @ {space_step}, {int(np.pi/orient_step)}, {timesteps}, {curve}, {limit}')
+def plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=None, dpi=100):
+    print(f'plotting {behavior} PRW oricorr w {rot_diff} rot_diff, @ {space_step}, {int(np.pi/orient_step)}, {timesteps}, {curve}, {limit}')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     rd_str = str(rot_diff).replace(".","p")
     cv_str = str(curve).replace(".","p")
-    lm_str = str(round(np.pi/orient_step, 2)).replace(".","p") if limit is not None else None
-
-    save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    lm_str = str(round(limit/np.pi, 2)).replace(".","p") if limit is not None else None
+    if bias is None:
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    else:
+        b_str = str(bias).replace(".","p")
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}_b{b_str}'
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
 
@@ -1693,9 +1678,10 @@ def plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, 
     # print(f'ag_data shape: {num_runs, len(t)}')
 
     # auto corr calc - delayed orient_0
-    t = t[25:]
-    t_len -= 25
-    orient = ag_data[:,25:,2]
+    delay = 25
+    t = t[:-delay]
+    t_len -= delay
+    orient = ag_data[:,delay:,2]
     orient_0 = orient[:,0]
     orient_0 = np.tile(orient_0,(t_len,1)).transpose()
     corr = np.cos(orient - orient_0)
@@ -1712,7 +1698,12 @@ def plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, 
     decorr_idx = np.argmax(corr_init_avg < 0.5)
     decorr_time = t[decorr_idx]
     decorr_val = corr_init_avg[decorr_idx]
-    ax.vlines(decorr_time, 0, decorr_val, color='red', ls='--')
+
+    if decorr_time == 0:
+        ax.set_title(f'Decorr Time: None')
+    else:
+        ax.vlines(decorr_time, 0, decorr_val, color='red', ls='--')
+        ax.set_title(f'Decorr Time: {decorr_time:.2f}')
 
     ax.set_xlim(-20,520)
     ax.set_ylim(-1.05,1.05)
@@ -1722,19 +1713,27 @@ def plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, 
 
     plt.tight_layout()
     plt.savefig(fr'{save_name}_corr_auto_delayed.png', dpi=dpi)
-    plt.show()
+    # plt.show()
+    plt.close()
 
 
-def plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100):
+def plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=None, dpi=100):
     print(f'plotting {behavior} PRW dirent w {rot_diff} rot_diff, @ {space_step}, {int(np.pi/orient_step)}, {timesteps}, {curve}, {limit}')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     rd_str = str(rot_diff).replace(".","p")
     cv_str = str(curve).replace(".","p")
-    lm_str = str(round(np.pi/orient_step, 2)).replace(".","p") if limit is not None else None
-    save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    lm_str = str(round(limit/np.pi, 2)).replace(".","p") if limit is not None else None
+    if bias is None:
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    else:
+        b_str = str(bias).replace(".","p")
+        save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}_b{b_str}'
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
+    if os.path.exists(save_name+'_hist_dirent.bin'):
+        print(f'dirent plot already exists')
+        return
     
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -1791,6 +1790,16 @@ def plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff
     X,Y = np.meshgrid(x_bins, y_bins)
     norm = mpl.colors.Normalize(vmin=0, vmax=1)
     ax.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
+
+    # mask edges (100 from each edge) + patch vicinity (100 from center)
+    mask = np.zeros([num_bins-1, num_bins-1])
+    mask[0:10,:] = 1
+    mask[:,0:10] = 1
+    mask[89:,:] = 1
+    mask[:,89:] = 1
+    mask[29:50,49:70] = 1
+    H_mask = np.ma.array(H, mask=mask)
+    ax.set_title(f'Avg Ent. Directedness: {np.mean(H_mask):.2f}')
 
     radius = int(envconf["RADIUS_RESOURCE"])
     x,y = tuple(eval(envconf["RESOURCE_POS"]))
@@ -2347,7 +2356,7 @@ def plot_IDM_avgperfviews(space_step, orient_step, vis_field_res=32, plot_type='
     fig, axes = plt.subplots() 
     axes.set_xlim(0, x_max)
     axes.set_ylim(0, y_max)
-    h,w = 8,8
+    h,w = 4,4
     l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
     fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
 
@@ -2380,14 +2389,13 @@ def plot_IDM_avgperfviews(space_step, orient_step, vis_field_res=32, plot_type='
         axes.scatter(X,Y, c=acts, cmap='plasma', norm=norm, s=25)
         axes.quiver(X,Y, np.cos(O), np.sin(O), acts, cmap='plasma', norm=norm, scale=50)
 
-        # # centered @ zero
-        # # norm = mpl.colors.CenteredNorm(vcenter=0)
-        # norm = mpl.colors.CenteredNorm(vcenter=0, halfrange=.0001)
+        # # norm = mpl.colors.CenteredNorm(vcenter=0) #--> centered @ zero
+        # norm = mpl.colors.CenteredNorm(vcenter=0, halfrange=.0001) #--> centered @ zero + clipped
         # axes.scatter(X,Y, c=acts, cmap='coolwarm', norm=norm, s=25)
         # axes.quiver(X,Y, np.cos(O), np.sin(O), acts, cmap='coolwarm', norm=norm, scale=50)
 
     elif plot_type == '_heatmap_count':
-        scale = .5
+        scale = 1
         x_bins = np.linspace(x_min + coll_boundary_thickness, 
                             x_max - coll_boundary_thickness + 1, 
                             int(scale*(width - coll_boundary_thickness*2) / space_step+1))
@@ -2396,10 +2404,14 @@ def plot_IDM_avgperfviews(space_step, orient_step, vis_field_res=32, plot_type='
                             int(scale*(height - coll_boundary_thickness*2) / space_step+1))
         H,_,_ = np.histogram2d(x_all,y_all, bins=[x_bins, y_bins])
         X,Y = np.meshgrid(x_bins, y_bins)
-        axes.pcolormesh(X, Y, H.T, cmap='plasma')
+        im = axes.pcolormesh(X, Y, H.T, cmap='plasma')
         # axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=mpl.colors.Normalize(vmin=110)) # for scale=0.5
-        print(np.max(H), np.min(H))
-        print(np.sort(H.flatten())[2500:3500])
+        # print(np.max(H), np.min(H))
+        # print(np.sort(H.flatten())[2500:3500])
+        # from mpl_toolkits.axes_grid1 import make_axes_locatable
+        # divider = make_axes_locatable(axes)
+        # cax1 = divider.append_axes("right", size="5%", pad=0.1)
+        # fig.colorbar(im, cax=cax1, label='Number Unique Views / Bin')
 
     elif plot_type == '_heatmap_ori':
         num_bins = 100
@@ -2427,11 +2439,11 @@ def plot_IDM_avgperfviews(space_step, orient_step, vis_field_res=32, plot_type='
 
 # -------------------------- script -------------------------- #
 
-def run_gamut(names):
+def run_gamut(names, dpi):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
-        data_old = pickle.load(f)
+    # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
+    #     data_old = pickle.load(f)
     with open(fr'{data_dir}/traj_matrices/gamut_redo.bin', 'rb') as f:
         data = pickle.load(f)
 
@@ -2439,7 +2451,6 @@ def run_gamut(names):
     space_step = 25
     timesteps = 500
     eye = True
-    dpi = 50
     # noise_types = [
     #     (0, 'no_noise'), 
     #     (0.05, 'angle_n05'), 
@@ -2447,7 +2458,6 @@ def run_gamut(names):
     #     ]
 
     for name in names:
-
 
         gen, valfit = find_top_val_gen(name, rank)
         print(f'{name} @ {gen} w {valfit} fitness')
@@ -2457,17 +2467,10 @@ def run_gamut(names):
             print('skip')
             print('')
             continue
-        if name in data_old:
-            print('in gamut')
         if name in data:
-            print(f'in gamut_redo @ {len(data[name])} data types')
-            if len(data[name]) == 39:
-                print('decorr already added')
-                continue
-        # if name in data:
-        #     print('already there')
-        #     print('')
-        #     continue
+            print('already there')
+            print('')
+            continue
 
         # traj data
         orient_step = np.pi/8
@@ -2479,57 +2482,58 @@ def run_gamut(names):
         else:
             build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
 
-        save_name_trajmap = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_ex_lines'
-        if os.path.exists(save_name_trajmap+'_100.png'):
-            print('traj already plotted at dpi100')
-        elif os.path.exists(save_name_trajmap+'_50.png'):
-            print('traj already plotted at dpi50')
-        elif os.path.exists(save_name_trajmap+'.png'):
-            print('traj already plotted')
-        else:
-            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi)
+        # save_name_trajmap = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_ex_lines'
+        # if os.path.exists(save_name_trajmap+'_100.png'):
+        #     print('traj already plotted at dpi100')
+        # elif os.path.exists(save_name_trajmap+'_50.png'):
+        #     print('traj already plotted at dpi50')
+        # elif os.path.exists(save_name_trajmap+'.png'):
+        #     print('traj already plotted')
+        # else:
+        #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi)
 
-        if name not in data:
-            act_mean, act_min, act_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgact', dpi=dpi)
-            _, _, _ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgori', dpi=dpi)
-            len_mean, len_min, len_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avglen', dpi=dpi)
-            de_mean, de_min, de_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi)
+        # if name not in data:
+        #     act_mean, act_min, act_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgact', dpi=dpi)
+        #     _, _, _ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgori', dpi=dpi)
+        #     len_mean, len_min, len_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avglen', dpi=dpi)
+        #     de_mean, de_min, de_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi)
 
         corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch = plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps, dpi=dpi)
         # angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=dpi)
 
-        # action data
-        orient_step = np.pi/32
-        save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_action.bin'
-        action_exists = False
-        if os.path.exists(save_name_act):
-            print('action already built')
-            action_exists = True
-            with open(save_name_act, 'rb') as f:
-                act_matrix = pickle.load(f)
-            min_action, max_action = act_matrix.min(), act_matrix.max()
+        # # action data
+        # orient_step = np.pi/32
+        # save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_action.bin'
+        # action_exists = False
+        # if os.path.exists(save_name_act):
+        #     print('action already built')
+        #     action_exists = True
+        #     with open(save_name_act, 'rb') as f:
+        #         act_matrix = pickle.load(f)
+        #     min_action, max_action = act_matrix.min(), act_matrix.max()
 
-        if name in data:
-            print('already there + added decorr time')
-            corr_peaks, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, min_action, max_action, avglen_mean, avglen_med, avglen_min, avglen_max, pkf_mean, pkf_med, pkf_min, pkf_max, pkt_mean, pkt_med, pkt_min, pkt_max, def_mean, def_med, def_min, def_max, det_mean, det_med, det_min, det_max, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max = data[name]
+        # if name in data:
+        #     print('already there + added decorr time')
+        #     corr_peaks, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, min_action, max_action, avglen_mean, avglen_med, avglen_min, avglen_max, pkf_mean, pkf_med, pkf_min, pkf_max, pkt_mean, pkt_med, pkt_min, pkt_max, def_mean, def_med, def_min, def_max, det_mean, det_med, det_min, det_max, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max = data[name]
 
-        else:
-            print('building action map')
-            min_action, max_action = build_action_matrix(name, gen, space_step, orient_step)
+        # else:
+        #     print('building action map')
+        #     min_action, max_action = build_action_matrix(name, gen, space_step, orient_step)
 
-            avglen_mean, avglen_med, avglen_min, avglen_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='len', dpi=dpi)
-            mean, med, min, max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='ori', dpi=dpi)
-            pkf_mean, pkf_med, pkf_min, pkf_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_fwd', colored='count', ex_lines=True, dpi=dpi)
-            pkt_mean, pkt_med, pkt_min, pkt_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_turn', colored='count', ex_lines=True, dpi=dpi)
-            def_mean, def_med, def_min, def_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_fwd', dpi=dpi)
-            det_mean, det_med, det_min, det_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_turn', dpi=dpi)
+        #     avglen_mean, avglen_med, avglen_min, avglen_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='len', dpi=dpi)
+        #     mean, med, min, max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='ori', dpi=dpi)
+        #     pkf_mean, pkf_med, pkf_min, pkf_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_fwd', colored='count', ex_lines=True, dpi=dpi)
+        #     pkt_mean, pkt_med, pkt_min, pkt_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_turn', colored='count', ex_lines=True, dpi=dpi)
+        #     def_mean, def_med, def_min, def_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_fwd', dpi=dpi)
+        #     det_mean, det_med, det_min, det_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_turn', dpi=dpi)
 
-            if name in data_old:
-                act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max = data_old[name]
-            else:
-                pass
+        #     if name in data_old:
+        #         act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max = data_old[name]
+        #     else:
+        #         pass
 
-        data[name] = (corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, min_action, max_action, avglen_mean, avglen_med, avglen_min, avglen_max, pkf_mean, pkf_med, pkf_min, pkf_max, pkt_mean, pkt_med, pkt_min, pkt_max, def_mean, def_med, def_min, def_max, det_mean, det_med, det_min, det_max, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max)
+        # data[name] = (corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, min_action, max_action, avglen_mean, avglen_med, avglen_min, avglen_max, pkf_mean, pkf_med, pkf_min, pkf_max, pkt_mean, pkt_med, pkt_min, pkt_max, def_mean, def_med, def_min, def_max, det_mean, det_med, det_min, det_max, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max)
+        data[name] = True
         print(f'data dict len: {len(data)}')
         print('')
 
@@ -2541,10 +2545,10 @@ def run_gamut(names):
             save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o8_t{timesteps}_{rank}_e{int(eye)}.bin'
             if os.path.exists(save_name_traj):
                 os.remove(save_name_traj)
-        if not action_exists:
-            save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o32_action.bin'
-            if os.path.exists(save_name_act):
-                os.remove(save_name_act)
+        # if not action_exists:
+        #     save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o32_action.bin'
+        #     if os.path.exists(save_name_act):
+        #         os.remove(save_name_act)
 
 
 
@@ -2631,8 +2635,7 @@ def analyze_gamut(group_type, data_type):
     for string, data in zip(group_list_str, group_list):
         print(f'{string}: {np.mean([item[data_type] for item in data]).round(2)}')
 
-
-
+    ### plot measurement distributions ###
     fig, ax1 = plt.subplots(figsize=(6,4)) 
     cmap = plt.get_cmap('plasma')
     num_groups = len(group_list)
@@ -2671,6 +2674,7 @@ def analyze_gamut(group_type, data_type):
         ax1.set_ylim(0.5,1)
     elif data_list_str[data_type] == 'de_mean':
         ax1.set_ylim(0,1)
+        ax1.set_ylabel('Directedness')
     elif data_list_str[data_type] == 'corr_peaks' or data_list_str[data_type] == 'histo_peaks_init' or data_list_str[data_type] == 'histo_peaks_patch':
         ax1.set_ylim(0,6)
     elif data_list_str[data_type] == 'dirent_init' or data_list_str[data_type] == 'dirent_patch':
@@ -2683,7 +2687,7 @@ def analyze_gamut(group_type, data_type):
         ax1.set_ylim(0,.5)
     elif data_list_str[data_type] == 'decorr_time':
         ax1.set_ylim(20,220)
-
+        ax1.set_ylabel('Decorrelation Time')
 
     if group_type == 'vis':
         ax1.set_xlabel('Visual Resolution')
@@ -2691,7 +2695,43 @@ def analyze_gamut(group_type, data_type):
         ax1.set_xlabel('Distance Scaling Factor')
 
     plt.savefig(fr'{data_dir}/group_traj_dists_{group_type}_{data_list_str[data_type]}.png', dpi=100)
-    plt.show()
+    plt.close()
+
+
+    ### plot measurement statistical difference matrix ###
+    for conf_lvl in [0.05, 0.1]:
+        fig, ax1 = plt.subplots(figsize=(6,6)) 
+        num_groups = len(group_list)
+
+        M = np.zeros((num_groups,num_groups))
+        for g_num_1, (group_name_1, group_data_1) in enumerate(zip(group_list_str, group_list)):
+            data_1 = np.array([data[data_type] for data in group_data_1])
+            for g_num_2, (group_name_2, group_data_2) in enumerate(zip(group_list_str, group_list)):
+                data_2 = np.array([data[data_type] for data in group_data_2])
+
+                U1, p = scipy.stats.mannwhitneyu(data_1, data_2, alternative='two-sided', method='exact')
+                # nx, ny = len(data_1), len(data_2)
+                # U2 = nx*ny - U1
+                # print(group_name_1, group_name_2, p)
+                M[g_num_1, g_num_2] = p
+
+        im = ax1.imshow(M, cmap='coolwarm', norm=mpl.colors.CenteredNorm(vcenter=conf_lvl, halfrange=conf_lvl/2))
+        # mask = np.tril(np.ones_like(M, dtype=bool))
+        # ax1.imshow(mask, cmap='binary')
+        cbar = ax1.figure.colorbar(im, ax=ax1, fraction=0.046, pad=0.04, label='p-value')
+        ax1.set_xticks(np.linspace(0,num_groups-1,num_groups))
+        ax1.set_yticks(np.linspace(0,num_groups-1,num_groups))
+        ax1.set_xticklabels(group_list_str)
+        ax1.set_yticklabels(group_list_str)
+        if group_type == 'vis':
+            ax1.set_xlabel('Visual Resolution')
+            ax1.set_ylabel('Visual Resolution')
+        elif group_type == 'dist':
+            ax1.set_xlabel('Distance Scaling Factor')
+            ax1.set_ylabel('Distance Scaling Factor')
+        plt.savefig(fr'{data_dir}/group_traj_dists_{group_type}_{data_list_str[data_type]}_diffmat_conflvl{str(conf_lvl).replace(".","p")}.png', dpi=100)
+        # plt.show()
+        plt.close()
 
 
 
@@ -2764,9 +2804,29 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
         else: print(f'{name}, not included')
 
     vis_groups = [vis6, vis8, vis10, vis12, vis14, vis16, vis18, vis20, vis24, vis32]
-    vis_groups_str = ['6', '8', '10', '12', '14', '16', '18', '20', '24', '32']
+    # vis_groups_str = ['6', '8', '10', '12', '14', '16', '18', '20', '24', '32']
+    vis_groups_str = [r'$\sigma = 0, \upsilon = 6$',
+    			r'$\sigma = 0, \upsilon = 8$',
+    			r'$\sigma = 0, \upsilon = 10$',
+    			r'$\sigma = 0, \upsilon = 12$',
+    			r'$\sigma = 0, \upsilon = 14$',
+    			r'$\sigma = 0, \upsilon = 16$',
+    			r'$\sigma = 0, \upsilon = 18$',
+    			r'$\sigma = 0, \upsilon = 20$',
+    			r'$\sigma = 0, \upsilon = 24$',
+    			r'$\sigma = 0, \upsilon = 32$',
+    			]
     dist_groups = [maxWF, p8WF, p6WF, p5WF, p4WF, p3WF, p2WF, p1WF]
-    dist_groups_str = ['1', '0.8', '0.6', '0.5', '0.4', '0.3', '0.2', '0.1']
+    # dist_groups_str = ['1', '0.8', '0.6', '0.5', '0.4', '0.3', '0.2', '0.1']
+    dist_groups_str = [r'$\sigma = 1, \upsilon = 8$',
+    			r'$\sigma = 0.8, \upsilon = 8$',
+    			r'$\sigma = 0.6, \upsilon = 8$',
+    			r'$\sigma = 0.5, \upsilon = 8$',
+    			r'$\sigma = 0.4, \upsilon = 8$',
+    			r'$\sigma = 0.3, \upsilon = 8$',
+    			r'$\sigma = 0.2, \upsilon = 8$',
+    			r'$\sigma = 0.1, \upsilon = 8$',
+    			]
 
     group_list = []
     group_list_str = []
@@ -2783,13 +2843,14 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
     data_str_y = data_list_str[data_type_y]
 
     # fig, ax1 = plt.subplots(figsize=(6,4)) 
-    fig, ax1 = plt.subplots(figsize=(12,8)) 
+    fig, ax1 = plt.subplots(figsize=(9,6)) 
+    # fig, ax1 = plt.subplots(figsize=(12,8)) 
     cmap = plt.get_cmap('Spectral')
 
     if cluster is not None:
         full_data = np.array([[],[]]).T
         for group_data in group_list:
-            data = np.array([(data[data_type_x],data[data_type_y]) for (data, run_name) in group_data])
+            data = np.array([(data[data_type_x],data[data_type_y]) for (data, run_name, label) in group_data])
             full_data = np.vstack((full_data, data))
         # print(full_data.shape)
         if cluster == 'kmeans':
@@ -2804,12 +2865,12 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
             centers = model.means_
         ax1.scatter(full_data[:,0], full_data[:,1], c=clusters, alpha=.8)
         ax1.scatter(centers[:, 0], centers[:, 1], c='black', s=200, alpha=0.5)
-        ax1.set_title(f'cluster type: {cluster}')
+        # ax1.set_title(f'cluster type: {cluster}')
 
     elif heatmap is not None:
         full_data = np.array([[],[]]).T
         for group_data in group_list:
-            data = np.array([(data[data_type_x],data[data_type_y]) for (data, run_name) in group_data])
+            data = np.array([(data[data_type_x],data[data_type_y]) for (data, run_name, label) in group_data])
             full_data = np.vstack((full_data, data))
         # print(full_data.shape)
 
@@ -2820,7 +2881,8 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
         # print(x_bins, y_bins)
         X,Y = np.meshgrid(x_bins, y_bins)
         H,_,_ = np.histogram2d(full_data[:,0], full_data[:,1], bins=[x_bins, y_bins])
-        ax1.pcolormesh(X, Y, H.T, cmap='plasma')
+        im = ax1.pcolormesh(X, Y, H.T, cmap='plasma')
+        # plt.colorbar(im, label='Number Overlapping Runs')
 
     else:
         data_x, data_y, colors, fitnesses = [],[],[],[]
@@ -2828,7 +2890,12 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
             for (data, run_name, label) in group_data:
                 data_x.append(data[data_type_x])
                 data_y.append(data[data_type_y])
-                # if data[data_type_x] < 100 and data[data_type_y]  < 0.6 and label == 'IS':
+
+                # if data[data_type_x] < 100 and data[data_type_y] < 0.6 and label == 'IS':
+                #     print(run_name)
+                # if data[data_type_y] > 0.7 and label == 'BD':
+                #     print(run_name)
+                # if data[data_type_x] > 160 and data[data_type_y] > 0.7 and label == 'IS/DP':
                 #     print(run_name)
 
                 if sc_type == 'label':
@@ -2841,30 +2908,47 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
                     elif label == 'BD/IS':
                         colors.append('darkorchid')
                     elif label == 'IS/DP':
-                        colors.append('black')
+                        colors.append('gold')
                     elif label == 'DP/BD':
-                        colors.append('cyan')
+                        colors.append('aquamarine')
                     else: print('label not recognized: ', run_name, label)
 
                 elif sc_type == 'fitness':
                     with open(fr'{data_dir}/{run_name}/val_matrix_cen.bin','rb') as f:
                         val_matrix = pickle.load(f)
                     fitnesses.append(np.mean(val_matrix))
+                    # print(run_name, label, np.min(fitnesses), np.max(fitnesses))
 
             if sc_type == 'group':
-                ax1.scatter(data_x, data_y, color=cmap(g_num/num_groups), alpha=.8, label=group_name)
+                ax1.scatter(data_x, data_y, color=cmap(g_num/num_groups), alpha=.6, label=group_name)
                 data_x,data_y = [],[]
 
         if sc_type == 'label':
-            ax1.scatter(data_x, data_y, color=colors, alpha=.8)
+            ax1.scatter(data_x, data_y, color=colors, alpha=.6)
         elif sc_type == 'fitness':
-            ax1.scatter(data_x, data_y, c=fitnesses, cmap='plasma', alpha=.8)
+            norm = mpl.colors.Normalize(vmin=180, vmax=500)
+            ax1.scatter(data_x, data_y, c=fitnesses, cmap='plasma', norm=norm, alpha=.6)
+            print(f'fitness range: {np.min(fitnesses), np.max(fitnesses)}')
 
-    ax1.set_xlabel(data_str_x)
-    ax1.set_ylabel(data_str_y)
+    if (data_type_x,data_type_y) == (1,36):
+        ax1.set_xlabel('Decorrelation Time')
+        ax1.set_ylabel('Directedness')
+    else:
+        ax1.set_xlabel(data_str_x)
+        ax1.set_ylabel(data_str_y)
     ax1.set_xlim([15,220])
     ax1.set_ylim([.29,.91])
-    ax1.legend(loc='upper left')
+    if sc_type == 'group':
+        ax1.legend(loc='lower right', labelspacing=.35)
+    elif sc_type == 'label':
+        from matplotlib.lines import Line2D
+        leg_ele = [Line2D([0], [0], marker='o', color='w', markerfacecolor='forestgreen', markersize=7.5, label='DP', alpha=.6),
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='gold', markersize=7.5, label='IS/DP', alpha=.6),
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='tomato', markersize=7.5, label='IS', alpha=.6),
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='darkorchid', markersize=7.5, label='BD/IS', alpha=.6),
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='cornflowerblue', markersize=7.5, label='BD', alpha=.6),
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='aquamarine', markersize=7.5, label='DP/BD', alpha=.6)]
+        ax1.legend(handles=leg_ele, loc='lower right')
 
     plt.savefig(fr'{data_dir}/group_traj_dists_2d_{data_str_x}x{data_str_y}_cluster{cluster}_heatmap{heatmap}_sctyp{sc_type}.png', dpi=dpi)
     plt.show()
@@ -2965,6 +3049,7 @@ def gamut_2d_iter(data_type_x, data_type_y, sc_type=None, dpi=100):
         cmap = plt.get_cmap('Spectral')
 
         data_x, data_y, colors, fitnesses = [],[],[],[]
+        BD,IS,DP,BD_IS,IS_DP,DP_BD = 0,0,0,0,0,0
         for (data, run_name, label) in group_data:
             data_x.append(data[data_type_x])
             data_y.append(data[data_type_y])
@@ -2972,31 +3057,40 @@ def gamut_2d_iter(data_type_x, data_type_y, sc_type=None, dpi=100):
             if sc_type == 'label':
                 if label == 'BD':
                     colors.append('cornflowerblue')
+                    BD += 1
                 elif label == 'IS':
                     colors.append('tomato')
+                    IS += 1
                 elif label == 'DP':
                     colors.append('forestgreen')
+                    DP += 1
                 elif label == 'BD/IS':
                     colors.append('darkorchid')
+                    BD_IS += 1
                 elif label == 'IS/DP':
                     colors.append('black')
+                    IS_DP += 1
                 elif label == 'DP/BD':
                     colors.append('cyan')
+                    DP_BD += 1
                 else: print('label not recognized: ', run_name, label)
 
             elif sc_type == 'fitness':
                 with open(fr'{data_dir}/{run_name}/val_matrix_cen.bin','rb') as f:
                     val_matrix = pickle.load(f)
                 fitnesses.append(np.mean(val_matrix))
-
+        
         # print(f'{group_name}: {round(np.mean(data),2)}')
+        print(f'{group_name}: BD:BD_IS:IS:IS_DP:DP_BD:DP: {BD, BD_IS, IS, IS_DP, DP_BD, DP}')
+
         if sc_type == 'group':
             ax1.scatter(data_x, data_y, color=cmap(g_num/num_groups), alpha=.8, label=group_name)
             ax1.legend(loc='upper left')
         elif sc_type == 'label':
             ax1.scatter(data_x, data_y, color=colors, alpha=.8)
         elif sc_type == 'fitness':
-            ax1.scatter(data_x, data_y, c=fitnesses, cmap='plasma', alpha=.8)
+            norm = mpl.colors.Normalize(vmin=230, vmax=500)
+            ax1.scatter(data_x, data_y, c=fitnesses, cmap='plasma', norm=norm, alpha=.8)
 
         ax1.set_xlabel(data_str_x)
         ax1.set_ylabel(data_str_y)
@@ -3108,7 +3202,7 @@ def gamut_label():
     print(f'data dict len: {len(data)}')
 
     data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep1'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep2'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep3'], 'DP')
@@ -3204,15 +3298,15 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep15'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep16'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep17'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep19'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'], 'IS/DP')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep1'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep2'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep3'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep4'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep7'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep8'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep9'], 'IS/DP')
@@ -3220,7 +3314,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep11'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep12'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep15'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep16'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep17'], 'DP/BD')
@@ -3233,10 +3327,10 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep4'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep5'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep6'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep8'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep11'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep12'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep13'], 'DP')
@@ -3247,15 +3341,15 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep18'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep19'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep0'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'], 'BD')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'], 'DP/BD')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep3'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep4'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep5'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep6'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep7'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep10'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep11'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep12'], 'DP')
@@ -3274,11 +3368,11 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep6'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep7'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep10'], 'DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep11'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep12'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep15'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep16'], 'IS/DP')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep17'], 'IS')
@@ -3289,7 +3383,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep3'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep4'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep5'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'], 'DP/BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep7'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep8'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep9'], 'BD')
@@ -3343,7 +3437,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep4'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep5'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep8'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep11'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep12'], 'BD')
@@ -3412,13 +3506,13 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep4'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep6'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep10'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep12'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep19'], 'BD')
@@ -3437,7 +3531,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep0'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep1'], 'IS')
@@ -3446,7 +3540,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
@@ -3481,9 +3575,9 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep7'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
@@ -3495,7 +3589,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep2'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep3'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep6'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep7'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep8'], 'BD')
@@ -3508,7 +3602,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep15'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep16'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep19'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep1'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep2'], 'BD/IS')
@@ -3529,12 +3623,12 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep1'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep2'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep5'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep6'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep7'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'], 'BD/IS')
+    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep10'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep11'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep12'], 'IS')
@@ -3671,7 +3765,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep16'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'], 'BD')
+    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep2'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep4'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep6'], 'BD')
@@ -3688,7 +3782,7 @@ def gamut_label():
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'], 'IS')
+    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
     data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep17'], 'BD')
@@ -3768,13 +3862,6 @@ if __name__ == '__main__':
         (0.05, 'angle_n05'), 
         (0.10, 'angle_n10'),
         ]
-    # noise_types = [
-    #     ('no noise', 'no_noise'), 
-    #     ('angle: .05', 'angle_n05'),
-    #     ('angle: .10', 'angle_n10'),
-    #     ('dist: .025', 'dist_n025'),
-    #     ('dist: .050', 'dist_n05'),
-    #     ]
 
     names = []
 
@@ -3791,35 +3878,13 @@ if __name__ == '__main__':
     # for i in [0,1,2,3,4,5,6,9,13,14,16,17,18,19]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{str(i)}')
 
-    # # # # # for i in [0,1,2,3,5,7,8,9,10,13,14,16,18]:
-    # # # for i in [0,2,3,9,13,16,18]:
-    # for i in [0,1,2,3,5,6,7,8,9,10,11,13,14,16,18,19]:
-    # # for i in [18]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{str(i)}')
-
+    # for i in [2,10,18]: 
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{str(i)}')
     # for i in [2,3,5]: 
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n0_rep{str(i)}')
     # for i in [0,2,4,8,12,17]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{str(i)}')
-    # for i in [0,3,8,12,13]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{str(i)}')
 
-    # for i in [8,9,11,16]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n1_rep{str(i)}')
-    # for i in [0,2,5]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep{str(i)}')
-    # for i in [1,3,7,15]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep{str(i)}')
-
-    # for i in [0,6,12,13,14,15]:
-        # names.append(f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_rep{str(i)}')
-    # for i in [1,2,8,10,11,12]:
-    #     names.append(f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{str(i)}')
-
-    # for i in [1,3,7,10]:
-    #     names.append(f'sc_CNN14_FNN8_p50e20_vis8_PGPE_ss20_mom8_gru_rep{i}')
-    # for i in [1,10,11,15]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_silu_rep{i}')
 
     # data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
@@ -3828,148 +3893,156 @@ if __name__ == '__main__':
     # name = 'sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'
     # gen, valfit = find_top_val_gen(name, 'cen')
     # space_step = 5
-    # # vfr = 8
-    # vfr = 128
-    # # orient_step = np.pi/256
+    # # vfr = 128
     # orient_step = np.pi/256
-    # # to = 0
-    # for to in [0, np.pi/2, np.pi, 3*np.pi/2, np.pi/4, 3*np.pi/4, 5*np.pi/4, 7*np.pi/4]:
-    #     # build_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr)
-    #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_rot', dpi=100)
-    #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_trans', dpi=200)
-    #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_transrot_count', dpi=200)
-    #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_transrot_ori', dpi=200)
-    #     plot_IDM_ori(space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_transrot_ori_perf', dpi=200)
+    # # # to = 0
+    # # for to in [0, np.pi/2, np.pi, 3*np.pi/2, np.pi/4, 3*np.pi/4, 5*np.pi/4, 7*np.pi/4]:
+    # #     # build_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr)
+    # #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_rot', dpi=100)
+    # #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_trans', dpi=200)
+    # #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_transrot_count', dpi=200)
+    # #     # plot_IDM(name, gen, space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_transrot_ori', dpi=200)
+    # #     plot_IDM_ori(space_step, orient_step, template_orient=to, vis_field_res=vfr, plot_type='_transrot_ori_perf', dpi=200)
 
-    vfr = 8
-    # views = build_agent_views(vis_field_res=vfr)
-    # data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    # with open(fr'{data_dir}/IDM/views_vfr{vfr}.bin', 'rb') as f:
-    #     views = pickle.load(f)
+    # vfr = 8
+    # # views = build_agent_views(vis_field_res=vfr)
+    # # data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    # # with open(fr'{data_dir}/IDM/views_vfr{vfr}.bin', 'rb') as f:
+    # #     views = pickle.load(f)
+    # views = [
+    #     '00002222',
+    #     '00222221',
+    #     '11113333',
+    #     '13333330',
+    #     '22111113',
+    #     '22221111',
+    #     '30000002',
+    #     '33330000'
+    # ]
     # for v in views:
     #     print(v)
-    #     print(string_one_hot(v))
-    #     build_IDM_view(name, gen, space_step, orient_step, view=v, vis_field_res=vfr)
-    #     plot_IDM_view(name, gen, space_step, orient_step, view_onehot=string_one_hot(v), vis_field_res=vfr, plot_type='_transrot_ori_perf', dpi=200)
+    #     # print(string_one_hot(v))
+    #     # build_IDM_view(name, gen, space_step, orient_step, view=v, vis_field_res=vfr)
+    #     # plot_IDM_view(space_step, orient_step, view_onehot=string_one_hot(v), vis_field_res=vfr, plot_type='_transrot_ori_perf', dpi=200)
+    #     plot_IDM_view(space_step, orient_step, view_onehot=v, vis_field_res=vfr, plot_type='_transrot_ori_perf', dpi=50)
 
-    # plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type='_count', dpi=100)
-    # plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type='_ori', dpi=100)
-    # plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type='_heatmap_count', dpi=100)
-    # plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type='_heatmap_ori', dpi=100)
-    # for name in names:
-    #     gen, valfit = find_top_val_gen(name, 'cen')
-    #     plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type=(name,gen), dpi=100)
-
-
+    # # plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type='_count', dpi=100)
+    # # plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type='_ori', dpi=100)
+    # # plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type='_heatmap_count', dpi=100)
+    # # for name in names:
+    # #     gen, valfit = find_top_val_gen(name, 'cen')
+    # #     plot_IDM_avgperfviews(space_step=5, orient_step=np.pi/256, vis_field_res=8, plot_type=(name,gen), dpi=100)
 
 
-
-
+    # names = ['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4']
     # for name in names:
     #     gen, valfit = find_top_val_gen(name, 'cen')
     #     print(f'{name} @ {gen} w {valfit} fitness')
 
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50)
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, act_arr=True, dpi=100)
-        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_count', dpi=100)
-        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgact', dpi=100)
-        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgori', dpi=100)
-        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avglen', dpi=100)
-        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=100)
-        # # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='3d')
-        # corr_peaks, histo_avg, histo_peaks, dirent = plot_agent_orient_corr(name, gen, space_step, orient_step=np.pi/8, timesteps=500, dpi=100)
-        # # angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=100)
+    #     build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50)
+    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, act_arr=True, dpi=100)
+    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='3d')
+    #     plot_agent_orient_corr(name, gen, space_step, orient_step=np.pi/8, timesteps=500, dpi=100)
+    #     plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=100)
+    #     angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=100)
 
-        # build_pano_profile(name, gen, space_step=5, orient_step=np.pi/256, vis_field_res=8)
-        # plot_pano_profile(name, gen, space_step=25, orient_step=np.pi/32, vis_field_res=8, dpi=100)
-
-        # plot_binned_orient_turn_gradients(name, gen, space_step, orient_step, timesteps, dpi=100)
-        # build_action_matrix(name, gen, space_step, orient_step)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='', dpi=500)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='_inv', dpi=1000)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='_grad', dpi=100)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='_actvec', dpi=100)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='_fwd', dpi=100)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='_turn', dpi=100)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='_avgori', dpi=100)
-        # plot_action_map(name, gen, space_step, orient_step, plot_type='_avglen', dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='ori', dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='len', dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_fwd', ex_lines=True, dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_turn', ex_lines=True, dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_turn', dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_fwd', dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_fwdentropy', dpi=100)
-        # plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avgact', dpi=100)
-
-        # # save in dict + update pickle
-        # data[name] = (corr_peaks, histo_avg, histo_peaks, angle_medians)
-        # print(f'data dict len: {len(data)}')
-        # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'wb') as f:
-        #     pickle.dump(data, f)
-
-    # name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
-    # gen = 'gen941'
+    name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
+    gen = 'gen941'
     # plot_agent_trajs(name, gen, space_step, orient_step, timesteps)
     # for e in ['FOV39','FOV41','TLx100','TLy100']:
     #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra=e)
-    # for e in ['','move75','move125']:
-    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ellipses=True, extra=e)
+    # for e in ['move75','move125']:
+    #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra=e, dpi=50)
 
 
     # # build PRW data
 
-    behavior = 'straight'
-    for rot_diff in [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]:
-        # build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff)
-        # plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100)
-        plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100)
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+
+    # behavior = 'straight'
+    # for rot_diff in [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]:
+    #     build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff)
+    #     plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100)
+    #     # plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100)
+
+    #     rd_str = str(rot_diff).replace(".","p")
+    #     cv_str = None
+    #     lm_str = None
+    #     save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    #     os.remove(save_name+'.bin')
 
     # behavior = 'curve'
-    # build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff=.1, curve=.05)
-    # for rot_diff in [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]:
-    #     for curve in [0.05, 0.1, 0.15, 0.2, 0.25]:
-    #         # build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve)
-    #         plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=None, dpi=100)
-    #         # plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100)
+    # for rot_diff in [0.05, 0.01, 0.005, 0.001]:
+    #     for curve in [0.005, 0.01, 0.025, 0.05, 0.1, 0.15]:
+
+    #         rd_str = str(rot_diff).replace(".","p")
+    #         cv_str = str(curve).replace(".","p")
+    #         lm_str = None
+    #         save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    #         print(save_name)
+
+    #         if not os.path.exists(save_name+'_corr_auto_delayed.png'):
+    #             build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve)
+    #             plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=None, dpi=100)
+    #             # plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=None, dpi=100)
+    #         else:
+    #             print(f'already exists')
+
+    #         if os.path.exists(save_name+'.bin'):
+    #             os.remove(save_name+'.bin')
 
     # behavior = 'ratchet'
-    # for rot_diff in [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]:
-    #     for curve in [0.05, 0.1, 0.15, 0.2, 0.25]:
-    #         for limit in [np.pi*5/4, np.pi, np.pi*3/4, np.pi/2, np.pi/4]:
-    #             build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve, limit)
+    # for limit in [np.pi, np.pi*3/4, np.pi/2]:
+    #     for rot_diff in [0.01, 0.005, 0.001]:
+    #         for curve in [0.005, 0.01, 0.025]:
+
+    #             rd_str = str(rot_diff).replace(".","p")
+    #             cv_str = str(curve).replace(".","p")
+    #             lm_str = str(round(limit/np.pi, 2)).replace(".","p")
+    #             save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}'
+    #             print(save_name)
+
+    #             if not os.path.exists(save_name+'_corr_auto_delayed.png'):
+    #                 build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve, limit)
+    #                 plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=limit, dpi=100)
+    #                 # plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=limit, dpi=100)
+    #             else:
+    #                 print(f'already exists')
+
+    #             if os.path.exists(save_name+'.bin'):
+    #                 os.remove(save_name+'.bin')
+
+    # behavior = 'straight-biased'
+    # for b in [0.1, 0.25, 0.75]:
+    #     for rot_diff in [0.01, 0.005, 0.001]:
+    #         rd_str = str(rot_diff).replace(".","p")
+    #         cv_str = None
+    #         lm_str = None
+    #         b_str = str(b).replace(".","p")
+    #         save_name = fr'{data_dir}/traj_matrices/PRW_{behavior}_rd{rd_str}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cv{cv_str}_lm{lm_str}_b{b_str}'
+    #         print(save_name)
+
+    #         if not os.path.exists(save_name+'_hist_dirent.png'):
+    #         # if not os.path.exists(save_name+'_corr_auto_delayed.png'):
+    #         # if not os.path.exists(save_name+'_50.png'):
+    #             build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, bias=b)
+    #             plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=b, dpi=100)
+    #             plot_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=b)
+    #             plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=b, dpi=100)
+    #         else:
+    #             print(f'already exists')
+
+    #         if os.path.exists(save_name+'.bin'):
+    #             os.remove(save_name+'.bin')
 
 
-        # plot_agent_trajs_PRW(space_step, orient_step, timesteps, rot_diff)
-        # plot_agent_corr_PRW(space_step, orient_step, timesteps, rot_diff)
 
-
-
-
-    # data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     # data = {}
-    # with open(fr'{data_dir}/traj_matrices/gamut_redo.bin', 'wb') as f:
-    #     pickle.dump(data, f)
     # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
     #     data = pickle.load(f)
-
-    # print(data.keys())
-    # for name in list(data.keys()):
-    #     if 'CNN12' in name:
-    #         print(name)
-    #         data.pop(name, None)
-    #     if 'p9WF' in name:
-    #         print(name)
-    #         data.pop(name, None)
-    # for name in list(data.keys()):
-    #     if 'p8WF' in name:
-    #         print(name)
-    #         data.pop(name, None)
-    # print(data.keys())
-
-    # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'wb') as f:
+    # with open(fr'{data_dir}/traj_matrices/gamut_redo.bin', 'wb') as f:
     #     pickle.dump(data, f)
 
 
@@ -3977,87 +4050,85 @@ if __name__ == '__main__':
 
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
-
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-
-
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
     #     names.append(name)
 
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep{x}' for x in range(20)]:
     #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
 
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
+    # run_gamut(names, dpi=100)
 
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]:
+        names.append(name)
 
+    for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
+        names.append(name)
 
-    # run_gamut(names)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+
+    for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
+        names.append(name)
+
+    # run_gamut(names, dpi=50)
 
 
     # analyze_gamut --> input index for desired data type
@@ -4070,59 +4141,19 @@ if __name__ == '__main__':
     #for i in [0,1,4,5,6,7]: # corr_peaks, decorr_time, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch
     #for i in [10,14,18,22,26]: # avglen_mean, pkf_mean, pkt_mean, def_mean, det_mean
     #for i in [30,33,36]: # act_mean, len_mean, de_mean
-    # for i in [1]:
     # #for i in [0,1,4,5,6,7,10,14,18,22,26,30,33,36]:
+    # for i in [1,36]:
     #     analyze_gamut('vis', i)
     #     analyze_gamut('dist', i)
-    
+
     # gamut_table()
     # gamut_label()
     # gamut_2d(1,36, sc_type='group')
     # gamut_2d(1,36, sc_type='label')
     # gamut_2d(1,36, sc_type='fitness')
+    # gamut_2d(1,36, heatmap=True)
+    # gamut_2d(1,36, cluster='kmeans')
+    # gamut_2d(1,36, cluster='gmm')
     # gamut_2d_iter(1,36, sc_type='group')
     # gamut_2d_iter(1,36, sc_type='label')
     # gamut_2d_iter(1,36, sc_type='fitness')
-
-
-
-
-
-
-
-
-
-    # seeds = [10000,20000]
-
-    # for s in seeds:
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-    #     for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed{str(int(s/1000))}k_rep{x}' for x in range(20)]:
-    #         names.append(name)
-
