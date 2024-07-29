@@ -5,7 +5,7 @@
 **Author of Model:** Patrick Govoni <br>
 **Supervisors:** Prof. Pawel Romanczuk <br>
 **Affiliation:** Institute for Theoretical Biology, Department of Biology, Humboldt Universität zu Berlin <br>
-**Group:** Collective Information Processing Lab <br>
+**Group:** [Collective Information Processing Lab](http://lab.romanczuk.de/) <br>
 **Timespan:** 2023-Present
 
 **Abstract:** <br>
@@ -34,11 +34,11 @@ and tradeoffs, and each appear to be highly relevant to observable biological na
 <img src="./site_media/convergence.png" width="800"/>
 
 **Manuscript:** <br>
-[Preprint]() <br>
+[Preprint](https://arxiv.org/abs/2407.13535) <br>
 
 **Citation:** <br>
 Govoni, P., Romanczuk, P. Fundamental Visual Navigation Algorithms: Indirect Sequential, Biased Diffusive, & Direct Pathing. (2024). 
 
 **License:** <br>
-Copyright © 2022 [Patrick Govoni](https://github.com/pgovoni21). <br>
+Copyright © 2023 [Patrick Govoni](https://github.com/pgovoni21). <br>
 This project is [MIT](https://github.com/pgovoni21/vis-nav-abm?tab=MIT-1-ov-file) licensed.
