@@ -833,9 +833,9 @@ class Simulation:
                         # self.o_next[self.t-1] = o_current # onehot
                         self.o_next[self.t-1,:] = o_current # vector
 
-                    # Food present (+ testing)
                     # if o_current == agent.model.goal and self.mode == 'test': # onehot
-                    if self.mode == 'test' and np.all(np.isclose(o_current, agent.model.goal, atol=5e-02)): # vector, dist
+                    # if self.mode == 'test' and np.all(np.isclose(o_current, agent.model.goal, atol=5e-02)): # vector, dist
+                    if self.mode == 'test' and agent.mode == 'exploit': # foor present
 
                             # self.recorder.end_recording()
                             pygame.quit()

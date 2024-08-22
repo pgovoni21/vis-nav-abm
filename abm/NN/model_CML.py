@@ -50,7 +50,7 @@ class Model(torch.nn.Module):
     # def planned_action(self, obs, a_record, affordance):
     def planned_action(self, obs):
 
-        affordance_vector = torch.ones(self.a_size)
+        # affordance_vector = torch.ones(self.a_size)
         # affordance_vector = torch.tensor([np.exp(-10000*x**2) for x in self.actions])
 
         # affordance_vector[affordance] = 1
@@ -74,12 +74,7 @@ class Model(torch.nn.Module):
         utility = matVec(self.V.T, delta)
         # # gating --> availability of action in env, maxmin for limb angles for ant (very useful), not as useful for grid nav
         # action = self.f_a(gating * utility)
-
-        if torch.max(utility)!= 0:
-            act_idx = torch.argmax(utility).item() # never used + forcing use decr perf
-        else:
-            utility = (self.V.T@delta) * affordance_vector
-            act_idx = torch.argmax(utility).item()
+        act_idx = torch.argmax(utility).item()
 
         return act_idx, self.actions[act_idx]
 
