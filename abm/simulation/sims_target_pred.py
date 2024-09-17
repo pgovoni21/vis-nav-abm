@@ -105,12 +105,11 @@ class Simulation:
         self.views = views
         self.goal_pos = np.array([0, self.HEIGHT/2])
 
-        self.act = np.zeros([self.T-1])
         # # onehot
         # self.o_pre = np.zeros([self.T-1])
         # self.o_next = np.zeros([self.T-1])
         # vector
-        o_len = vis_field_res*2
+        o_len = vis_field_res*2 + 1
         self.o_pre = np.zeros([self.T-1, o_len])
         self.o_next = np.zeros([self.T-1, o_len])
 
@@ -119,6 +118,8 @@ class Simulation:
 
         self.mode = mode
         self.start_dist = 0
+
+        self.hidden = None
 
         self.elapsed_time = 0
         # self.fitnesses = []
@@ -392,8 +393,8 @@ class Simulation:
                 
                 orient = np.random.uniform(0, 2 * np.pi)
 
-                # x,y = 300,200
-                # orient = 0
+                # x,y = 980,980
+                # orient = 3
 
                 agent = Agent(
                         id=0,
@@ -752,7 +753,7 @@ class Simulation:
                 for agent in self.agents:
 
                     # Observe + encode sensory inputs
-                    vis_input = agent.encode_one_hot(agent.vis_field)
+                    vis_input = agent.encode_labels(agent.vis_field)
                     agent.dist_input = np.array(agent.dist_field)
 
                     if self.vis_transform != '':
@@ -797,45 +798,25 @@ class Simulation:
                         # dist_input /= 1.5
                         # dist_input += .05
                         agent.dist_input = np.clip(agent.dist_input, 0,1)
+                        # vis_input *= agent.dist_input
 
-                        vis_input *= agent.dist_input
-
-                    # print(np.round(np.sum(vis_input,axis=0),4))
-
-                    # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
-                    # else:                       other_input = np.array([agent.on_res, 0])
-
-                    # Calculate action
-                    # agent.action = agent.model.forward(vis_input, np.array([agent.on_res]), agent.hidden)
-
-                    # if agent.on_res == 1:
-                    #     print('on')
-
-                    # # onehot
-                    # o_current = self.views.index(agent.vis_field) + agent.on_res*len(self.views)
-                    # # o_current = self.views.index(agent.vis_field)
-                    # flat matrix
-                    # o_current = vis_input.flatten()
-                    # vector
-                    vis_by_ray = agent.encode_labels(agent.vis_field)
-                    o_current = np.hstack((vis_by_ray, agent.dist_input))
-                    # print(o_current)
-
-                    # print(agent.on_res, o_idx)
-                    # print(vis_input)
+                    # vector for RNN
+                    # obs_current = vis_input.flatten()
+                    # print(vis_input.shape, agent.dist_input.shape)
+                    obs_current = np.concatenate((vis_input.flatten(), agent.dist_input, np.array([agent.action])))
+                    # print(obs_current.shape)
 
                     if self.mode=='train':
-                        act_idx, agent.action = agent.model.gaussian_action()
+                        obs_pred, agent.hidden, agent.action = agent.model.forward(obs_current, agent.hidden)
                     elif self.mode=='test':
-                        act_idx, agent.action = agent.model.planned_action(o_current)
+                        _, agent.hidden, agent.action = agent.model.forward(obs_current, agent.hidden)
 
                     if self.t < self.T-1:
-                        # self.o_pre[self.t] = o_current # onehot
-                        self.o_pre[self.t,:] = o_current # vector
-                        self.act[self.t] = act_idx
+                        # self.o_pre[self.t] = obs_current # onehot
+                        self.o_pre[self.t,:] = obs_current # vector
                     if self.t > 0:
-                        # self.o_next[self.t-1] = o_current # onehot
-                        self.o_next[self.t-1,:] = o_current # vector
+                        # self.o_next[self.t-1] = obs_current # onehot
+                        self.o_next[self.t-1,:] = obs_current # vector
 
                     # if o_current == agent.model.goal and self.mode == 'test': # onehot
                     # if self.mode == 'test' and np.all(np.isclose(o_current, agent.model.goal, atol=5e-02)): # vector, dist
@@ -843,7 +824,7 @@ class Simulation:
 
                             # self.recorder.end_recording()
                             pygame.quit()
-                            return (self.o_pre, self.act, self.o_next), self.t, self.goal_dist
+                            return self.o_pre, self.o_next, self.t, self.goal_dist
 
                     else: # No food (or training) --> move (stay stationary if collided object in front)
                         action = agent.action + np.random.randn()*self.action_noise_std
@@ -873,4 +854,4 @@ class Simulation:
 
         # self.recorder.end_recording()
         pygame.quit()
-        return (self.o_pre, self.act, self.o_next), self.t, self.goal_dist
+        return self.o_pre, self.o_next, self.t, self.goal_dist

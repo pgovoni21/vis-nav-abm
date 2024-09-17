@@ -406,7 +406,7 @@ class Agent(pygame.sprite.Sprite):
                 field_onehot[5,i] = 1
         return field_onehot
     
-    def encode_one_hot_by_ray(self, field):
+    def encode_labels(self, field):
         """
         one hot encode the visual field according to class indices:
             single-agent: (wall_east, wall_north, wall_west, wall_south)
@@ -415,10 +415,10 @@ class Agent(pygame.sprite.Sprite):
         field_onehot = np.zeros(len(field))
 
         for i,x in enumerate(field):
-            if x == 'wall_north': field_onehot[i] = .1
-            elif x == 'wall_south': field_onehot[i] = .35
-            elif x == 'wall_east': field_onehot[i] = .6
-            elif x == 'wall_west': field_onehot[i] = .85
+            if x == 'wall_north': field_onehot[i] = -.75
+            elif x == 'wall_south': field_onehot[i] = .25
+            elif x == 'wall_east': field_onehot[i] = .25
+            elif x == 'wall_west': field_onehot[i] = .75
             # elif x == 'agent_exploit': field_onehot[4,i] = 1
             # else: # x == 'agent_explore
             #     field_onehot[5,i] = 1
