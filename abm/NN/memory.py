@@ -26,7 +26,7 @@ class FNN2(nn.Module):
         input_size, hidden_size = arch
         
         self.h1 = nn.Linear(input_size, hidden_size)
-        self.h2 = nn.Linear(input_size, hidden_size)
+        self.h2 = nn.Linear(hidden_size, hidden_size)
         
         if activ == 'relu': self.activ = torch.relu
         elif activ == 'tanh': self.activ = torch.tanh
@@ -37,7 +37,7 @@ class FNN2(nn.Module):
     def forward(self, state, hidden_null):
         x = self.h1(state)
         x = self.activ(x)
-        x = self.h2(state)
+        x = self.h2(x)
         x = self.activ(x)
         return x, hidden_null
 
@@ -121,6 +121,33 @@ class GRU(nn.Module):
             hidden = torch.zeros(self.hidden_size).unsqueeze(0)
         x, hidden = self.gru(state, hidden)
         return x, hidden
+
+
+class GRU_parallel(nn.Module):
+    def __init__(self, arch, activ=''):
+        super().__init__()
+        input_size, hidden_size = arch
+        self.hidden_size = hidden_size
+
+        self.gru = nn.GRU(input_size, hidden_size)
+        self.h1 = nn.Linear(input_size, hidden_size)
+        self.o1 = nn.Linear(hidden_size*2, hidden_size)
+
+        if activ == 'relu': self.activ = torch.relu
+        elif activ == 'tanh': self.activ = torch.tanh
+        elif activ == 'silu': self.activ = torch.nn.SiLU()
+        elif activ == 'gelu': self.activ = torch.nn.GELU()
+        else: raise ValueError(f'Invalid activation function: {activ}')
+
+    def forward(self, state, hidden):
+        if hidden is None:
+            hidden = torch.zeros(self.hidden_size).unsqueeze(0)
+
+        x = self.activ(self.h1(state))
+        y, hidden = self.gru(state, hidden)
+        z = torch.cat((x, y), dim=1)
+        z = self.activ(self.o1(z))
+        return z, hidden
     
 
 #--------------------------------------------------------------------------------------------------------#
@@ -137,9 +164,9 @@ class LSTM(nn.Module):
         if hidden is None:
             hidden = torch.zeros(self.hidden_size).unsqueeze(0)
             cell = torch.zeros(self.hidden_size).unsqueeze(0)
-        x, (hidden, cell) = self.lstm(input, (hidden, cell))
+        x, (hidden, cell) = self.lstm(state, (hidden, cell))
         return x, hidden, cell
-    
+
 
 # ----------------------------------------------------------------------------------------------
 

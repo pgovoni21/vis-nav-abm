@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from abm.NN.memory import FNN, FNN2, FNN_noise, CTRNN, GRU
+from abm.NN.memory import FNN, FNN2, FNN_noise, CTRNN, GRU, GRU_parallel
 from abm.NN.vision import ConvNeXt as CNN
 from abm.NN.vision import LayerNorm, GRN
 # from abm.helpers import timer
@@ -46,6 +46,7 @@ class WorldModel(nn.Module):
         elif RNN_type == 'fnn_noise': self.rnn = FNN_noise(arch=RNN_arch,activ=activ)
         elif RNN_type == 'ctrnn': self.rnn = CTRNN(arch=RNN_arch,activ=activ)
         elif RNN_type == 'gru': self.rnn = GRU(arch=RNN_arch,activ=activ)
+        elif RNN_type == 'gru_para': self.rnn = GRU_parallel(arch=RNN_arch,activ=activ)
         else: raise ValueError(f'Invalid RNN type: {RNN_type}')
 
         # init linear controller layer (LCL)
@@ -152,9 +153,9 @@ if __name__ == '__main__':
 
     from abm.NN.vision import LayerNorm,GRN
 
-    CNN_input_size = (4,8) # number elements, visual resolution
-    CNN_depths = [1,1]
-    CNN_dims = [2,4]
+    CNN_input_size = (4,32) # number elements, visual resolution
+    CNN_depths = [1]
+    CNN_dims = [4]
     RNN_input_other_size = 1
     RNN_hidden_size = 2
     LCL_output_size = 1

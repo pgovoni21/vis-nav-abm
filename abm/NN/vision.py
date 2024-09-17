@@ -139,8 +139,8 @@ if __name__ == '__main__':
 
     model = ConvNeXt(
         in_dims=4,
-        depths=[1,1], 
-        dims=[2,4],
+        depths=[1], 
+        dims=[4],
         activ='relu'
         )
     
@@ -157,3 +157,10 @@ if __name__ == '__main__':
     
     # total_params = sum(p.numel() for p in model.parameters())
     # print(f'Total #Params: {total_params}')
+
+    from abm.NN import profiler
+
+    total_ops, total_params = profiler.profile(model, (1, 4, 32))
+
+    print(f'#Ops: {total_ops} GOps')
+    print(f'#Params: {total_params} M')
