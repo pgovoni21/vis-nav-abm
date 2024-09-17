@@ -15,8 +15,8 @@ class Model(torch.nn.Module):
         # self.V = torch.nn.Parameter(0.1*torch.randn(s_dim, a_size, device=device))
         # self.W = torch.nn.Parameter(0.1*torch.randn(a_size, s_dim, device=device))
         # vector
-        self.Q = torch.nn.Parameter(torch.normal(0, 0.1, (s_dim, o_size), device=device))
-        self.V = torch.nn.Parameter(torch.normal(0, 1, (s_dim, a_size), device=device))
+        self.Q = torch.nn.Parameter(torch.normal(0.5, 0.1, (s_dim, o_size), device=device))
+        self.V = torch.nn.Parameter(torch.normal(0.5, 0.1, (s_dim, a_size), device=device))
         self.o_size = o_size
         self.a_size = a_size
 
@@ -37,7 +37,8 @@ class Model(torch.nn.Module):
 
         # vector, dist (only vis obs)
         ## x,y,theta = 400,400,np.pi (west)
-        self.goal = np.array([0,0,0,0,0,0, 0.21748388, 0.25667073, 0.17557771, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0.17728608, 0.241245, 0.26853046, 0.26853046, 0.241245, 0,0])
+        # self.goal = np.array([0,0,0,0,0,0, 0.21748388, 0.25667073, 0.17557771, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0.17728608, 0.241245, 0.26853046, 0.26853046, 0.241245, 0,0])
+        self.goal = np.array([.35,.85,.85,.85,.85,.85,.1,.1, 0.17557771, 0.17728608, 0.241245, 0.26853046, 0.26853046, 0.241245, 0.21748388, 0.25667073])
 
         # # limit parallel computation to avoid CPU interference with multiproc sims
         # torch.set_num_threads(1)

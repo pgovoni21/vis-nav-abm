@@ -298,7 +298,7 @@ class Agent(pygame.sprite.Sprite):
         # Add perceptual noise if specified
         orientation_real = self.orientation
         noise = np.random.randn()*self.percep_angle_noise_std
-        # noise += np.random.randn()*.05
+        # noise += np.random.randn()*.1
         # if noise > 0: noise = 0
         # if noise < 0: noise = 0
         self.orientation += noise
@@ -336,6 +336,7 @@ class Agent(pygame.sprite.Sprite):
         # NN output via tanh scales to a range of [-1 : 1]
         # Scale to max 90 deg turns [-pi/2 : pi/2] per timestep
         turn = NN_output * np.pi / 2
+        # turn = NN_output * np.pi / 4 # actspacehalf
 
         # Shift orientation accordingly + bind to [0 : 2pi]
         self.orientation += turn
@@ -345,6 +346,7 @@ class Agent(pygame.sprite.Sprite):
         # Update velocity (constrained by turn angle)
         velocity_last_step = self.velocity
         self.velocity = self.max_vel * (1 - abs(NN_output))
+        # self.velocity = self.max_vel * np.exp(- 0.5 * (NN_output)**2 / (0.1)**2 ) # actspacenarrow
         self.acceleration = self.velocity - velocity_last_step
 
         # Check for velocity-stopping collisions for each point of contact
@@ -402,6 +404,24 @@ class Agent(pygame.sprite.Sprite):
             elif x == 'agent_exploit': field_onehot[4,i] = 1
             else: # x == 'agent_explore
                 field_onehot[5,i] = 1
+        return field_onehot
+    
+    def encode_one_hot_by_ray(self, field):
+        """
+        one hot encode the visual field according to class indices:
+            single-agent: (wall_east, wall_north, wall_west, wall_south)
+            multi-agent: (wall_east, wall_north, wall_west, wall_south, agent_expl, agent_nonexpl)
+        """
+        field_onehot = np.zeros(len(field))
+
+        for i,x in enumerate(field):
+            if x == 'wall_north': field_onehot[i] = .1
+            elif x == 'wall_south': field_onehot[i] = .35
+            elif x == 'wall_east': field_onehot[i] = .6
+            elif x == 'wall_west': field_onehot[i] = .85
+            # elif x == 'agent_exploit': field_onehot[4,i] = 1
+            # else: # x == 'agent_explore
+            #     field_onehot[5,i] = 1
         return field_onehot
 
 

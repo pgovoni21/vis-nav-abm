@@ -55,7 +55,7 @@ def train_patchintensive(EA_save_name, num_trajs=1000, num_steps=100, a_size=8, 
     # o_size = len(views)
 
     # vector, dist
-    o_size = vfr*4
+    o_size = vfr*2
     views = None
 
     model = Model(o_size, a_size, s_size, sharpness)
@@ -72,7 +72,7 @@ def train_patchintensive(EA_save_name, num_trajs=1000, num_steps=100, a_size=8, 
         for i in tqdm(range(num_trajs), desc="Epochs"):
             set_seed(i)
 
-            if i % 10 == 0: # init near patch/wall
+            if i % 20 == 0: # init near patch/wall
                 x = np.random.uniform(x_patch - radius_patch, x_patch + radius_patch)
                 y = np.random.uniform(y_patch - radius_patch, y_patch + radius_patch)
                 # x = np.random.uniform(5, 20)
@@ -196,8 +196,8 @@ if __name__ == '__main__':
 
     for num_trajs in [5000]:
     # for num_trajs in [10000]:
-        for num_steps in [100]:
-        # for num_steps in [500]:
+        # for num_steps in [100]:
+        for num_steps in [250]:
             for a_size in [8]:
             # for a_size in [16]:
                 # for s_size in [1000]:
@@ -208,8 +208,8 @@ if __name__ == '__main__':
                         # for n_q in [.1]:
                         # for n_q in [.05]:
                         # for n_q in [.01]:
-                        for n_q in [.0025]:
-                        # for n_q in [.001]:
+                        # for n_q in [.0025]:
+                        for n_q in [.001]:
 
                             n_v=n_q/5
                             n_w=n_q/5

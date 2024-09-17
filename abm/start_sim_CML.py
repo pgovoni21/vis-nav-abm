@@ -39,7 +39,7 @@ def start(load_dir=None, NN=None, mode='test', T=100, views=None, x=None, y=None
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
     else:
         envconf['WITH_VISUALIZATION'] = 1
-        envconf['INIT_FRAMERATE'] = 100
+        envconf['INIT_FRAMERATE'] = 200
 
     with ExitStack():
         if x == None:
@@ -138,29 +138,27 @@ def play_model(EA_save_name, num_steps):
     with open(Path(EA_save_dir, 'model.bin'), 'rb') as f:
         model = pickle.load(f)
 
-    set_seed(0)
+    set_seed(3)
     _,_,_ = start(load_dir=EA_save_dir, NN=model, mode='test', T=num_steps, views=views, display=True)
 
 
 if __name__ == '__main__':
 
-    # name = 'CML_traj10000_step100_s2500_sh1_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive'
-    # name = 'CML_traj10000_step100_s2500_sh0.1_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive'
-    # name = 'CML_traj10000_step100_s5000_sh0.1_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive'
-    # name = 'CML_traj10000_step100_s5000_sh0.1_nq0.005_nv0.001_nw0.001_goal108_patchintensive'
-    # name = 'CML_traj5000_step50_s4000_sh10_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive_a8'
+    # name = 'CML_traj5000_step100_a8_s4000_sh10_nq0.0025_goalpatchW_vfr8_patchintensive'
+    # name = 'CML_traj5000_step250_a8_s4000_sh10_nq0.001_goalpatchW_vfr8_patchintensive'
+    name = 'CML_traj5000_step250_a8_s4000_sh10_nq0.0025_goalpatchW_vfr8_patchintensive'
 
-    num_trajs=1000
-    num_steps=100
-    a_size=8
-    s_size=4000
-    sharpness=10
-    n_q=.0025
-    n_v=n_q/5
-    n_w=n_q/5
-    name = f'CML_traj{num_trajs}_step{num_steps}_a{a_size}_s{s_size}_sh{sharpness}_nq{n_q}_goalpatchW_vfr8_patchintensive'
+    # num_trajs=1000
+    # num_steps=100
+    # a_size=8
+    # s_size=4000
+    # sharpness=10
+    # n_q=.0025
+    # n_v=n_q/5
+    # n_w=n_q/5
+    # name = f'CML_traj{num_trajs}_step{num_steps}_a{a_size}_s{s_size}_sh{sharpness}_nq{n_q}_goalpatchW_vfr8_patchintensive'
 
-    play_model(name,1000)
+    play_model(name,10000)
 
     # set_seed(3)
     # start(load_dir=Path(__file__).parent.parent, mode='train', T=1000, display=True)

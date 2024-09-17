@@ -110,7 +110,7 @@ class Simulation:
         # self.o_pre = np.zeros([self.T-1])
         # self.o_next = np.zeros([self.T-1])
         # vector
-        o_len = vis_field_res*4
+        o_len = vis_field_res*2
         self.o_pre = np.zeros([self.T-1, o_len])
         self.o_next = np.zeros([self.T-1, o_len])
 
@@ -392,8 +392,8 @@ class Simulation:
                 
                 orient = np.random.uniform(0, 2 * np.pi)
 
-                # x,y = 980,980
-                # orient = 3
+                # x,y = 300,200
+                # orient = 0
 
                 agent = Agent(
                         id=0,
@@ -814,8 +814,12 @@ class Simulation:
                     # # onehot
                     # o_current = self.views.index(agent.vis_field) + agent.on_res*len(self.views)
                     # # o_current = self.views.index(agent.vis_field)
+                    # flat matrix
+                    # o_current = vis_input.flatten()
                     # vector
-                    o_current = vis_input.flatten()
+                    vis_by_ray = agent.encode_one_hot_by_ray(agent.vis_field)
+                    o_current = np.hstack((vis_by_ray, agent.dist_input))
+                    # print(o_current)
 
                     # print(agent.on_res, o_idx)
                     # print(vis_input)
