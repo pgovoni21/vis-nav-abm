@@ -16,6 +16,9 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
         NN = Model()
 
         envconf['WITH_VISUALIZATION'] = 0
+        # envconf['WITH_VISUALIZATION'] = 1
+        # envconf['AGENT_FOV'] = 1
+        # envconf['VISUAL_FIELD_RESOLUTION'] = 32
 
     else:
         if env_path is None: # if called from EA
@@ -32,11 +35,11 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
             # override original EA-written env dict
             # envconf['LOG_ZARR_FILE'] = 0
 
-            envconf['WITH_VISUALIZATION'] = 1
-            envconf['INIT_FRAMERATE'] = 100
+            # envconf['WITH_VISUALIZATION'] = 1
+            # envconf['INIT_FRAMERATE'] = 100
 
             # envconf['N'] = 4
-            # envconf['T'] = 100000
+            # envconf['T'] = 10000
             # envconf['RADIUS_RESOURCE'] = 100
             # envconf['MAXIMUM_VELOCITY'] = 5
 
@@ -54,7 +57,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
         from abm.simulation.sims_target import Simulation
 
         with ExitStack():
-            sim = Simulation(env_size               =tuple(eval(envconf["ENV_SIZE"])),
+            sim = Simulation(env_size              =tuple(eval(envconf["ENV_SIZE"])),
                             window_pad             =int(envconf["WINDOW_PAD"]),
                             N                      =int(envconf["N"]),
                             T                      =int(envconf["T"]),
@@ -87,6 +90,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                             #  LM_dist_noise_std      =float(envconf["LM_DIST_NOISE_STD"]),
                             #  LM_angle_noise_std     =float(envconf["LM_ANGLE_NOISE_STD"]),
                             #  LM_radius_noise_std    =float(envconf["LM_RADIUS_NOISE_STD"]),
+                            boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
                             )
             t, d, elapsed_time = sim.start()
 
@@ -198,9 +202,42 @@ if __name__ == '__main__':
     #     # print(envconf['EA_MOMENTUM'])
     #     print(envconf['EA_STEP_MU'])
 
+    # exp_name = 'sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'
+    # gen_ext = 'gen790'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'
+    # gen_ext = 'gen872'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'
+    # gen_ext = 'gen941'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'
+    # gen_ext = 'gen937'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10'
+    # gen_ext = 'gen963'
+    # exp_name = 'sc_CNN14_GRUpara16_p50e20_vis8_PGPE_ss20_mom8_rep9'
+    # gen_ext = 'gen976'
 
-    exp_name = 'sc_CNN14_FNN64x64_p50e20_vis8_PGPE_ss20_mom8_act32_rep0'
-    gen_ext = 'gen977'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep7'
+    # gen_ext = 'gen999'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep9'
+    # gen_ext = 'gen963'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep18'
+    # gen_ext = 'gen988'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound500_rep10'
+    # gen_ext = 'gen991'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_bound1000_rep4'
+    # gen_ext = 'gen933'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_bound1000_rep16'
+    # gen_ext = 'gen930'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep6'
+    # gen_ext = 'gen876'
+    # exp_name = 'sc_CNN27_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep1'
+    # gen_ext = 'gen956'
+    exp_name = 'sc_CNN24_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep12'
+    gen_ext = 'gen941'
+    # exp_name = 'sc_CNN1148_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep0'
+    # gen_ext = 'gen990'
+
+
+
 
     # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
@@ -209,4 +246,4 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=0)
+    start(pv=pv, env_path=env_path, seed=1)

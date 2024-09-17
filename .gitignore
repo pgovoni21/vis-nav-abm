@@ -254,6 +254,6 @@ vids/
 ...start.bat
 ..data.lnk
 outcmaes/*
-*.gif
-*.mp4
+# *.gif
+# *.mp4
 *.png

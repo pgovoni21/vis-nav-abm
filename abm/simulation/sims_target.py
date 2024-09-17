@@ -12,7 +12,7 @@ from abm.sprites.agent import Agent
 from abm.sprites.resource import Resource
 from abm.sprites.wall import Wall
 from abm.monitoring import tracking, plot_funcs
-# from abm.monitoring.screen_recorder import ScreenRecorder
+#from abm.monitoring.screen_recorder import ScreenRecorder
 # from abm.helpers import timer
 
 class Simulation:
@@ -22,6 +22,7 @@ class Simulation:
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
                  NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
+                 boundary_scale,
                  ):
         """
         Initializing the main simulation instance
@@ -71,10 +72,10 @@ class Simulation:
                                    agent_radius*2, self.HEIGHT - agent_radius*2)
 
         self.boundary_endpts = [
-            np.array([ 0, 0 ]),
-            np.array([ self.WIDTH, 0 ]),
-            np.array([ 0, self.HEIGHT ]),
-            np.array([ self.WIDTH, self.HEIGHT ])
+            np.array([ -boundary_scale, -boundary_scale ]),
+            np.array([ self.WIDTH+boundary_scale, -boundary_scale ]),
+            np.array([ -boundary_scale, self.HEIGHT+boundary_scale ]),
+            np.array([ self.WIDTH+boundary_scale, self.HEIGHT+boundary_scale ])
         ]
         self.boundary_endpts_wp = [endpt + self.window_pad for endpt in self.boundary_endpts]
 
@@ -105,6 +106,7 @@ class Simulation:
         self.save_ext = save_ext
 
         # Agent parameters
+        self.respawn_counter = 0
         self.agent_radii = agent_radius
         self.max_vel = max_vel
         self.vis_field_res = vis_field_res
@@ -146,7 +148,7 @@ class Simulation:
             pygame.init()
             self.screen = pygame.display.set_mode([self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2])
             self.font = pygame.font.Font(None, int(self.window_pad/2))
-            # self.recorder = ScreenRecorder(self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2, framerate, out_file='sim.mp4')
+            #self.recorder = ScreenRecorder(self.WIDTH + self.window_pad*2, self.HEIGHT + self.window_pad*2, framerate, out_file='sim.mp4')
         else:
             pygame.display.init()
             pygame.display.set_mode([1,1])
@@ -176,16 +178,16 @@ class Simulation:
             status.append("-Paused-")
         for i, stat_i in enumerate(status):
             text = self.font.render(stat_i, True, colors.BLACK)
-            self.screen.blit(text, (self.window_pad, 0))
+            self.screen.blit(text, (self.window_pad, self.window_pad - self.agent_radii))
 
     def draw_agent_stats(self, font_size=15, spacing=0):
         """Showing agent information"""
         font = pygame.font.Font(None, font_size)
         for agent in self.agents:
-            status = [
-                f'ID: {agent.id}',
-                f'res: {agent.collected_r}',
-                f'ori: {agent.orientation*180/np.pi:.2f} deg',
+            status = [ 
+                # f'ID: {agent.id}',
+                # f'res: {agent.collected_r}',
+                f'ori: {int(agent.orientation*180/np.pi)} deg',
                 f'NNout: {agent.action:.2f}',
                 f'turn: {agent.action*180/np.pi:.2f} deg',
                 f'vel: {agent.velocity:.2f} / {self.max_vel}',
@@ -201,11 +203,11 @@ class Simulation:
         vis_project_IDbubble_size = 4
         
         for agent in self.agents:
+            start_pos = agent.pt_eye + self.window_pad
             # Show visual range as circle if non-limiting FOV
             if self.agent_fov == 1:
                 pygame.draw.circle(self.screen, colors.GREY, agent.pt_eye + self.window_pad, vis_proj_distance, width=1)
             else: # self.agent_fov < 1 --> show limits of FOV as radial lines with length of visual range
-                start_pos = agent.pt_eye + self.window_pad
                 angles = (agent.orientation + agent.phis[0], 
                           agent.orientation + agent.phis[-1])
                 for angle in angles: ### draws lines that don't quite meet borders
@@ -308,6 +310,18 @@ class Simulation:
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
                             radius = vis_project_IDbubble_size)
 
+            # draw line to patch
+            res_pos = np.array(self.res_pos)
+            # res_pos[1] = self.y_max - res_pos[1]
+            disp_from_patch = res_pos - agent.position
+            angle_to_patch = np.arctan2(-disp_from_patch[1], disp_from_patch[0])
+            angle_diff = angle_to_patch - agent.orientation
+            angle_diff = (angle_diff - np.pi) % (2*np.pi) - np.pi
+            # print(angle_to_patch, angle_diff)
+            end_pos = (start_pos[0] + np.cos(angle_to_patch)*25,
+                       start_pos[1] - np.sin(angle_to_patch)*25)
+            pygame.draw.line(self.screen, colors.BLACK, start_pos, end_pos, 1)
+
     # @timer
     def draw_frame(self):
         """Drawing environment, agents and every other visualization in each timestep"""
@@ -319,7 +333,7 @@ class Simulation:
         self.agents.draw(self.screen)
         self.draw_walls()
         self.draw_status()
-        self.draw_agent_stats()
+        # self.draw_agent_stats()
 
         # vision range + projection field
         if self.show_vision_range: 
@@ -370,6 +384,22 @@ class Simulation:
 
                 # x,y = 980,980
                 # orient = 3
+                # x,y = 400,400
+                # orient = np.pi
+
+                # inits = [
+                #     [700, 1000-200, np.pi], #BR-W
+                #     [100, 1000-900, 3*np.pi/2], #TL-S
+                #     [800, 1000-900, 3*np.pi/2], #TR-S
+                #     [100, 1000-200, np.pi/2], #BL-N
+                #     [700, 1000-400, np.pi/2], #TR-N
+                #     [600, 1000-900, np.pi], #BR-W
+                # ]
+                #if self.respawn_counter < len(inits): 
+                #    x,y,orient = inits[self.respawn_counter]
+                #else:
+                #    pass
+                
 
                 agent = Agent(
                         id=0,
@@ -469,6 +499,8 @@ class Simulation:
                     retries += 1
                     if retries > 10: print(f'Retries > 10')
                 self.agents.add(agent)
+    
+        # self.respawn_counter += 1
 
     # @timer
     def save_data_agent(self):
@@ -662,7 +694,7 @@ class Simulation:
 
             if not self.is_paused:
 
-                # self.recorder.capture_frame(self.screen)
+                #self.recorder.capture_frame(self.screen)
                 
                 ### ---- OBSERVATIONS ---- ###
 
@@ -682,6 +714,7 @@ class Simulation:
                 self.collide_agent_wall()
                 self.collide_agent_agent()
                 self.collide_agent_res()
+                # respawn_counter = 0
 
                 # Update visual projections
                 for agent in self.agents:
@@ -785,14 +818,16 @@ class Simulation:
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':
+                        #agent.kill()
+                        #self.create_agents()
 
-                        ### ---- END OF SIMULATION (found food - premature termination) ---- ###
+                        # ### ---- END OF SIMULATION (found food - premature termination) ---- ###
 
                         pygame.quit()
-                        # compute simulation time in seconds
+                        # # compute simulation time in seconds
                         self.elapsed_time = round( (time.time() - start_time) , 2)
-                        if self.print_enabled:
-                            print(f"Elapsed_time: {self.elapsed_time}")
+                        # if self.print_enabled:
+                        #     print(f"Elapsed_time: {self.elapsed_time}")
 
                         if self.log_zarr_file:
                             # conclude agent/resource tracking
@@ -807,19 +842,31 @@ class Simulation:
                                 data_res_array[id, 0, 1] = pos_y
                                 data_res_array[id, 0, 2] = radius
 
-                            # assign plot data as numpy arrays
-                            plot_data = self.data_agent, data_res_array
-                        # display static map of simulation
-                        if self.plot_trajectory:
-                            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
+                        #     # assign plot data as numpy arrays
+                        #     plot_data = self.data_agent, data_res_array
+                        # # display static map of simulation
+                        # if self.plot_trajectory:
+                        #     plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
 
-                        # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-                        # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
+                        # # extract total fitnesses of each agent + save into sim instance (pulled for EA)
+                        # # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
 
                         return self.t, 0, self.elapsed_time
 
                     else: # No food --> move (stay stationary if collided object in front)
                         action = agent.action + np.random.randn()*self.action_noise_std
+
+                        # res_pos = np.array(self.res_pos)
+                        # # res_pos[1] = self.y_max - res_pos[1]
+                        # disp_from_patch = res_pos - agent.position
+                        # angle_to_patch = np.arctan2(-disp_from_patch[1], disp_from_patch[0])
+                        # angle_diff = angle_to_patch - agent.orientation
+                        # # angle_diff = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
+                        # angle_diff = (angle_diff + np.pi) % (2*np.pi) - np.pi
+                        # print(agent.orientation, angle_to_patch, angle_diff)
+                        # angle_diff_scaled = angle_diff / np.pi
+                        # action = (2*0.005)**.5 * np.random.uniform(-1,1) + angle_diff_scaled
+
                         agent.move(action)
                         # agent.move(0.1)
                         # agent.move(np.random.uniform(-0.1,0.1))
@@ -848,7 +895,7 @@ class Simulation:
 
         ### ---- END OF SIMULATION ---- ###
 
-        # self.recorder.end_recording()
+        #self.recorder.end_recording()
         pygame.quit()
 
         # compute simulation time in seconds
