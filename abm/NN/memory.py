@@ -70,6 +70,27 @@ class Noise(nn.Module):
         noise = torch.randn_like(x) * self.weight
         return x + noise
 
+
+class FNN_cognoise(nn.Module):
+    def __init__(self, arch, activ='relu'):
+        super().__init__()
+        input_size, hidden_size = arch
+        
+        self.i2h = nn.Linear(input_size, hidden_size)
+        self.noise = 0.01
+        
+        if activ == 'relu': self.activ = torch.relu
+        elif activ == 'tanh': self.activ = torch.tanh
+        elif activ == 'silu': self.activ = torch.nn.SiLU()
+        elif activ == 'gelu': self.activ = torch.nn.GELU()
+        else: raise ValueError(f'Invalid activation function: {activ}')
+
+    def forward(self, state, hidden_null):
+        x = state + self.noise*torch.randn_like(state)
+        x = self.i2h(state)
+        x = self.activ(x)
+        return x, hidden_null
+
 #--------------------------------------------------------------------------------------------------------#
 
 class CTRNN(nn.Module):

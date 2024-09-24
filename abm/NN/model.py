@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from abm.NN.memory import FNN, FNN2, FNN_noise, CTRNN, GRU, GRU_parallel
+from abm.NN.memory import FNN, FNN2, FNN_noise, FNN_cognoise, CTRNN, GRU, GRU_parallel
 from abm.NN.vision import ConvNeXt as CNN
 from abm.NN.vision import LayerNorm, GRN
 # from abm.helpers import timer
@@ -44,6 +44,7 @@ class WorldModel(nn.Module):
         if RNN_type == 'fnn': self.rnn = FNN(arch=RNN_arch,activ=activ)
         elif RNN_type == 'fnn2': self.rnn = FNN2(arch=RNN_arch,activ=activ)
         elif RNN_type == 'fnn_noise': self.rnn = FNN_noise(arch=RNN_arch,activ=activ)
+        elif RNN_type == 'fnn_cognoise': self.rnn = FNN_cognoise(arch=RNN_arch,activ=activ)
         elif RNN_type == 'ctrnn': self.rnn = CTRNN(arch=RNN_arch,activ=activ)
         elif RNN_type == 'gru': self.rnn = GRU(arch=RNN_arch,activ=activ)
         elif RNN_type == 'gru_para': self.rnn = GRU_parallel(arch=RNN_arch,activ=activ)
@@ -73,8 +74,8 @@ class WorldModel(nn.Module):
         # initialize w+b according to passed vector (via optimizer) or init distribution
         if param_vector is not None:
             self.assign_params(param_vector)
-        else:
-            self._init_weights
+        # else:
+        #     self._init_weights
 
         # disable autograd computation since we're not computing gradients
         for param in self.parameters():
@@ -96,12 +97,12 @@ class WorldModel(nn.Module):
                     p.data = torched_chunk
                     param_num += p.numel()
 
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, (nn.Conv1d, nn.LayerNorm, LayerNorm, GRN, nn.Linear, nn.InstanceNorm1d, nn.GRU)):
-                for p in m.parameters():
-                    nn.init.trunc_normal_(m.weight, std=.02)
-                    nn.init.constant_(m.bias, 0)
+    # def _init_weights(self):
+    #     for m in self.modules():
+    #         if isinstance(m, (nn.Conv1d, nn.LayerNorm, LayerNorm, GRN, nn.Linear, nn.InstanceNorm1d, nn.GRU)):
+    #             for p in m.parameters():
+    #                 nn.init.trunc_normal_(m.weight, std=.02)
+    #                 nn.init.constant_(m.bias, 0)
 
     # @timer
     def forward(self, vis_input, other_input, hidden):

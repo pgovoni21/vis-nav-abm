@@ -15,8 +15,9 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
         envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
         NN = Model()
 
-        envconf['WITH_VISUALIZATION'] = 0
-        # envconf['WITH_VISUALIZATION'] = 1
+        # envconf['WITH_VISUALIZATION'] = 0
+        envconf['WITH_VISUALIZATION'] = 1
+        envconf['INIT_FRAMERATE'] = 10
         # envconf['AGENT_FOV'] = 1
         # envconf['VISUAL_FIELD_RESOLUTION'] = 32
 
@@ -53,7 +54,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
     np.random.seed(seed)
 
     # import sim type
-    if envconf['SIM_TYPE'] == 'walls':
+    if envconf['SIM_TYPE'].startswith('walls'):
         from abm.simulation.sims_target import Simulation
 
         with ExitStack():
@@ -80,17 +81,14 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None): #
                             res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
                             res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
                             regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
-                            #  landmark_radius        =int(envconf["RADIUS_LANDMARK"]),
                             NN                     =NN,
                             other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                             vis_transform          =str(envconf["VIS_TRANSFORM"]),
                             percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
                             percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
                             action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
-                            #  LM_dist_noise_std      =float(envconf["LM_DIST_NOISE_STD"]),
-                            #  LM_angle_noise_std     =float(envconf["LM_ANGLE_NOISE_STD"]),
-                            #  LM_radius_noise_std    =float(envconf["LM_RADIUS_NOISE_STD"]),
                             boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
+                            sim_type               =str(envconf["SIM_TYPE"]),
                             )
             t, d, elapsed_time = sim.start()
 
@@ -231,11 +229,19 @@ if __name__ == '__main__':
     # gen_ext = 'gen876'
     # exp_name = 'sc_CNN27_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep1'
     # gen_ext = 'gen956'
-    exp_name = 'sc_CNN24_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep12'
-    gen_ext = 'gen941'
+    # exp_name = 'sc_CNN24_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep12'
+    # gen_ext = 'gen941'
     # exp_name = 'sc_CNN1148_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep0'
     # gen_ext = 'gen990'
 
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_2xpinball_rep1'
+    # gen_ext = 'gen940'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis16_2xpinball_rep3'
+    # gen_ext = 'gen905'
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_maxWF_2xpinball_rep0'
+    # gen_ext = 'gen905'
+    exp_name = 'sc_CNN17_FNN16_p50e20_vis16_2xpinball_rep1'
+    gen_ext = 'gen973'
 
 
 
@@ -246,4 +252,5 @@ if __name__ == '__main__':
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=1)
+    start(pv=pv, env_path=env_path, seed=3)
+    # start()

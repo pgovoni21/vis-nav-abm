@@ -11,6 +11,7 @@ from abm.sprites import supcalc
 from abm.sprites.agent import Agent
 from abm.sprites.resource import Resource
 from abm.sprites.wall import Wall
+from abm.sprites.landmark import Landmark
 from abm.monitoring import tracking, plot_funcs
 #from abm.monitoring.screen_recorder import ScreenRecorder
 # from abm.helpers import timer
@@ -22,7 +23,7 @@ class Simulation:
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
                  NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
-                 boundary_scale,
+                 boundary_scale, sim_type
                  ):
         """
         Initializing the main simulation instance
@@ -93,6 +94,7 @@ class Simulation:
         self.is_paused = False
         self.print_enabled = print_enabled
         self.plot_trajectory = plot_trajectory
+        self.sim_type = sim_type
 
         # Tracking parameters
         self.log_zarr_file = log_zarr_file
@@ -139,9 +141,9 @@ class Simulation:
         self.max_dist = np.hypot(self.WIDTH, self.HEIGHT)
         self.min_dist = agent_radius
         self.vis_transform = vis_transform
-        self.percep_angle_noise_std = percep_angle_noise_std
+        self.percep_angle_noise_std = percep_angle_noise_std*2*np.pi # noise std as percentage * range
         self.percep_dist_noise_std = percep_dist_noise_std
-        self.action_noise_std = action_noise_std
+        self.action_noise_std = action_noise_std*2
 
         # Initializing pygame
         if self.with_visualization:
@@ -155,6 +157,7 @@ class Simulation:
 
         # pygame related class attributes
         self.walls = pygame.sprite.Group()
+        self.objs = pygame.sprite.Group()
         self.agents = pygame.sprite.Group()
         self.resources = pygame.sprite.Group()
         self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
@@ -168,6 +171,10 @@ class Simulation:
         pygame.draw.line(self.screen, colors.BLACK, TR, BR)
         pygame.draw.line(self.screen, colors.BLACK, BR, BL)
         pygame.draw.line(self.screen, colors.BLACK, BL, TL)
+    
+    def draw_objs(self):
+        for obj in self.objs:
+            pygame.draw.circle(self.screen, obj.color, obj.position + self.window_pad, obj.radius)
 
     def draw_status(self):
         """Showing framerate, sim time and pause status on simulation windows"""
@@ -251,18 +258,18 @@ class Simulation:
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
                             radius = (dist_input+1)*vis_project_IDbubble_size)
-                    elif vis_name == 'agent_exploit':
-                        pygame.draw.circle(
-                            self.screen, colors.VIOLET, 
-                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = (dist_input+1)*vis_project_IDbubble_size)
-                    else: # vis_name == 'agent_explore':
+                    # elif vis_name == 'agent_exploit':
+                    #     pygame.draw.circle(
+                    #         self.screen, colors.VIOLET, 
+                    #         (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                    #         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                    #         radius = (dist_input+1)*vis_project_IDbubble_size)
+                    elif vis_name.startswith('obj'):
                         pygame.draw.circle(
                             self.screen, colors.BLACK, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = (dist_input+1)*vis_project_IDbubble_size*2)
+                            radius = (dist_input+1)*vis_project_IDbubble_size)
 
             else:
                 for phi, vis_name in zip(agent.phis, agent.vis_field):
@@ -297,13 +304,13 @@ class Simulation:
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
                             radius = vis_project_IDbubble_size)
-                    elif vis_name == 'agent_exploit':
-                        pygame.draw.circle(
-                            self.screen, colors.VIOLET, 
-                            (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                            start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                            radius = vis_project_IDbubble_size)
-                    else: # vis_name == 'agent_explore':
+                    # elif vis_name == 'agent_exploit':
+                    #     pygame.draw.circle(
+                    #         self.screen, colors.VIOLET, 
+                    #         (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
+                    #         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
+                    #         radius = vis_project_IDbubble_size)
+                    elif vis_name.startswith('obj'):
                         pygame.draw.circle(
                             self.screen, colors.BLACK, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
@@ -332,6 +339,7 @@ class Simulation:
         self.resources.draw(self.screen)
         self.agents.draw(self.screen)
         self.draw_walls()
+        self.draw_objs()
         self.draw_status()
         # self.draw_agent_stats()
 
@@ -339,7 +347,7 @@ class Simulation:
         if self.show_vision_range: 
             self.draw_visual_fields()
     
-### -------------------------- WALL FUNCTIONS -------------------------- ###
+### -------------------------- ENV FUNCTIONS -------------------------- ###
     
     def create_walls(self):
 
@@ -358,6 +366,43 @@ class Simulation:
                 window_pad=self.window_pad
             )
             self.walls.add(wall)
+    
+    def create_objs(self):
+
+        if self.sim_type == 'walls, 2x pinball':
+
+            radius = 20
+            color = colors.BLACK
+
+            # obj_info = [
+            #     np.array([ 200, 1000-550 ]),
+            #     np.array([ 250, 1000-500 ]),
+            #     np.array([ 300, 1000-450 ]),
+            #     np.array([ 350, 1000-400 ]),
+            #     np.array([ 400, 1000-350 ]),
+            #     np.array([ 450, 1000-300 ]),
+            # ]
+
+            for id, x in enumerate(range(200,400,20)):
+                obj = Landmark(
+                    id=id,
+                    color=color,
+                    radius=radius,
+                    position=np.array([x, 250 + x]),
+                    window_pad=self.window_pad
+                )
+                self.objs.add(obj)
+            id_last = id
+
+            for id, y in enumerate(range(300,500,20)):
+                obj = Landmark(
+                    id=id+id_last+1,
+                    color=color,
+                    radius=radius,
+                    position=np.array([600, y]),
+                    window_pad=self.window_pad
+                )
+                self.objs.add(obj)
 
 ### -------------------------- AGENT FUNCTIONS -------------------------- ###
 
@@ -600,6 +645,24 @@ class Simulation:
                 # text = self.font.render(f'Collision at {", ".join(hits)}', True, pygame.Color('black'))
                 # self.screen.blit(text, (self.window_pad, int(self.window_pad/2)))
 
+    def collide_agent_objs(self):
+
+        # Create dict of every agent that has collided : [colliding landmarks]
+        collision_group = pygame.sprite.groupcollide(self.agents, self.objs, False, False, pygame.sprite.collide_circle)
+
+        # Carry out agent-landmark collisions + generate list of collided landmarks
+        for agent, obj_list in collision_group.items():
+
+            agent.mode = 'collide'
+
+            for obj in obj_list:
+
+                # position between agent + landmark
+                mid_pos = (agent.position + obj.position) / 2
+                # if self.with_visualization: pygame.draw.circle(self.screen, pygame.Color('red'), mid_pos + self.window_pad, 5)
+                # print(f'agent {agent.rect.center} collided with {landmark.id} @ {mid_pos}')
+                agent.collided_points.append(np.array(mid_pos) - self.window_pad)
+
     def collide_agent_agent(self):
 
         # Create dict of every agent that has collided : [colliding agents]
@@ -680,6 +743,7 @@ class Simulation:
 
         start_time = time.time()
         self.create_walls()
+        self.create_objs()
         self.create_resources()
         self.create_agents()
 
@@ -712,13 +776,14 @@ class Simulation:
 
                 # Evaluate sprite interactions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
+                self.collide_agent_objs()
                 self.collide_agent_agent()
                 self.collide_agent_res()
                 # respawn_counter = 0
 
                 # Update visual projections
                 for agent in self.agents:
-                    agent.visual_sensing(self.agents)
+                    agent.visual_sensing(self.objs, self.agents)
 
                 # obs_times[self.t] = time.time() - obs_start
 

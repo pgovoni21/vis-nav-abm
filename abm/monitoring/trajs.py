@@ -50,7 +50,7 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
         )
 
     # gather visual input
-    agent.visual_sensing([])
+    agent.visual_sensing([],[])
     vis_input = agent.encode_one_hot(agent.vis_field)
 
     if vis_transform != '':
@@ -564,6 +564,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     LM_dist_noise_std = float(envconf["LM_DIST_NOISE_STD"])
     LM_angle_noise_std = float(envconf["LM_ANGLE_NOISE_STD"])
     LM_radius_noise_std = float(envconf["LM_RADIUS_NOISE_STD"])
+    sim_type = str(envconf["SIM_TYPE"])
     if extra.startswith('n0'):
         angl_noise_std = 0.
         dist_noise_std = 0.
@@ -581,18 +582,16 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     min_dist = agent_radius*2
 
     landmarks = []
-    if envconf["SIM_TYPE"] == "LM":
+    if sim_type == "LM":
         ids = ('TL', 'TR', 'BL', 'BR')
         for id, pos in zip(ids, boundary_endpts):
-            landmark = Landmark(
+            landmarks.append(Landmark(
                 id=id,
                 color=(0,0,0),
                 radius=int(envconf["RADIUS_LANDMARK"]),
                 position=pos,
                 window_pad=int(envconf["WINDOW_PAD"]),
-            )
-            landmarks.append(landmark)
-
+            ))
         agent = Agent(
                 id=0,
                 position=(x,y),
@@ -613,6 +612,43 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
                 LM_dist_noise_std=LM_dist_noise_std,
                 LM_angle_noise_std=LM_angle_noise_std,
                 LM_radius_noise_std=LM_radius_noise_std,
+            )
+    elif sim_type == "walls, 2x pinball":
+        radius = 20
+        for id, lm_x in enumerate(range(200,400,20)):
+            landmarks.append(Landmark(
+                id=id,
+                color=(0,0,0),
+                radius=radius,
+                position=np.array([lm_x, 250 + lm_x]),
+                window_pad=int(envconf["WINDOW_PAD"])
+            ))
+        id_last = id
+        for id, lm_y in enumerate(range(300,500,20)):
+            landmarks.append(Landmark(
+                id=id+id_last+1,
+                color=(0,0,0),
+                radius=radius,
+                position=np.array([600, lm_y]),
+                window_pad=int(envconf["WINDOW_PAD"])
+            ))
+        agent = Agent(
+                id=0,
+                position=(x,y),
+                orientation=orient,
+                max_vel=int(envconf["MAXIMUM_VELOCITY"]),
+                FOV=float(envconf['AGENT_FOV']),
+                vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
+                vision_range=int(envconf["VISION_RANGE"]),
+                num_class_elements=4,
+                consumption=1,
+                model=NN,
+                boundary_endpts=boundary_endpts,
+                window_pad=window_pad,
+                radius=agent_radius,
+                color=(0,0,0),
+                vis_transform=vis_transform,
+                percep_angle_noise_std=angl_noise_std,
             )
     else:
         agent = Agent(
@@ -638,7 +674,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     traj = np.zeros((timesteps,4))
     for t in range(timesteps):
 
-        if not landmarks: agent.visual_sensing([])
+        if sim_type == 'walls': agent.visual_sensing([],[])
         else: agent.visual_sensing(landmarks,[])
 
         vis_input = agent.encode_one_hot(agent.vis_field)
@@ -684,8 +720,8 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
         else:
             agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
 
-        if not landmarks:
-            agent.collided_points = []
+        agent.collided_points = []
+        if sim_type.startswith('walls'):
             if agent.rect.center[0] < window_pad + 2*agent_radius:
                 agent.mode = 'collide'
                 collided_pt = np.array(agent.rect.center) - window_pad
@@ -706,6 +742,18 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
                 collided_pt = np.array(agent.rect.center) - window_pad
                 collided_pt[1] += agent.radius
                 agent.collided_points.append(collided_pt)
+        if sim_type == 'LM' or sim_type == 'walls, 2x pinball':
+            for lm in landmarks:
+                if np.linalg.norm(agent.rect.center - (window_pad + lm.position)) < (lm.radius + agent_radius):
+                    agent.mode = 'collide'
+                    mid_pos = (agent.position + lm.position) / 2
+                    agent.collided_points.append(np.array(mid_pos) - window_pad)
+                    if t > 0:
+                        print(f'collided: {t,x,y, agent.rect.center, lm.position}')
+
+        if t == 0 and len(agent.collided_points) > 0:
+            # print(f'collided at zero, {x,y}')
+            return traj
 
         noise = np.random.randn()*act_noise_std
         if extra.endswith('pos') and noise > 0: noise = 0
@@ -720,7 +768,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     return traj
 
 
-def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', landmarks=False):
+def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra=''):
     print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
 
     # pull pv + envconf from save folders
@@ -748,17 +796,13 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
     ]
 
     # every grid position/direction
-    if not landmarks:
-        coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
-        x_range = np.linspace(x_min + coll_boundary_thickness, 
-                            x_max - coll_boundary_thickness, 
-                            int((width - coll_boundary_thickness*2) / space_step))
-        y_range = np.linspace(y_min + coll_boundary_thickness, 
-                            y_max - coll_boundary_thickness, 
-                            int((height - coll_boundary_thickness*2) / space_step))
-    else:
-        x_range = np.linspace(x_min, x_max, int(width / space_step))
-        y_range = np.linspace(y_min, y_max, int(height / space_step))
+    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
+    x_range = np.linspace(x_min + coll_boundary_thickness, 
+                        x_max - coll_boundary_thickness, 
+                        int((width - coll_boundary_thickness*2) / space_step))
+    y_range = np.linspace(y_min + coll_boundary_thickness, 
+                        y_max - coll_boundary_thickness, 
+                        int((height - coll_boundary_thickness*2) / space_step))
     orient_range = np.arange(0, 2*np.pi, orient_step)
     print(f'testing ranges (max, min): x[{x_range[0], x_range[-1]}], y[{y_range[0], y_range[-1]}], o[{orient_range[0], orient_range[-1]}]')
     
@@ -782,8 +826,15 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
 
     # unpack results into matrix (y coords transformed for plotting)
     results_list = results.get()
+
+    empties = []
     for n, output in enumerate(results_list):
         traj_matrix[n,:,:] =  output
+        if not output[0,:].any():
+            empties.append(n) 
+    for n in empties:
+        traj_matrix = np.delete(traj_matrix, n, axis=0)
+
     traj_matrix[:,:,1] = y_max - traj_matrix[:,:,1]
 
     if extra == '':
@@ -794,8 +845,8 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
         pickle.dump(traj_matrix, f)
 
 
-def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, ex_lines=False, act_arr=False, extra='', landmarks=False, dpi=50):
-    print(f'plotting map - {exp_name}, {gen_ext}, ell{ellipses}, ex_lines{ex_lines}, extra{extra}, lm{landmarks}')
+def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, ex_lines=False, act_arr=False, extra='', dpi=50):
+    print(f'plotting map - {exp_name}, {gen_ext}, ell{ellipses}, ex_lines{ex_lines}, extra{extra}')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     env_path = fr'{data_dir}/{exp_name}/.env'
@@ -835,7 +886,8 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows')
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only')
     else:
-        if not landmarks:
+        sim_type = str(envconf["SIM_TYPE"])
+        if sim_type == 'walls':
             if not act_arr:
                 plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra, dpi=dpi)
             else:
@@ -847,7 +899,7 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
                 act_matrix = (1-act_matrix)
                 plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, act_mat=act_matrix, envconf=envconf, extra=extra, dpi=dpi)
 
-        else:
+        elif sim_type == 'LM':
             lms = (int(envconf["RADIUS_LANDMARK"]),
                    [
                     np.array([ 0, 0 ]),
@@ -856,6 +908,16 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
                     np.array([ width, height ])
                     ]
             )
+            plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra, landmarks=lms, dpi=dpi)
+
+        elif sim_type == 'walls, 2x pinball':
+            radius_obj = 20
+            lm_pos = []
+            for x in range(200,400,20):
+                lm_pos.append(np.array([x, height - (250 + x)]))
+            for y in range(300,500,20):
+                lm_pos.append(np.array([600, height - y]))
+            lms = (radius_obj, lm_pos)
             plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra, landmarks=lms, dpi=dpi)
 
 
@@ -1906,7 +1968,7 @@ def agent_pano_from_xyo(envconf, NN, boundary_endpts, x, y, orient, vis_field_re
             percep_angle_noise_std=0,
         )
 
-    agent.visual_sensing([])
+    agent.visual_sensing([],[])
 
     return agent.vis_field
 
@@ -2181,7 +2243,7 @@ def build_agent_views(vis_field_res = 8):
                         vis_transform='',
                         percep_angle_noise_std=0,
                     )
-                agent.visual_sensing([])
+                agent.visual_sensing([],[])
 
                 if agent.vis_field not in views:
                     views.append(agent.vis_field)
@@ -2510,14 +2572,10 @@ def plot_IDM_avgperfviews(space_step, orient_step, vis_field_res=32, plot_type='
 
 # -------------------------- script -------------------------- #
 
-def run_gamut(names, dpi):
+def run_gamut(group_name, names, dpi):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
-    #     data_old = pickle.load(f)
-    # with open(fr'{data_dir}/traj_matrices/gamut_other.bin', 'rb') as f:
-    #     data = pickle.load(f)
-    with open(fr'{data_dir}/traj_matrices/gamut_bound.bin', 'rb') as f:
+    with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
         data = pickle.load(f)
 
     rank = 'cen'
@@ -2605,7 +2663,7 @@ def run_gamut(names, dpi):
         print(f'data dict len: {len(data)}')
         print('')
 
-        with open(fr'{data_dir}/traj_matrices/gamut_bound.bin', 'wb') as f:
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
             pickle.dump(data, f)
 
         # delete .bin files if not already saved
@@ -2852,27 +2910,52 @@ def analyze_gamut(group_type, data_type):
             print(group_name, label, len(data), data)
 
             if data:
-                l0 = ax1.violinplot(data, 
-                            positions=[pos],
-                            widths=width, 
-                            showmedians=True, 
-                            showextrema=False,
-                            )
-                for part in l0["bodies"]:
-                    part.set_edgecolor(color)
-                    part.set_facecolor(color)
-                l0["cmedians"].set_edgecolor(color)
-                # color = l0["bodies"][0].get_facecolor().flatten()
+                if len(data) < 5:
+                    # continue
+                    l0 = ax1.violinplot(data, 
+                                positions=[pos],
+                                widths=width, 
+                                showmedians=False, 
+                                showextrema=False,
+                                )
+                    for part in l0["bodies"]:
+                        part.set_edgecolor(color)
+                        part.set_facecolor(color)
+                    # l0["cmedians"].set_edgecolor(color)
+                    # color = l0["bodies"][0].get_facecolor().flatten()
 
-                if l_num not in labs_taken:
-                    vlabs.append((mpl.patches.Patch(color=color), label))
-                    labs_taken.append(l_num)
-                
-                if len(data) > 1:
-                    x = beeswarm(data)
+                    if l_num not in labs_taken:
+                        vlabs.append((mpl.patches.Patch(color=color), label))
+                        labs_taken.append(l_num)
+                    
+                    if len(data) > 1:
+                        x = beeswarm(data)
+                    else:
+                        x = 0
+                    ax1.scatter(pos + x*width/2, data, c=color, s=.5, alpha=1)
+
                 else:
-                    x = 0
-                ax1.scatter(pos + x*width/2, data, c=color, s=.5, alpha=1)
+                    l0 = ax1.violinplot(data, 
+                                positions=[pos],
+                                widths=width, 
+                                showmedians=True, 
+                                showextrema=False,
+                                )
+                    for part in l0["bodies"]:
+                        part.set_edgecolor(color)
+                        part.set_facecolor(color)
+                    l0["cmedians"].set_edgecolor(color)
+                    # color = l0["bodies"][0].get_facecolor().flatten()
+
+                    if l_num not in labs_taken:
+                        vlabs.append((mpl.patches.Patch(color=color), label))
+                        labs_taken.append(l_num)
+                    
+                    if len(data) > 1:
+                        x = beeswarm(data)
+                    else:
+                        x = 0
+                    ax1.scatter(pos + x*width/2, data, c=color, s=.5, alpha=1)
 
     ax1.axvline(x = g_num - width/2 + 1, color='k', linestyle='--', linewidth=0.5)
 
@@ -2901,11 +2984,12 @@ def analyze_gamut(group_type, data_type):
 
 
 
-def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None, dpi=100, batch='main', dist=True):
+def gamut_2d(data_type_x, data_type_y, group, cluster=None, heatmap=None, sc_type=None, dpi=100):
 
+    print(f'plotting {data_type_x} vs {data_type_y} for {group}')
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    if batch == 'main':
-        with open(fr'{data_dir}/traj_matrices/gamut_labeled.bin', 'rb') as f:
+    if group == 'gamut':
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'rb') as f:
             data = pickle.load(f)
         print(f'data dict len: {len(data)}')
 
@@ -2997,10 +3081,9 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
 
         group_list = []
         group_list_str = []
-        if dist:
-            for g, gs in zip(dist_groups, dist_groups_str):
-                group_list.append(g)
-                group_list_str.append(gs)
+        for g, gs in zip(dist_groups, dist_groups_str):
+            group_list.append(g)
+            group_list_str.append(gs)
         for g, gs in zip(vis_groups, vis_groups_str):
             group_list.append(g)
             group_list_str.append(gs)
@@ -3008,8 +3091,130 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
 
         data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'min_action', 'max_action', 'avglen_mean', 'avglen_med', 'avglen_min', 'avglen_max', 'pkf_mean', 'pkf_med', 'pkf_min', 'pkf_max', 'pkt_mean', 'pkt_med', 'pkt_min', 'pkt_max', 'def_mean', 'def_med', 'def_min', 'def_max', 'det_mean', 'det_med', 'det_min', 'det_max', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
 
-    elif batch == 'other':
-        with open(fr'{data_dir}/traj_matrices/gamut_other_labeled.bin', 'rb') as f:
+    elif group == 'gamut_visall_nodist':
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'rb') as f:
+            data = pickle.load(f)
+        print(f'data dict len: {len(data)}')
+
+        vis6 = []
+        vis8 = []
+        vis10 = []
+        vis12 = []
+        vis14 = []
+        vis16 = []
+        vis18 = []
+        vis20 = []
+        vis24 = []
+        vis32 = []
+
+        for name in data.keys():
+
+            data_tuple, label = data[name]
+
+            if 'vis6' in name:
+                vis6.append((data_tuple, name, label))
+            elif 'vis8' in name and 'dist' not in name and 'CNN12' not in name:
+                vis8.append((data_tuple, name, label))
+            elif 'vis10' in name:
+                vis10.append((data_tuple, name, label))
+            elif 'vis12' in name:
+                vis12.append((data_tuple, name, label))
+            elif 'vis14' in name:
+                vis14.append((data_tuple, name, label))
+            elif 'vis16' in name:
+                vis16.append((data_tuple, name, label))
+            elif 'vis18' in name:
+                vis18.append((data_tuple, name, label))
+            elif 'vis20' in name:
+                vis20.append((data_tuple, name, label))
+            elif 'vis24' in name:
+                vis24.append((data_tuple, name, label))
+            elif 'vis32' in name:
+                vis32.append((data_tuple, name, label))
+            else: print(f'{name}, not included')
+
+        vis_groups = [vis6, vis8, vis10, vis12, vis14, vis16, vis18, vis20, vis24, vis32]
+        # vis_groups_str = ['6', '8', '10', '12', '14', '16', '18', '20', '24', '32']
+        vis_groups_str = [r'$\sigma = 0, \upsilon = 6$',
+                    r'$\sigma = 0, \upsilon = 8$',
+                    r'$\sigma = 0, \upsilon = 10$',
+                    r'$\sigma = 0, \upsilon = 12$',
+                    r'$\sigma = 0, \upsilon = 14$',
+                    r'$\sigma = 0, \upsilon = 16$',
+                    r'$\sigma = 0, \upsilon = 18$',
+                    r'$\sigma = 0, \upsilon = 20$',
+                    r'$\sigma = 0, \upsilon = 24$',
+                    r'$\sigma = 0, \upsilon = 32$',
+                    ]
+
+        group_list = []
+        group_list_str = []
+        for g, gs in zip(vis_groups, vis_groups_str):
+            group_list.append(g)
+            group_list_str.append(gs)
+        num_groups = len(group_list)
+
+        data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
+
+    elif group == 'gamut_vis8_dist' or group == 'gamut_vis32_dist':
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'rb') as f:
+            data = pickle.load(f)
+        print(f'data dict len: {len(data)}')
+
+        maxWF = []
+        p8WF = []
+        p6WF = []
+        p5WF = []
+        p4WF = []
+        p3WF = []
+        p2WF = []
+        p1WF = []
+
+        for name in data.keys():
+
+            data_tuple, label = data[name]
+
+            if 'maxWF' in name:
+                maxWF.append((data_tuple, name, label))
+            elif 'p9WF' in name:
+                p8WF.append((data_tuple, name, label))
+            elif 'p8WF' in name:
+                p6WF.append((data_tuple, name, label))
+            elif 'mlWF' in name:
+                p5WF.append((data_tuple, name, label))
+            elif 'mWF' in name:
+                p4WF.append((data_tuple, name, label))
+            elif 'msWF' in name:
+                p3WF.append((data_tuple, name, label))
+            elif '_sWF' in name:
+                p2WF.append((data_tuple, name, label))
+            elif 'ssWF' in name:
+                p1WF.append((data_tuple, name, label))
+            else: print(f'{name}, not included')
+
+        dist_groups = [maxWF, p8WF, p6WF, p5WF, p4WF, p3WF, p2WF, p1WF]
+        # dist_groups_str = ['1', '0.8', '0.6', '0.5', '0.4', '0.3', '0.2', '0.1']
+        dist_groups_str = [r'$\sigma = 1, \upsilon = 8$',
+                    r'$\sigma = 0.8, \upsilon = 8$',
+                    r'$\sigma = 0.6, \upsilon = 8$',
+                    r'$\sigma = 0.5, \upsilon = 8$',
+                    r'$\sigma = 0.4, \upsilon = 8$',
+                    r'$\sigma = 0.3, \upsilon = 8$',
+                    r'$\sigma = 0.2, \upsilon = 8$',
+                    r'$\sigma = 0.1, \upsilon = 8$',
+                    ]
+
+        group_list = []
+        group_list_str = []
+        for g, gs in zip(dist_groups, dist_groups_str):
+            group_list.append(g)
+            group_list_str.append(gs)
+        num_groups = len(group_list)
+
+        data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
+
+    elif group == 'gamut_other':
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'rb') as f:
             data = pickle.load(f)
         print(f'data dict len: {len(data)}')
 
@@ -3058,6 +3263,197 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
         num_groups = len(group_list)
 
         data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
+
+    elif group == 'all':
+        with open(fr'{data_dir}/traj_matrices/gamut_visall_nodist_labeled.bin', 'rb') as f:
+            data1 = pickle.load(f)
+        with open(fr'{data_dir}/traj_matrices/gamut_vis8_dist_labeled.bin', 'rb') as f:
+            data2 = pickle.load(f)
+        # with open(fr'{data_dir}/traj_matrices/gamut_vis16_dist_labeled.bin', 'rb') as f:
+        #     data1 = pickle.load(f)
+        with open(fr'{data_dir}/traj_matrices/gamut_vis32_dist_labeled.bin', 'rb') as f:
+            data4 = pickle.load(f)
+        data = data1 | data2 | data4
+        print(f'data dict len: {len(data)}')
+
+        vis6_nodist = []
+        vis8_nodist = []
+        vis10_nodist = []
+        vis12_nodist = []
+        vis14_nodist = []
+        vis16_nodist = []
+        vis18_nodist = []
+        vis20_nodist = []
+        vis24_nodist = []
+        vis32_nodist = []
+        vis8_maxWF = []
+        vis8_p8WF = []
+        vis8_p6WF = []
+        vis8_p5WF = []
+        vis8_p4WF = []
+        vis8_p3WF = []
+        vis8_p2WF = []
+        vis8_p1WF = []
+        vis16_maxWF = []
+        vis16_p8WF = []
+        vis16_p6WF = []
+        vis16_p5WF = []
+        vis16_p4WF = []
+        vis16_p3WF = []
+        vis16_p2WF = []
+        vis16_p1WF = []
+        vis32_maxWF = []
+        vis32_p8WF = []
+        vis32_p6WF = []
+        vis32_p5WF = []
+        vis32_p4WF = []
+        vis32_p3WF = []
+        vis32_p2WF = []
+        vis32_p1WF = []
+
+        for name in data.keys():
+
+            data_tuple, label = data[name]
+
+            if 'vis6' in name:
+                vis6_nodist.append((data_tuple, name, label))
+            elif 'vis8' in name and 'dist' not in name and 'CNN12' not in name:
+                vis8_nodist.append((data_tuple, name, label))
+            elif 'vis10' in name:
+                vis10_nodist.append((data_tuple, name, label))
+            elif 'vis12' in name:
+                vis12_nodist.append((data_tuple, name, label))
+            elif 'vis14' in name:
+                vis14_nodist.append((data_tuple, name, label))
+            elif 'vis16' in name and 'dist' not in name:
+                vis16_nodist.append((data_tuple, name, label))
+            elif 'vis18' in name:
+                vis18_nodist.append((data_tuple, name, label))
+            elif 'vis20' in name:
+                vis20_nodist.append((data_tuple, name, label))
+            elif 'vis24' in name:
+                vis24_nodist.append((data_tuple, name, label))
+            elif 'vis32' in name and 'dist' not in name:
+                vis32_nodist.append((data_tuple, name, label))
+
+            elif 'maxWF' in name and 'vis8' in name:
+                vis8_maxWF.append((data_tuple, name, label))
+            elif 'p9WF' in name and 'vis8' in name:
+                vis8_p8WF.append((data_tuple, name, label))
+            elif 'p8WF' in name and 'vis8' in name:
+                vis8_p6WF.append((data_tuple, name, label))
+            elif 'mlWF' in name and 'vis8' in name:
+                vis8_p5WF.append((data_tuple, name, label))
+            elif 'mWF' in name and 'vis8' in name:
+                vis8_p4WF.append((data_tuple, name, label))
+            elif 'msWF' in name and 'vis8' in name:
+                vis8_p3WF.append((data_tuple, name, label))
+            elif '_sWF' in name and 'vis8' in name:
+                vis8_p2WF.append((data_tuple, name, label))
+            elif 'ssWF' in name and 'vis8' in name:
+                vis8_p1WF.append((data_tuple, name, label))
+
+            elif 'maxWF' in name and 'vis16' in name:
+                vis16_maxWF.append((data_tuple, name, label))
+            elif 'p9WF' in name and 'vis16' in name:
+                vis16_p8WF.append((data_tuple, name, label))
+            elif 'p8WF' in name and 'vis16' in name:
+                vis16_p6WF.append((data_tuple, name, label))
+            elif 'mlWF' in name and 'vis16' in name:
+                vis16_p5WF.append((data_tuple, name, label))
+            elif 'mWF' in name and 'vis16' in name:
+                vis16_p4WF.append((data_tuple, name, label))
+            elif 'msWF' in name and 'vis16' in name:
+                vis16_p3WF.append((data_tuple, name, label))
+            elif '_sWF' in name and 'vis16' in name:
+                vis16_p2WF.append((data_tuple, name, label))
+            elif 'ssWF' in name and 'vis16' in name:
+                vis16_p1WF.append((data_tuple, name, label))
+
+            elif 'maxWF' in name and 'vis32' in name:
+                vis32_maxWF.append((data_tuple, name, label))
+            elif 'p9WF' in name and 'vis32' in name:
+                vis32_p8WF.append((data_tuple, name, label))
+            elif 'p8WF' in name and 'vis32' in name:
+                vis32_p6WF.append((data_tuple, name, label))
+            elif 'mlWF' in name and 'vis32' in name:
+                vis32_p5WF.append((data_tuple, name, label))
+            elif 'mWF' in name and 'vis32' in name:
+                vis32_p4WF.append((data_tuple, name, label))
+            elif 'msWF' in name and 'vis32' in name:
+                vis32_p3WF.append((data_tuple, name, label))
+            elif '_sWF' in name and 'vis32' in name:
+                vis32_p2WF.append((data_tuple, name, label))
+            elif 'ssWF' in name and 'vis32' in name:
+                vis32_p1WF.append((data_tuple, name, label))
+
+            else: print(f'{name}, not included')
+
+        vis_groups = [vis6_nodist, vis8_nodist, vis10_nodist, vis12_nodist, vis14_nodist, vis16_nodist, vis18_nodist, vis20_nodist, vis24_nodist, vis32_nodist]
+        vis8_dist_groups = [vis8_maxWF, vis8_p8WF, vis8_p6WF, vis8_p5WF, vis8_p4WF, vis8_p3WF, vis8_p2WF, vis8_p1WF]
+        vis16_dist_groups = [vis16_maxWF, vis16_p8WF, vis16_p6WF, vis16_p5WF, vis16_p4WF, vis16_p3WF, vis16_p2WF, vis16_p1WF]
+        vis32_dist_groups = [vis32_maxWF, vis32_p8WF, vis32_p6WF, vis32_p5WF, vis32_p4WF, vis32_p3WF, vis32_p2WF, vis32_p1WF]
+        vis_groups_str = [r'$\sigma = 0, \upsilon = 6$',
+                    r'$\sigma = 0, \upsilon = 8$',
+                    r'$\sigma = 0, \upsilon = 10$',
+                    r'$\sigma = 0, \upsilon = 12$',
+                    r'$\sigma = 0, \upsilon = 14$',
+                    r'$\sigma = 0, \upsilon = 16$',
+                    r'$\sigma = 0, \upsilon = 18$',
+                    r'$\sigma = 0, \upsilon = 20$',
+                    r'$\sigma = 0, \upsilon = 24$',
+                    r'$\sigma = 0, \upsilon = 32$',
+                    ]
+        vis8_dist_groups_str = [r'$\sigma = 1, \upsilon = 8$',
+                    r'$\sigma = 0.8, \upsilon = 8$',
+                    r'$\sigma = 0.6, \upsilon = 8$',
+                    r'$\sigma = 0.5, \upsilon = 8$',
+                    r'$\sigma = 0.4, \upsilon = 8$',
+                    r'$\sigma = 0.3, \upsilon = 8$',
+                    r'$\sigma = 0.2, \upsilon = 8$',
+                    r'$\sigma = 0.1, \upsilon = 8$',
+                    ]
+        vis16_dist_groups_str = [r'$\sigma = 1, \upsilon = 16$',
+                    r'$\sigma = 0.8, \upsilon = 16$',
+                    r'$\sigma = 0.6, \upsilon = 16$',
+                    r'$\sigma = 0.5, \upsilon = 16$',
+                    r'$\sigma = 0.4, \upsilon = 16$',
+                    r'$\sigma = 0.3, \upsilon = 16$',
+                    r'$\sigma = 0.2, \upsilon = 16$',
+                    r'$\sigma = 0.1, \upsilon = 16$',
+                    ]
+        vis32_dist_groups_str = [r'$\sigma = 1, \upsilon = 32$',
+                    r'$\sigma = 0.8, \upsilon = 32$',
+                    r'$\sigma = 0.6, \upsilon = 32$',
+                    r'$\sigma = 0.5, \upsilon = 32$',
+                    r'$\sigma = 0.4, \upsilon = 32$',
+                    r'$\sigma = 0.3, \upsilon = 32$',
+                    r'$\sigma = 0.2, \upsilon = 32$',
+                    r'$\sigma = 0.1, \upsilon = 32$',
+                    ]
+
+        group_list = []
+        group_list_str = []
+        for g, gs in zip(vis_groups, vis_groups_str):
+            group_list.append(g)
+            group_list_str.append(gs)
+        for g, gs in zip(vis8_dist_groups, vis8_dist_groups_str):
+            group_list.append(g)
+            group_list_str.append(gs)
+        # for g, gs in zip(vis16_dist_groups, vis16_dist_groups_str):
+        #     group_list.append(g)
+        #     group_list_str.append(gs)
+        for g, gs in zip(vis32_dist_groups, vis32_dist_groups_str):
+            group_list.append(g)
+            group_list_str.append(gs)
+        num_groups = len(group_list)
+
+        data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
+
+    else:
+        print('group not recognized')
+        return
+
 
     data_str_x = data_list_str[data_type_x]
     data_str_y = data_list_str[data_type_y]
@@ -3119,37 +3515,23 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
                 data_x.append(data[data_type_x])
                 data_y.append(data[data_type_y])
 
-                # if data[data_type_x] > 100 and data[data_type_y] > 0.7 and label == 'BD/IS':
+                # if data[data_type_x] < 90 and data[data_type_y] < 0.6 and label == 'BD/IS':
                 #     print(run_name, data[data_type_x], data[data_type_y])
+                # if data[data_type_x] > 100 and data[data_type_y] > 0.65 and label == 'BD/IS':
+                #     print(run_name, data[data_type_x], data[data_type_y])
+                if data[data_type_x] > 155 and data[data_type_y] > 0.65 and label == 'IS/DP':
+                    print(run_name, data[data_type_x], data[data_type_y])
+
                 # if data[data_type_x] > 125 and label == 'BD/IS':
                 #     print(run_name, data[data_type_x], data[data_type_y])
-                # if data[data_type_x] < 160 and label == 'DP':
+                # if data[data_type_x] < 150 and label == 'DP':
                 #     print(run_name, data[data_type_x], data[data_type_y])
-                # if data[data_type_y] < 0.7 and label == 'DP':
+                # if data[data_type_y] < 0.7 and label == 'IS/DP':
+                #     print(run_name, data[data_type_x], data[data_type_y])
+                # if data[data_type_y] > 0.6 and label == 'DP/BD':
                 #     print(run_name, data[data_type_x], data[data_type_y])
                 # if data[data_type_y] > 0.57 and label == 'BD':
                 #     print(run_name, data[data_type_x], data[data_type_y])
-
-                if sc_type == 'label':
-                    if label == 'BD':
-                        colors.append('cornflowerblue')
-                        BD += 1
-                    elif label == 'IS':
-                        colors.append('tomato')
-                        IS += 1
-                    elif label == 'DP':
-                        colors.append('forestgreen')
-                        DP += 1
-                    elif label == 'BD/IS':
-                        colors.append('darkorchid')
-                        BD_IS += 1
-                    elif label == 'IS/DP':
-                        colors.append('gold')
-                        IS_DP += 1
-                    elif label == 'DP/BD':
-                        colors.append('aquamarine')
-                        DP_BD += 1
-                    else: print('label not recognized: ', run_name, label)
                 
                 if sc_type == 'label':
                     rot = 45
@@ -3234,1020 +3616,1106 @@ def gamut_2d(data_type_x, data_type_y, cluster=None, heatmap=None, sc_type=None,
             ]
         ax1.legend(handles=leg_ele, loc='lower right')
 
-    plt.savefig(fr'{data_dir}/group_traj_dists_2d_{data_str_x}x{data_str_y}_cluster{cluster}_heatmap{heatmap}_sctyp{sc_type}_batch{batch}_dist{dist}.png', dpi=dpi)
+    plt.savefig(fr'{data_dir}/class_2d_{group}_cluster{cluster}_heatmap{heatmap}_sctyp{sc_type}.png', dpi=dpi)
     # plt.show()
 
 
-def gamut_2d_iter(data_type_x, data_type_y, sc_type=None, dpi=100):
+# def gamut_2d_iter(data_type_x, data_type_y, sc_type=None, dpi=100):
 
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/traj_matrices/gamut_labeled.bin', 'rb') as f:
-        data = pickle.load(f)
-    print(f'data dict len: {len(data)}')
+#     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+#     with open(fr'{data_dir}/traj_matrices/gamut_labeled.bin', 'rb') as f:
+#         data = pickle.load(f)
+#     print(f'data dict len: {len(data)}')
 
-    vis6 = []
-    vis8 = []
-    vis10 = []
-    vis12 = []
-    vis14 = []
-    vis16 = []
-    vis18 = []
-    vis20 = []
-    vis24 = []
-    vis32 = []
-    maxWF = []
-    p8WF = []
-    p6WF = []
-    p5WF = []
-    p4WF = []
-    p3WF = []
-    p2WF = []
-    p1WF = []
+#     vis6 = []
+#     vis8 = []
+#     vis10 = []
+#     vis12 = []
+#     vis14 = []
+#     vis16 = []
+#     vis18 = []
+#     vis20 = []
+#     vis24 = []
+#     vis32 = []
+#     maxWF = []
+#     p8WF = []
+#     p6WF = []
+#     p5WF = []
+#     p4WF = []
+#     p3WF = []
+#     p2WF = []
+#     p1WF = []
 
-    for name in data.keys():
+#     for name in data.keys():
 
-        data_tuple, label = data[name]
+#         data_tuple, label = data[name]
 
-        if 'vis6' in name:
-            vis6.append((data_tuple, name, label))
-        elif 'vis8' in name and 'dist' not in name and 'CNN12' not in name:
-            vis8.append((data_tuple, name, label))
-        elif 'vis10' in name:
-            vis10.append((data_tuple, name, label))
-        elif 'vis12' in name:
-            vis12.append((data_tuple, name, label))
-        elif 'vis14' in name:
-            vis14.append((data_tuple, name, label))
-        elif 'vis16' in name:
-            vis16.append((data_tuple, name, label))
-        elif 'vis18' in name:
-            vis18.append((data_tuple, name, label))
-        elif 'vis20' in name:
-            vis20.append((data_tuple, name, label))
-        elif 'vis24' in name:
-            vis24.append((data_tuple, name, label))
-        elif 'vis32' in name:
-            vis32.append((data_tuple, name, label))
-        elif 'maxWF' in name:
-            maxWF.append((data_tuple, name, label))
-        elif 'p9WF' in name:
-            p8WF.append((data_tuple, name, label))
-        elif 'p8WF' in name:
-            p6WF.append((data_tuple, name, label))
-        elif 'mlWF' in name:
-            p5WF.append((data_tuple, name, label))
-        elif 'mWF' in name:
-            p4WF.append((data_tuple, name, label))
-        elif 'msWF' in name:
-            p3WF.append((data_tuple, name, label))
-        elif '_sWF' in name:
-            p2WF.append((data_tuple, name, label))
-        elif 'ssWF' in name:
-            p1WF.append((data_tuple, name, label))
-        else: print(f'{name}, not included')
+#         if 'vis6' in name:
+#             vis6.append((data_tuple, name, label))
+#         elif 'vis8' in name and 'dist' not in name and 'CNN12' not in name:
+#             vis8.append((data_tuple, name, label))
+#         elif 'vis10' in name:
+#             vis10.append((data_tuple, name, label))
+#         elif 'vis12' in name:
+#             vis12.append((data_tuple, name, label))
+#         elif 'vis14' in name:
+#             vis14.append((data_tuple, name, label))
+#         elif 'vis16' in name:
+#             vis16.append((data_tuple, name, label))
+#         elif 'vis18' in name:
+#             vis18.append((data_tuple, name, label))
+#         elif 'vis20' in name:
+#             vis20.append((data_tuple, name, label))
+#         elif 'vis24' in name:
+#             vis24.append((data_tuple, name, label))
+#         elif 'vis32' in name:
+#             vis32.append((data_tuple, name, label))
+#         elif 'maxWF' in name:
+#             maxWF.append((data_tuple, name, label))
+#         elif 'p9WF' in name:
+#             p8WF.append((data_tuple, name, label))
+#         elif 'p8WF' in name:
+#             p6WF.append((data_tuple, name, label))
+#         elif 'mlWF' in name:
+#             p5WF.append((data_tuple, name, label))
+#         elif 'mWF' in name:
+#             p4WF.append((data_tuple, name, label))
+#         elif 'msWF' in name:
+#             p3WF.append((data_tuple, name, label))
+#         elif '_sWF' in name:
+#             p2WF.append((data_tuple, name, label))
+#         elif 'ssWF' in name:
+#             p1WF.append((data_tuple, name, label))
+#         else: print(f'{name}, not included')
 
-    vis_groups = [vis6, vis8, vis10, vis12, vis14, vis16, vis18, vis20, vis24, vis32]
-    vis_groups_str = ['6', '8', '10', '12', '14', '16', '18', '20', '24', '32']
-    dist_groups = [maxWF, p8WF, p6WF, p5WF, p4WF, p3WF, p2WF, p1WF]
-    dist_groups_str = ['1', '0.8', '0.6', '0.5', '0.4', '0.3', '0.2', '0.1']
+#     vis_groups = [vis6, vis8, vis10, vis12, vis14, vis16, vis18, vis20, vis24, vis32]
+#     vis_groups_str = ['6', '8', '10', '12', '14', '16', '18', '20', '24', '32']
+#     dist_groups = [maxWF, p8WF, p6WF, p5WF, p4WF, p3WF, p2WF, p1WF]
+#     dist_groups_str = ['1', '0.8', '0.6', '0.5', '0.4', '0.3', '0.2', '0.1']
 
-    group_list = []
-    group_list_str = []
-    for g, gs in zip(dist_groups, dist_groups_str):
-        group_list.append(g)
-        group_list_str.append(gs)
-    for g, gs in zip(vis_groups, vis_groups_str):
-        group_list.append(g)
-        group_list_str.append(gs)
-    num_groups = len(group_list)
+#     group_list = []
+#     group_list_str = []
+#     for g, gs in zip(dist_groups, dist_groups_str):
+#         group_list.append(g)
+#         group_list_str.append(gs)
+#     for g, gs in zip(vis_groups, vis_groups_str):
+#         group_list.append(g)
+#         group_list_str.append(gs)
+#     num_groups = len(group_list)
 
-    data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'min_action', 'max_action', 'avglen_mean', 'avglen_med', 'avglen_min', 'avglen_max', 'pkf_mean', 'pkf_med', 'pkf_min', 'pkf_max', 'pkt_mean', 'pkt_med', 'pkt_min', 'pkt_max', 'def_mean', 'def_med', 'def_min', 'def_max', 'det_mean', 'det_med', 'det_min', 'det_max', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
-    data_str_x = data_list_str[data_type_x]
-    data_str_y = data_list_str[data_type_y]
+#     data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'min_action', 'max_action', 'avglen_mean', 'avglen_med', 'avglen_min', 'avglen_max', 'pkf_mean', 'pkf_med', 'pkf_min', 'pkf_max', 'pkt_mean', 'pkt_med', 'pkt_min', 'pkt_max', 'def_mean', 'def_med', 'def_min', 'def_max', 'det_mean', 'det_med', 'det_min', 'det_max', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
+#     data_str_x = data_list_str[data_type_x]
+#     data_str_y = data_list_str[data_type_y]
 
 
-    for g_num, (group_name, group_data) in enumerate(zip(group_list_str, group_list)):
+#     for g_num, (group_name, group_data) in enumerate(zip(group_list_str, group_list)):
 
-        fig, ax1 = plt.subplots(figsize=(6,4)) 
-        # fig, ax1 = plt.subplots(figsize=(12,8)) 
-        cmap = plt.get_cmap('Spectral')
+#         fig, ax1 = plt.subplots(figsize=(6,4)) 
+#         # fig, ax1 = plt.subplots(figsize=(12,8)) 
+#         cmap = plt.get_cmap('Spectral')
 
-        data_x, data_y, colors, fitnesses = [],[],[],[]
-        BD,IS,DP,BD_IS,IS_DP,DP_BD = 0,0,0,0,0,0
-        for (data, run_name, label) in group_data:
-            data_x.append(data[data_type_x])
-            data_y.append(data[data_type_y])
+#         data_x, data_y, colors, fitnesses = [],[],[],[]
+#         BD,IS,DP,BD_IS,IS_DP,DP_BD = 0,0,0,0,0,0
+#         for (data, run_name, label) in group_data:
+#             data_x.append(data[data_type_x])
+#             data_y.append(data[data_type_y])
 
-            if sc_type == 'label':
-                if label == 'BD':
-                    colors.append('cornflowerblue')
-                    BD += 1
-                elif label == 'IS':
-                    colors.append('tomato')
-                    IS += 1
-                elif label == 'DP':
-                    colors.append('forestgreen')
-                    DP += 1
-                elif label == 'BD/IS':
-                    colors.append('darkorchid')
-                    BD_IS += 1
-                elif label == 'IS/DP':
-                    colors.append('black')
-                    IS_DP += 1
-                elif label == 'DP/BD':
-                    colors.append('cyan')
-                    DP_BD += 1
-                else: print('label not recognized: ', run_name, label)
+#             if sc_type == 'label':
+#                 if label == 'BD':
+#                     colors.append('cornflowerblue')
+#                     BD += 1
+#                 elif label == 'IS':
+#                     colors.append('tomato')
+#                     IS += 1
+#                 elif label == 'DP':
+#                     colors.append('forestgreen')
+#                     DP += 1
+#                 elif label == 'BD/IS':
+#                     colors.append('darkorchid')
+#                     BD_IS += 1
+#                 elif label == 'IS/DP':
+#                     colors.append('black')
+#                     IS_DP += 1
+#                 elif label == 'DP/BD':
+#                     colors.append('cyan')
+#                     DP_BD += 1
+#                 else: print('label not recognized: ', run_name, label)
 
-            elif sc_type == 'fitness':
-                with open(fr'{data_dir}/{run_name}/val_matrix_cen.bin','rb') as f:
-                    val_matrix = pickle.load(f)
-                fitnesses.append(np.mean(val_matrix))
+#             elif sc_type == 'fitness':
+#                 with open(fr'{data_dir}/{run_name}/val_matrix_cen.bin','rb') as f:
+#                     val_matrix = pickle.load(f)
+#                 fitnesses.append(np.mean(val_matrix))
         
-        # print(f'{group_name}: {round(np.mean(data),2)}')
-        print(f'{group_name}: BD:BD_IS:IS:IS_DP:DP_BD:DP: {BD, BD_IS, IS, IS_DP, DP_BD, DP}')
+#         # print(f'{group_name}: {round(np.mean(data),2)}')
+#         print(f'{group_name}: BD:BD_IS:IS:IS_DP:DP_BD:DP: {BD, BD_IS, IS, IS_DP, DP_BD, DP}')
 
-        if sc_type == 'group':
-            ax1.scatter(data_x, data_y, color=cmap(g_num/num_groups), alpha=.8, label=group_name)
-            ax1.legend(loc='upper left')
-        elif sc_type == 'label':
-            ax1.scatter(data_x, data_y, color=colors, alpha=.8)
-        elif sc_type == 'fitness':
-            norm = mpl.colors.Normalize(vmin=230, vmax=500)
-            ax1.scatter(data_x, data_y, c=fitnesses, cmap='plasma', norm=norm, alpha=.8)
+#         if sc_type == 'group':
+#             ax1.scatter(data_x, data_y, color=cmap(g_num/num_groups), alpha=.8, label=group_name)
+#             ax1.legend(loc='upper left')
+#         elif sc_type == 'label':
+#             ax1.scatter(data_x, data_y, color=colors, alpha=.8)
+#         elif sc_type == 'fitness':
+#             norm = mpl.colors.Normalize(vmin=230, vmax=500)
+#             ax1.scatter(data_x, data_y, c=fitnesses, cmap='plasma', norm=norm, alpha=.8)
 
-        ax1.set_xlabel(data_str_x)
-        ax1.set_ylabel(data_str_y)
-        ax1.set_xlim([15,220])
-        ax1.set_ylim([.29,.91])
+#         ax1.set_xlabel(data_str_x)
+#         ax1.set_ylabel(data_str_y)
+#         ax1.set_xlim([15,220])
+#         ax1.set_ylim([.29,.91])
 
-        plt.savefig(fr'{data_dir}/group_traj_dists_2d_{data_str_x}x{data_str_y}_iter_sctyp{sc_type}_{group_name}.png', dpi=dpi)
-        plt.close()
+#         plt.savefig(fr'{data_dir}/group_traj_dists_2d_{data_str_x}x{data_str_y}_iter_sctyp{sc_type}_{group_name}.png', dpi=dpi)
+#         plt.close()
 
 
-
-def gamut_table(data_type_x=None, data_type_y=None):
+def gamut_table(group, data_type_x=None, data_type_y=None):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/traj_matrices/gamut_other.bin', 'rb') as f:
+    with open(fr'{data_dir}/traj_matrices/{group}.bin', 'rb') as f:
         data = pickle.load(f)
     print(f'data dict len: {len(data)}')
 
-    vis6 = []
-    vis8 = []
-    vis10 = []
-    vis12 = []
-    vis14 = []
-    vis16 = []
-    vis18 = []
-    vis20 = []
-    vis24 = []
-    vis32 = []
-    maxWF = []
-    p8WF = []
-    p6WF = []
-    p5WF = []
-    p4WF = []
-    p3WF = []
-    p2WF = []
-    p1WF = []
+    # new_data = {}
 
     for name in data.keys():
 
-        print(name, '\t', int(data[name][1]), '\t', round(data[name][14],2))
+        print(name)
+        # print(name, data[name])
+        # new_data[name] = data[name][0]
+        # print(name, len(data[name]))
+        # print(name, '\t', int(data[name][1]), '\t', round(data[name][14],2))
         # if type(data[name]) == tuple:
         #     print(f'decorr_time: {round(data[name][1],2)}')
         #     print(f'de_mean: {round(data[name][14],2)}')
         # print('')
 
-    #     data_tuple = data[name]
+    # with open(fr'{data_dir}/traj_matrices/{group}.bin', 'wb') as f:
+    #     pickle.dump(new_data, f)
 
-    #     if 'vis6' in name:
-    #         vis6.append((data_tuple, name, label))
-    #     elif 'vis8' in name and 'dist' not in name and 'CNN12' not in name:
-    #         vis8.append((data_tuple, name, label))
-    #     elif 'vis10' in name:
-    #         vis10.append((data_tuple, name, label))
-    #     elif 'vis12' in name:
-    #         vis12.append((data_tuple, name, label))
-    #     elif 'vis14' in name:
-    #         vis14.append((data_tuple, name, label))
-    #     elif 'vis16' in name:
-    #         vis16.append((data_tuple, name, label))
-    #     elif 'vis18' in name:
-    #         vis18.append((data_tuple, name, label))
-    #     elif 'vis20' in name:
-    #         vis20.append((data_tuple, name, label))
-    #     elif 'vis24' in name:
-    #         vis24.append((data_tuple, name, label))
-    #     elif 'vis32' in name:
-    #         vis32.append((data_tuple, name, label))
-    #     elif 'maxWF' in name:
-    #         maxWF.append((data_tuple, name, label))
-    #     elif 'p9WF' in name:
-    #         p8WF.append((data_tuple, name, label))
-    #     elif 'p8WF' in name:
-    #         p6WF.append((data_tuple, name, label))
-    #     elif 'mlWF' in name:
-    #         p5WF.append((data_tuple, name, label))
-    #     elif 'mWF' in name:
-    #         p4WF.append((data_tuple, name, label))
-    #     elif 'msWF' in name:
-    #         p3WF.append((data_tuple, name, label))
-    #     elif '_sWF' in name:
-    #         p2WF.append((data_tuple, name, label))
-    #     elif 'ssWF' in name:
-    #         p1WF.append((data_tuple, name, label))
-    #     else:
-    #         print(f'{name}, not included')
 
-    # vis_groups = [vis6, vis8, vis10, vis12, vis14, vis16, vis18, vis20, vis24, vis32]
-    # vis_groups_str = ['6', '8', '10', '12', '14', '16', '18', '20', '24', '32']
-    # dist_groups = [maxWF, p8WF, p6WF, p5WF, p4WF, p3WF, p2WF, p1WF]
-    # dist_groups_str = ['1', '0.8', '0.6', '0.5', '0.4', '0.3', '0.2', '0.1']
-
-    # group_list = []
-    # group_list_str = []
-    # for g, gs in zip(dist_groups, dist_groups_str):
-    #     group_list.append(g)
-    #     group_list_str.append(gs)
-    # for g, gs in zip(vis_groups, vis_groups_str):
-    #     group_list.append(g)
-    #     group_list_str.append(gs)
-
-    # data_list_str = ['corr_peaks', 'decorr_time', 'histo_avg_init', 'histo_avg_patch', 'histo_peaks_init', 'histo_peaks_patch', 'dirent_init', 'dirent_patch', 'min_action', 'max_action', 'avglen_mean', 'avglen_med', 'avglen_min', 'avglen_max', 'pkf_mean', 'pkf_med', 'pkf_min', 'pkf_max', 'pkt_mean', 'pkt_med', 'pkt_min', 'pkt_max', 'def_mean', 'def_med', 'def_min', 'def_max', 'det_mean', 'det_med', 'det_min', 'det_max', 'act_mean', 'act_min', 'act_max', 'len_mean', 'len_min', 'len_max', 'de_mean', 'de_min', 'de_max']
-
-    # for group_name, group_data in zip(group_list_str, group_list):
-    #     print(group_name)
-    #     for (data, name) in group_data:
-    #         if data_type_x is not None and data_type_y is not None:
-    #             print(f'{name}: {data_list_str[data_type_x]}: {round(data[data_type_x],2)} // {data_list_str[data_type_y]}: {round(data[data_type_y],2)}')
-    #         else:
-    #             print(name)
-    #     # print('')
-
-def gamut_label():
+def gamut_label(group):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
-        data = pickle.load(f)
-    print(f'data dict len: {len(data)}')
 
-    data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep1'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep2'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep3'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep6'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep7'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep9'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep12'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep13'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep14'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep15'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep16'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep17'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep18'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep19'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep0'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep1'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep2'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep3'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep6'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep7'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep9'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep10'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep12'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep13'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep14'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep15'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep16'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep17'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep18'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep0'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep1'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep2'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep3'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep6'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep7'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep9'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep10'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep12'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep13'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep14'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep15'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep16'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep17'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep18'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep19'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep1'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep2'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep3'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep6'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep7'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep9'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep10'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep12'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep13'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep14'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep15'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep16'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep17'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep18'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep19'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep0'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep1'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep3'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep6'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep7'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep9'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep10'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep13'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep14'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep15'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep16'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep17'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep19'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep1'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep2'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep3'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep7'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep8'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep9'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep10'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep12'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep15'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep16'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep17'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep18'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep19'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep2'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep3'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep5'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep6'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep13'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep14'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep15'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep16'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep18'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep19'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep0'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep3'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep4'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep5'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep6'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep7'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep8'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep10'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep11'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep12'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep13'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep14'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep15'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep18'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep19'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep0'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep2'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep4'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep5'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep7'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep10'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep11'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep12'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep15'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep16'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep0'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep4'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep5'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'], 'DP/BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep10'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep12'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep13'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep14'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep17'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep19'], 'DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep10'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep12'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep16'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep17'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep2'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep4'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep5'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep10'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep0'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep2'], 'IS/DP')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep12'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep13'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep10'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep12'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep14'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep15'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep19'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep1'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep5'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep1'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep5'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep10'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep10'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep3'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep3'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep12'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep15'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep18'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep4'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep7'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep0'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep2'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep3'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep2'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep3'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep7'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep15'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep17'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep0'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep1'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep5'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep10'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep14'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep18'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep19'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep1'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep14'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep16'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep19'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep5'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep7'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep14'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep18'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep2'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep7'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep12'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep14'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep3'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep5'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep7'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep9'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep12'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep17'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep6'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep12'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep3'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep4'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep5'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep13'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep4'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep6'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep7'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep10'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep12'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep19'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep3'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep6'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep7'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep10'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep19'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep10'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep12'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep4'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep6'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep7'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep8'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep12'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep13'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep18'], 'BD')
+    if group == 'gamut_visall_nodist':
+        with open(fr'{data_dir}/traj_matrices/{group}.bin', 'rb') as f:
+            data = pickle.load(f)
+        print(f'data dict len: {len(data)}')
 
-    with open(fr'{data_dir}/traj_matrices/gamut_labeled.bin', 'wb') as f:
-        pickle.dump(data, f)
+        data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep1'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep10'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep10'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_seed10k_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep3'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep3'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep12'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep15'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_rep18'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep4'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep7'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis10_PGPE_ss20_mom8_seed10k_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep0'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep2'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep3'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep2'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep3'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep7'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep15'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep17'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep0'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep1'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep10'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep18'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_rep19'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep1'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep16'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis14_PGPE_ss20_mom8_seed10k_rep19'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep7'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep2'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep7'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep12'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_seed10k_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep3'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep5'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep7'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep9'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep17'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep6'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep12'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis18_PGPE_ss20_mom8_seed10k_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep3'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep4'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep13'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep4'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep6'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep7'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep10'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis20_PGPE_ss20_mom8_seed10k_rep19'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep3'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep6'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep7'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep10'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep19'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep10'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep18'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep4'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep7'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep13'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep5'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep18'], 'BD')
 
-def gamut_other_label():
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'wb') as f:
+            pickle.dump(data, f)
+    
+    elif group == 'gamut_vis8_dist':
 
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    with open(fr'{data_dir}/traj_matrices/gamut_other.bin', 'rb') as f:
-        data = pickle.load(f)
-    print(f'data dict len: {len(data)}')
+        with open(fr'{data_dir}/traj_matrices/{group}.bin', 'rb') as f:
+            data = pickle.load(f)
+        print(f'data dict len: {len(data)}')
 
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep0'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep1'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep2'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep11'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep14'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep15'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep16'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep17'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep19'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep5'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep10'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep11'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep13'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep16'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep18'], 'IS')
-    data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'BD/IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'BD')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'BD')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'BD/IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'BD')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'BD')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
-    data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'BD')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD/IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'BD/IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'BD/IS')
-    data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'BD/IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
-    data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'BD/IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'BD')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD/IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'BD/IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'BD/IS')
-    data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'BD')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD/IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'BD/IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD/IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'BD')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'BD/IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'IS')
-    data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'BD/IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'BD/IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'BD/IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'BD/IS')
-    data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep2'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep3'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep5'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep7'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep9'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep10'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep11'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep12'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep15'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep16'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep17'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep18'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep19'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep1'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep3'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep4'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep5'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep6'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep7'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep8'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep9'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep12'], 'IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep13'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep14'], 'BD')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep15'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep17'], 'BD/IS')
-    data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep0'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep1'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep3'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep7'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep9'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep1'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep3'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep9'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep1'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep3'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep7'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep9'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep10'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep1'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep3'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep9'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_seed10k_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep1'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep3'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep9'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep13'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep18'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep1'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep3'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep6'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep7'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep8'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep9'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep14'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep17'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_seed10k_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep3'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep7'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep10'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep14'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep15'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep16'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep18'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep19'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep1'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep2'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep3'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep4'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep5'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep6'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep9'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep18'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep19'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep0'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep5'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep7'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep9'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep11'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep12'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep15'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep16'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep4'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep5'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep6'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep10'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep12'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep17'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_seed10k_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep10'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep12'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep16'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep17'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep2'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep4'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep10'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_seed10k_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep0'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep2'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep13'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep14'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep10'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep15'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep19'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep1'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_seed10k_rep19'], 'IS')
 
-    with open(fr'{data_dir}/traj_matrices/gamut_other_labeled.bin', 'wb') as f:
-        pickle.dump(data, f)
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'wb') as f:
+            pickle.dump(data, f)
+
+    elif group == 'gamut_vis32_dist':
+
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+        with open(fr'{data_dir}/traj_matrices/{group}.bin', 'rb') as f:
+            data = pickle.load(f)
+        print(f'data dict len: {len(data)}')
+
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep1'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep3'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep9'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep11'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep19'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep0'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep1'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep3'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep5'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep6'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep8'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep9'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep11'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep16'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep1'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep3'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep4'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep5'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep6'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep7'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep8'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep9'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep10'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep11'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep13'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep15'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep16'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep17'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep1'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep2'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep3'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep4'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep5'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep6'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep8'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep9'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep10'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep11'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep12'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep13'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep14'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep15'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep16'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep17'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep18'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep19'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep0'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep2'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep3'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep4'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep5'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep6'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep7'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep9'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep10'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep11'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep12'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep13'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep17'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep18'], 'DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep19'], 'IS/DP')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep3'], 'DP/BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep7'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep10'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep12'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep16'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep3'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep18'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep19'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep1'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep6'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep8'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep17'], 'IS')
+
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'wb') as f:
+            pickle.dump(data, f)
+
+    elif group == 'gamut_other':
+
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+        with open(fr'{data_dir}/traj_matrices/{group}.bin', 'rb') as f:
+            data = pickle.load(f)
+        print(f'data dict len: {len(data)}')
+
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep0'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep1'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep2'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep11'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep15'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep16'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep17'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep19'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep5'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep10'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep11'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep13'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep16'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep18'], 'IS')
+        data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'BD/IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'BD')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'BD')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'BD/IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'BD')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'BD')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
+        data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN13_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'BD')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD/IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'BD/IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'BD/IS')
+        data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN15_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'BD/IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'IS')
+        data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN16_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'BD/IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'BD')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'BD')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD/IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'BD')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'BD/IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'BD/IS')
+        data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'BD')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'BD/IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'BD/IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'BD/IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'BD')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'BD/IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep17'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep17'], 'IS')
+        data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep0'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep0'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep1'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep1'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep2'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep2'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep3'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep3'], 'BD/IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep4'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep4'], 'BD/IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep5'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep5'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep6'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep6'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep7'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep7'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep8'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep8'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep9'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep9'], 'BD')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep10'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep10'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep11'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep11'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep12'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep12'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep13'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep13'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep14'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep14'], 'BD/IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep15'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep15'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep16'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep16'], 'IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep18'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep18'], 'BD/IS')
+        data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep19'] = (data['sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep19'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep2'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep2'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep3'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep5'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep7'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep8'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep9'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep10'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep10'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep11'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep11'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep12'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep15'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep16'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep16'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep17'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep18'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep19'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov35_rep19'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep0'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep1'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep1'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep3'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep3'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep4'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep4'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep5'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep5'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep6'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep6'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep7'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep7'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep8'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep8'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep9'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep9'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep12'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep12'], 'IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep13'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep13'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep14'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep14'], 'BD')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep15'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep15'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep17'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep17'], 'BD/IS')
+        data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep18'] = (data['sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov45_rep18'], 'BD')
+
+        with open(fr'{data_dir}/traj_matrices/{group}_labeled.bin', 'wb') as f:
+            pickle.dump(data, f)
+    
+    else:
+        print(f'group {group} not found')
 
 
 
@@ -4319,27 +4787,15 @@ if __name__ == '__main__':
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
 
     # names.append('sc_CNN12_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep18')
-    # for i in [9,15]:
     # for i in [1,3,4,9,15]:
-    # # # # # for i in [2,5,6,7,11,12,13]:
-    # # # # # for i in [1,2,3,4,5,6,7,9,11,12,13,14,15]:
-    # # # # # for i in [0,10,17,18]:
-    # for i in [0,1,2,3,4,5,6,7,9,10,11,12,13,14,15,17,18]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
-    names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1')
-    # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep2')
-    # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4')
-    # # # for i in [3,4,9,13]:
-    # # # # # # for i in [0,1,2,5,6,14,16,17,18,19]:
-    # for i in [0,1,2,3,4,5,6,9,13,14,16,17,18,19]:
+    # for i in [2,3,4,9,13]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{str(i)}')
 
     # for i in [2,10,18]: 
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{str(i)}')
-    # for i in [2,3,5]: 
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n0_rep{str(i)}')
-    # for i in [0,2,4,8,12,17]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{str(i)}')
+    # for i in [12]: 
+    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep{str(i)}')
 
 
     ### ------ views/phys resolution scaling ------- ###
@@ -4547,15 +5003,6 @@ if __name__ == '__main__':
 
     ### ------ gamut ------- ###
 
-    # data = {}
-    # with open(fr'{data_dir}/traj_matrices/gamut.bin', 'rb') as f:
-    #     data = pickle.load(f)
-    # with open(fr'{data_dir}/traj_matrices/gamut_other.bin', 'wb') as f:
-    #     pickle.dump(data, f)
-    # with open(fr'{data_dir}/traj_matrices/gamut_bound.bin', 'wb') as f:
-    #     pickle.dump(data, f)
-
-
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)]:
@@ -4707,27 +5154,49 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN27_FNN16_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
     #     names.append(name)
 
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]:
-        names.append(name)
-        
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+
+
+    # name = 'sc_CNN14_FNN2_p50e20_vis8_2xpinball_rep0'
+    # gen, valfit = find_top_val_gen(name, 'cen')
+    # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50)
+
+    # data = {}
+    # with open(fr'{data_dir}/traj_matrices/gamut_pinball.bin', 'wb') as f:
+    #     pickle.dump(data, f)
     names = []
-    for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_2xpinball_rep{x}' for x in range(19)]:
+    #     names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis16_2xpinball_rep{x}' for x in range(17)]:
         names.append(name)
-    for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)]:
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_maxWF_2xpinball_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN17_FNN16_p50e20_vis16_2xpinball_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    run_gamut('gamut_pinball', names, dpi=50)
+
+    # data = {}
+    # with open(fr'{data_dir}/traj_matrices/gamut_vis16_dist.bin', 'wb') as f:
+    #     pickle.dump(data, f)
+    names = []
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_p9WF_n0_rep{x+11}' for x in range(9)]:
         names.append(name)
     for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)]:
         names.append(name)
@@ -4741,9 +5210,7 @@ if __name__ == '__main__':
         names.append(name)
     for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)]:
         names.append(name)
-
-    run_gamut(names, dpi=50)
-    # run_gamut(names, dpi=100)
+    run_gamut('gamut_vis16_dist', names, dpi=50)
 
 
     # analyze_gamut --> input index for desired data type
@@ -4763,21 +5230,47 @@ if __name__ == '__main__':
     # analyze_gamut('vis',0)
     # analyze_gamut('dist',0)
 
-    # gamut_table()
-    # gamut_label()
-    # gamut_other_label()
-    # gamut_2d(1,36, sc_type='group', batch='main', dist=True)
-    # gamut_2d(1,36, sc_type='label', batch='main', dist=True)
-    # gamut_2d(1,36, sc_type='fitness', batch='main', dist=True)
-    # gamut_2d(1,36, heatmap=True, batch='main', dist=True)
-    # gamut_2d(1,36, sc_type='group', batch='main', dist=False)
-    # gamut_2d(1,36, sc_type='label', batch='main', dist=False)
-    # gamut_2d(1,36, sc_type='fitness', batch='main', dist=False)
-    # gamut_2d(1,36, heatmap=True, batch='main', dist=False)
-    # gamut_2d(1,36, cluster='kmeans')
-    # gamut_2d(1,36, cluster='gmm')
-    # gamut_2d_iter(1,36, sc_type='group')
-    # gamut_2d_iter(1,36, sc_type='label')
-    # gamut_2d_iter(1,36, sc_type='fitness')
+    # gamut_table('gamut_visall_nodist')
+    # gamut_table('gamut_vis8_dist')
+    gamut_table('gamut_vis16_dist')
+    # gamut_table('gamut_vis32_dist')
+    # gamut_table('gamut_other')
+    # gamut_table('gamut_bound')
+    # gamut_table('gamut_pinball')
 
-    # gamut_2d(1,14, sc_type='group', main=False)
+    # gamut_label('gamut_visall_nodist')
+    # gamut_label('gamut_vis8_dist')
+    # gamut_label('gamut_vis32_dist')
+    # gamut_label('gamut_other')
+
+    # gamut_2d(1, 36, 'gamut', sc_type='group')
+    # gamut_2d(1, 36, 'gamut', sc_type='label')
+    # gamut_2d(1, 36, 'gamut', sc_type='fitness')
+    # gamut_2d(1, 36, 'gamut', heatmap=True)
+    # gamut_2d(1, 36, 'gamut', cluster='kmeans')
+    # gamut_2d(1, 36, 'gamut', cluster='gmm')
+    # gamut_2d(1,14, 'gamut_visall_nodist', sc_type='group')
+    # gamut_2d(1,14, 'gamut_visall_nodist', sc_type='label')
+    # gamut_2d(1,14, 'gamut_visall_nodist', sc_type='fitness')
+    # gamut_2d(1,14, 'gamut_visall_nodist', heatmap=True)
+    # # gamut_2d(1,14, 'gamut_visall_nodist', cluster='kmeans')
+    # # gamut_2d(1,14, 'gamut_visall_nodist', cluster='gmm')
+    # gamut_2d(1,14, 'gamut_vis8_dist', sc_type='group')
+    # gamut_2d(1,14, 'gamut_vis8_dist', sc_type='label')
+    # gamut_2d(1,14, 'gamut_vis8_dist', sc_type='fitness')
+    # gamut_2d(1,14, 'gamut_vis8_dist', heatmap=True)
+    # # gamut_2d(1,14, 'gamut_vis8_dist', cluster='kmeans')
+    # # gamut_2d(1,14, 'gamut_vis8_dist', cluster='gmm')
+    # gamut_2d(1,14, 'gamut_vis32_dist', sc_type='group')
+    # gamut_2d(1,14, 'gamut_vis32_dist', sc_type='label')
+    # gamut_2d(1,14, 'gamut_vis32_dist', sc_type='fitness')
+    # gamut_2d(1,14, 'gamut_vis32_dist', heatmap=True)
+    # # gamut_2d(1,14, 'gamut_vis32_dist', cluster='kmeans')
+    # # gamut_2d(1,14, 'gamut_vis32_dist', cluster='gmm')
+    # gamut_2d(1,14, 'all', sc_type='group')
+    # gamut_2d(1,14, 'all', sc_type='label')
+    # gamut_2d(1,14, 'all', sc_type='fitness')
+    # gamut_2d(1,14, 'all', heatmap=True)
+    # gamut_2d(1,14, 'all', cluster='kmeans')
+    # gamut_2d(1,14, 'all', cluster='gmm')
+

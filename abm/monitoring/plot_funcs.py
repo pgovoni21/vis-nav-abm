@@ -1674,6 +1674,163 @@ def beeswarm(y, nbins=None):
     return x
 
 
+def plot_mult_EA_trends_pred(group_est='median', save_name=None):
+
+    # establish load directory
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+    import os
+
+    names = []
+    for name in os.listdir(data_dir):
+        if name.startswith('pred'):
+            names.append(name)
+    names.sort()
+
+    # # init plot details
+    fig, ax1 = plt.subplots(figsize=(15,10)) 
+    cmap = plt.get_cmap('hsv')
+    cmap_range = len(names)
+    lns = []
+    val_avgs = []
+    val_diffs = []
+    top_vals_overall = np.zeros((3,0))
+    group_avg = []
+    group_top = []
+
+    # iterate over each file
+    for i, name in enumerate(names):
+        print(name)
+
+        # if file exists
+        if not Path(fr'{data_dir}/{name}/fitness_spread_per_generation.bin').is_file():
+            continue
+
+        with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+            data = pickle.load(f)
+
+        data_genxpop = np.mean(data, axis=2)
+
+        top_data = np.min(data_genxpop, axis=1) # min : top
+        top_ind = np.argsort(top_data)[:3] # min : top
+        top_fit = [top_data[i] for i in top_ind]
+        # if top_fit[0] == 0:
+        #     continue
+        for g,f in zip(top_ind, top_fit):
+            print(f'trn | gen {int(g)}: fit {int(f)}')
+
+        l1 = ax1.plot(top_data, 
+                        label = f'{name}',
+                        color=cmap(i/cmap_range), 
+                        alpha=0.6,
+                        )
+        lns.append(l1[0])
+        group_top.append(top_data)
+
+        # # parse val results text file if exists
+        # if val is not None:
+        #     if val == 'top': filename = 'val_results'
+        #     elif val == 'cen': filename = 'val_results_cen'
+
+        #     if Path(fr'{data_dir}/{name}/{filename}.txt').is_file():
+        #         with open(fr'{data_dir}/{name}/{filename}.txt') as f:
+        #             lines = f.readlines()
+
+        #             val_data = np.zeros((len(lines)-1, 3))
+        #             for n, line in enumerate(lines[1:]):
+        #                 data = [item.strip() for item in line.split(' ')]
+        #                 val_data[n,0] = data[1] # generation
+        #                 val_data[n,1] = data[4] # train fitness
+        #                 val_data[n,2] = data[7] # val fitness
+
+        #             print(i, val_data[:,2])
+
+        #             top_ind = np.argsort(val_data[:,2])[:3] # min : top
+        #             # top_ind = np.argsort(top_data, axis=2)[-1:-4:-1] # max : top
+
+        #             top_gen = [val_data[i,0] for i in top_ind]
+        #             top_valfit = [val_data[i,2] for i in top_ind]
+        #             for g,f in zip(top_gen, top_valfit):
+        #                 print(f'val | gen {int(g)}: fit {int(f)}')
+
+        #             top_vals_current = np.array(([i], [top_gen[0]], [top_valfit[0]]))
+        #             top_vals_overall = np.hstack((top_vals_overall, top_vals_current))
+
+        #         val_diffs.append(np.mean((val_data[:,2] - val_data[:,1])**2))
+
+        #         ax1.vlines(val_data[:,0], val_data[:,1], val_data[:,2],
+        #                 color='black',
+        #                 alpha=0.5
+        #                 )
+        #         ax1.scatter(val_data[:,0], val_data[:,2], color=cmap(i/cmap_range), edgecolor='black')
+                
+        #         avg_val = np.mean(val_data[:,2])
+        #         val_avgs.append(avg_val)
+
+        #         ax1.hlines(avg_val, i*5, data_genxpop.shape[0] + i*5,
+        #                 color=cmap(i/cmap_range),
+        #                 linestyle='dashed',
+        #                 alpha=0.5
+        #                 )
+        #     else:
+        #         print(fr'{data_dir}/{name}/{filename}.txt is not a file')
+    
+    # group_top = np.array(group_top)
+    # if group_est == 'mean':
+    #     est_trend = np.mean(group_top, axis=0)
+    # elif group_est == 'median':
+    #     est_trend = np.median(group_top, axis=0)
+    # lt = ax1.plot(est_trend, 
+    #                 label = f'{group_est} of group top',
+    #                 color='k', 
+    #                 alpha=.5
+    #                 )
+    # lns.append(lt[0])
+    
+    # group_avg = np.array(group_avg)
+    # if group_est == 'mean':
+    #     est_trend = np.mean(group_avg, axis=0)
+    # elif group_est == 'median':
+    #     est_trend = np.median(group_avg, axis=0)
+    # la = ax1.plot(est_trend, 
+    #                 label = f'{group_est} of group avg',
+    #                 color='k', 
+    #                 linestyle='dotted',
+    #                 alpha=.5
+    #                 )
+    # lns.append(la[0])
+
+
+    labs = [l.get_label() for l in lns]
+    ax1.legend(lns, labs, loc='upper right')
+    # ax1.legend(lns, labs, loc='lower left')
+    # ax1.legend(lns, labs, loc='upper left')
+
+    ax1.set_xlabel('Generation')
+    ax1.set_ylabel('Time to Find Patch')
+    ax1.set_xlim(-20,1000)
+    ax1.set_ylim(-20,1000)
+    # ax1.set_ylim(1900,5000)
+
+    # ax1.set_ylabel('# Patches Found')
+    # ax1.set_ylim(0,8)
+
+    # if val is not None:
+    #     top_val_inds = np.argsort(top_vals_overall[2,:])
+    #     top_reps = top_vals_overall[0,:][top_val_inds]
+    #     top_gens = top_vals_overall[1,:][top_val_inds]
+    #     top_vals = top_vals_overall[2,:][top_val_inds]
+        
+    #     ax1.set_title(f'overall validated run avg: {int(np.mean(val_avgs))} | val var: {int((np.mean(val_diffs))**.5)} | top val run: {int(top_vals[0])}')
+
+    #     top_num = 20
+    #     for rep, gen, val_fit in zip(top_reps[:top_num], top_gens[:top_num], top_vals[:top_num]):
+    #         print(f'overall val | rep {int(rep)} | gen {int(gen)} | fit {int(val_fit)}')
+
+    if save_name: 
+        plt.savefig(fr'{data_dir}/{save_name}.png')
+    plt.show()
+
 
 def plot_mult_EA_trends_randomwalk(run_names, save_name=None):
 
@@ -1857,7 +2014,7 @@ def relative_occurence_stacked_bars(dpi):
     # plt.close()
 
 
-    ### distance scaling ###
+    ### distance scaling, vis8 ###
 
     category_by_runtype = {
         'BD': (7,6,4,5,3,0,1,0,0),
@@ -1917,6 +2074,70 @@ def relative_occurence_stacked_bars(dpi):
 
     plt.tight_layout()
     plt.savefig(fr'{data_dir}/relative_occurence_dist_{dpi}.png', dpi=dpi)
+    plt.show()
+    # plt.close()
+
+
+    ### distance scaling, vis32 ###
+
+    category_by_runtype = {
+        'BD': (15,6,9,5,5,0,1,0,0),
+        'BD/IS': (4,1,1,3,3,0,0,0,0),
+        'IS': (2,1,2,7,0,0,0,0,0),
+        'IS/DP': (0,0,0,0,2,5,5,2,3),
+        'DP/BD': (0,0,0,1,5,4,8,2,0),
+        'DP': (0,0,0,0,5,11,6,16,17),
+    }
+    runtype_by_category = {
+        '0': (15,4,2,0,0,0),
+        '0.1': (6,1,1,0,0,0),
+        '0.2': (9,1,2,0,0,0),
+        '0.3': (5,3,7,0,1,0),
+        '0.4': (5,3,0,2,5,5),
+        '0.5': (0,0,0,5,4,11),
+        '0.6': (1,0,0,5,8,6),
+        '0.8': (0,0,0,2,2,16),
+        '1': (0,0,0,3,0,17),
+    }
+    category_colors = [
+        ['cornflowerblue'],
+        ['tomato','cornflowerblue'],
+        ['tomato'],
+        ['tomato','forestgreen'],
+        ['cornflowerblue','forestgreen'],
+        ['forestgreen'],
+    ]
+
+    fig,ax = plt.subplots(figsize=(5,4))
+
+    run_types = [x for x,_ in runtype_by_category.items()]
+    categories = [x for x,_ in category_by_runtype.items()]
+    run_sums = [np.sum(np.array(runtype_count)) for _,runtype_count in runtype_by_category.items()]
+
+    bottom = np.zeros(len(run_types))
+    for i, (category, category_count) in enumerate(category_by_runtype.items()):
+
+        category_count = np.array(category_count)
+        category_count_normalized = category_count / run_sums
+        
+        colors = category_colors[i]
+
+        if len(colors) == 1:
+            ax.bar(run_types, category_count_normalized, label=category, bottom=bottom, facecolor=colors[0], edgecolor=colors[0])
+            bottom += category_count_normalized
+        if len(colors) == 2:
+            ax.bar(run_types, category_count_normalized, label=category, bottom=bottom, facecolor=colors[0], edgecolor=colors[1], hatch=r'\\')
+            bottom += category_count_normalized
+
+    ax.set_ylabel('Relative Occurence')
+    var = r'$\sigma$'
+    ax.set_xlabel(f'Distance Scaling ({var})')
+    ax.set_ylim(0,1.05)
+    plt.legend(loc='upper right', reverse=True)
+    # ax.legend(loc=(.74,.55))
+
+    plt.tight_layout()
+    plt.savefig(fr'{data_dir}/relative_occurence_dist_vis32_{dpi}.png', dpi=dpi)
     plt.show()
     # plt.close()
 
@@ -2038,6 +2259,8 @@ if __name__ == '__main__':
 
     # relative_occurence_stacked_bars(dpi=100)
 
+    # plot_mult_EA_trends_pred()
+
 
 ### ----------pop runs----------- ###
 
@@ -2088,66 +2311,22 @@ if __name__ == '__main__':
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_fov875_rep{x}' for x in range(20)], val='cen', 
     #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_fov875_p50e20_valcen')
 
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_minmax_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_minmax_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_far_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_far_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN1124_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_far_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN1124_FNN2_vis8_dist_far_PGPE_ss20_mom8_p50e20')
-
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_WF_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n1_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_WF_n1_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n2_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_WF_n2_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n3_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_WF_n3_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n4_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_WF_n4_PGPE_ss20_mom8_p50e20')
-
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_maxWF')
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_p9WF')
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)], val='cen',
+    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_p8WF')
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_mlWF_n0_PGPE_ss20_mom8_p50e20')
+    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_mlF')
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mWF_n0_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_CNN14_FNN2_vis8_dist_mWF_n0_PGPE_ss20_mom8_p50e20')
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_msWF_n0_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_CNN14_FNN2_vis8_dist_msWF_n0_PGPE_ss20_mom8_p50e20')
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_CNN14_FNN2_vis8_dist_sWF_n0_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n1_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_dist_sWF_n1_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)], 
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_ssWF_n0_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_CNN14_FNN2_vis8_dist_ssWF_n0_PGPE_ss20_mom8_p50e20')
-
-    
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n05_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_angl_n05_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n10_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_angl_n10_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n15_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_angl_n15_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_angl_n20_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_angl_n20_PGPE_ss20_mom8_p50e20')
-
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n05_rep{x}' for x in range(20)], 
-    #                     save_name='sc_CNN14_FNN2_vis8_act_n05_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n10_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_act_n10_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n15_rep{x}' for x in range(20)], 
-    #                     save_name='sc_CNN14_FNN2_vis8_act_n15_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_act_n20_rep{x}' for x in range(20)],
-    #                     save_name='sc_CNN14_FNN2_vis8_act_n20_PGPE_ss20_mom8_p50e20')
-
-    
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_seed10k_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed20k_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_seed20k_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed30k_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_seed30k_PGPE_ss20_mom8_p50e20')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed40k_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_seed40k_PGPE_ss20_mom8_p50e20')
-
 
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_lm100')
@@ -2161,22 +2340,8 @@ if __name__ == '__main__':
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis24_lm100')
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis32_lm100')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis64_lm100_rep{x}' for x in range(20)], 
+    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis64_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis64_lm100')
-
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_lm100_angl_n10')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis10_lm100_angl_n10_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis10_lm100_angl_n10')
-
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n05_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n05')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n10')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n25_rep{x}' for x in range(20)], 
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_lm100_angl_n25')
-    # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis12_selfangl_n50_rep{x}' for x in range(20)], 
-    #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis12_selfangl_n50')
 
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNNn8_p50e20_vis8_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNNn8_p50e20_vis8_lm100')
@@ -2184,9 +2349,7 @@ if __name__ == '__main__':
     #                     save_name='sc_lm_CNN14_FNNn8_p50e20_vis10_lm100')
     # plot_mult_EA_trends([f'sc_lm_CNN14_FNNn8_p50e20_vis12_lm100_rep{x}' for x in range(20)], val='cen',
     #                     save_name='sc_lm_CNN14_FNNn8_p50e20_vis12_lm100')
-    
-    # # # plot_mult_EA_trends([f'sc_lm_CNN14_FNN2_p50e20_vis8_lm300_rep{x}' for x in range(20)], val='cen',
-    # # #                     save_name='sc_lm_CNN14_FNN2_p50e20_vis8_lm300')
+
 
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)], val='cen',)
     # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}' for x in range(20)], val='cen',)
@@ -2202,19 +2365,13 @@ if __name__ == '__main__':
     # plot_mult_EA_trends([f'sc_CNN17_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)], val='cen',)
     # plot_mult_EA_trends([f'sc_CNN14_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)], val='cen',)
     # plot_mult_EA_trends([f'sc_CNN27_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)], val='cen',)
-    plot_mult_EA_trends([f'sc_CNN1148_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)], val='cen',)
+    # plot_mult_EA_trends([f'sc_CNN1148_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)], val='cen',)
 
     # names = []
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}')
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed20k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed30k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed40k_rep{x}')
     # plot_mult_EA_trends_new(names, val='cen', group_est='median', save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20')
 
     # names = []
@@ -2223,29 +2380,13 @@ if __name__ == '__main__':
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep{x}')
     # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed20k_rep{x}')
-    # for x in range(16):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed30k_rep{x}')
-    # # for x in range(20):
-    # #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed40k_rep{x}')
     # plot_mult_EA_trends_new(names, group_est='median', save_name='sc_CNN14_FNN2_vis24_PGPE_ss20_mom8_p50e20')
-
-
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_WF_n0_rep{x}')
-    # plot_mult_EA_trends_new(names, val='cen', group_est='median', save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_WF')
 
     # names = []
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}')
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed20k_rep{x}')
-    # for x in range(10):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed30k_rep{x}')
-    # # for x in range(20):
-    # #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed40k_rep{x}')
     # plot_mult_EA_trends_new(names, group_est='median', save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_sWF')
 
     # names = []
@@ -2253,71 +2394,48 @@ if __name__ == '__main__':
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}')
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed10k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed20k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed30k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_seed40k_rep{x}')
     # plot_mult_EA_trends(names, val='cen', group_est='median', save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_mlWF')
     # names = []
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_rep{x}')
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed10k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed20k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed30k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_sWF_n0_seed40k_rep{x}')
     # plot_mult_EA_trends(names, val='cen', group_est='median', save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_sWF')
     # names = []
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_rep{x}')
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed10k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed20k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed30k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis24_PGPE_ss20_mom8_seed40k_rep{x}')
     # plot_mult_EA_trends(names, val='cen', group_est='median', save_name='sc_CNN14_FNN2_vis24_PGPE_ss20_mom8_p50e20')
     # names = []
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}')
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed20k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed30k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed40k_rep{x}')
     # plot_mult_EA_trends(names, val='cen', group_est='median', save_name='sc_CNN14_FNN2_vis12_PGPE_ss20_mom8_p50e20')
     # names = []
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_rep{x}')
     # for x in range(20):
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed10k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed20k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed30k_rep{x}')
-    # for x in range(20):
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis12_PGPE_ss20_mom8_seed40k_rep{x}')
     # plot_mult_EA_trends(names, val='cen', group_est='median', save_name='sc_CNN14_FNN2_vis12_PGPE_ss20_mom8_p50e20')
 
+    
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_2xpinball_rep{x}' for x in range(20)], save_name='sc_CNN14_FNN2_p50e20_vis8_2xpinball')
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis16_2xpinball_rep{x}' for x in range(17)], save_name='sc_CNN14_FNN2_p50e20_vis16_2xpinball')
+    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_maxWF_2xpinball_rep{x}' for x in range(20)], save_name='sc_CNN14_FNN2_p50e20_vis8_maxWF_2xpinball')
+    # plot_mult_EA_trends([f'sc_CNN17_FNN16_p50e20_vis16_2xpinball_rep{x}' for x in range(20)], save_name='sc_CNN17_FNN16_p50e20_vis16_2xpinball')
 
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_maxWF')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p9WF_n0_rep{x}' for x in range(20)], 
-    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_p9WF')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_p8WF_n0_rep{x}' for x in range(20)], 
-    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_p8WF')
-    # plot_mult_EA_trends([f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_rep{x}' for x in range(20)], val='cen',
-    #                     save_name='sc_CNN14_FNN2_vis8_PGPE_ss20_mom8_p50e20_dist_mlF')
+    groups = []
+    groups.append(('no walls, vis8', [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    groups.append(('no walls, vis16', [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{x}' for x in range(20)]))
+    groups.append(('vis8', [f'sc_CNN14_FNN2_p50e20_vis8_2xpinball_rep{x}' for x in range(20)]))
+    groups.append(('vis16', [f'sc_CNN14_FNN2_p50e20_vis16_2xpinball_rep{x}' for x in range(17)]))
+    groups.append(('maxWF', [f'sc_CNN14_FNN2_p50e20_vis8_maxWF_2xpinball_rep{x}' for x in range(20)]))
+    groups.append(('vis16, CNN17, FNN16', [f'sc_CNN17_FNN16_p50e20_vis16_2xpinball_rep{x}' for x in range(20)]))
+    plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_2xpinball')
+    plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_singlecorner_2xpinball')
+
 
 
 
@@ -2414,6 +2532,9 @@ if __name__ == '__main__':
         names.append(f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_rep{x}')
         names.append(f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_seed10k_rep{x}')
     groups.append(('vis 32', names))
+
+    # groups.append(('vis8, 2xpinball', [f'sc_CNN14_FNN2_p50e20_vis8_2xpinball_rep{x}' for x in range(20)]))
+    # groups.append(('vis16, 2xpinball', [f'sc_CNN14_FNN2_p50e20_vis16_2xpinball_rep{x}' for x in range(12)]))
 
     # plot_mult_EA_trends_groups(groups, val='cen', group_est='median', save_name='groups_singlecorner_vis_s10')
     # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_singlecorner_vis_s10')
@@ -2685,7 +2806,7 @@ if __name__ == '__main__':
     # groups.append(('VIS 8, FNN16, BS 1000', [f'sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]))
     # groups.append(('VIS 8, CNN27, FNN16, BS 1000', [f'sc_CNN27_FNN16_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]))
     # plot_mult_EA_trends_groups(groups, val='cen', save_name='groups_singlecorner_integrator_size')
-    plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_singlecorner_integrator_size')
+    # plot_mult_EA_trends_groups_endonly(groups, val='cen', save_name='groups_endonly_singlecorner_integrator_size')
 
 
 

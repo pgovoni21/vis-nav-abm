@@ -97,7 +97,7 @@ class Agent(pygame.sprite.Sprite):
             ('BL', BL),
             ('BR', BR)
         ]
-        self.extra_coll_block = 3 * np.pi / 180 # extra collision degrees where agent vel = 0 (since clip collision is slow 1 timestep)
+        self.extra_coll_block = 100 * np.pi / 180 # extra collision degrees where agent vel = 0 (since clip collision is slow 1 timestep)
 
         # Visualization / human interaction parameters
         self.radius = radius
@@ -180,6 +180,58 @@ class Agent(pygame.sprite.Sprite):
             self.vis_field_wall_dict[wall_name]['coord_L'] = coord_L
             self.vis_field_wall_dict[wall_name]['coord_R'] = coord_R
 
+
+    def gather_obj_info(self, objs):
+
+        # initialize obj dict
+        self.vis_field_obj_dict = {}
+
+        # for all objs in the simulation
+        for obj in objs:
+
+            # exclude self from list
+            if obj.id != self.id:
+
+                # exclude objs outside range of vision (calculate distance bw obj center + self eye)
+                obj_coord = obj.position
+                vec_between = obj_coord - self.pt_eye
+                obj_distance = np.linalg.norm(vec_between)
+
+                if obj_distance <= self.vision_range:
+
+                    # exclude objs outside FOV limits (calculate visual boundaries of obj)
+
+                    # orientation angle relative to perceiving obj, in radians between [-pi (left/CCW), +pi (right/CW)]
+                    angle_bw = supcalc.angle_bw_vis(self.vec_self_dir, vec_between, self.radius, obj_distance)
+
+                    # # apply noise
+                    # angle_bw += np.random.randn()*self.LM_angle_noise_std
+                    # # angle_bw += np.random.randn()*.05
+                    # lm_radius = obj.radius + np.random.randn()*self.LM_radius_noise_std
+                    # obj_distance += np.random.randn()*self.LM_dist_noise_std
+                    # # obj_distance += np.random.randn()*200
+                    # # ensure no negative radii/distances
+                    # lm_radius = np.maximum(lm_radius, 0.01)
+                    # obj_distance = np.maximum(obj_distance, 0.01)
+    
+                    # exclusionary angle between obj + self, taken to L/R boundaries
+                    angle_edge = np.arctan(obj.radius / obj_distance)
+                    angle_L = angle_bw - angle_edge
+                    angle_R = angle_bw + angle_edge
+                    # unpack L/R angle limits of visual projection field
+                    phi_L_limit = self.phis[0]
+                    phi_R_limit = self.phis[-1]
+                    if (phi_L_limit <= angle_L <= phi_R_limit) or (phi_L_limit <= angle_R <= phi_R_limit): 
+
+                        # update dictionary with all relevant info
+                        obj_name = f'obj_{obj.id}'
+                        self.vis_field_obj_dict[obj_name] = {}
+                        self.vis_field_obj_dict[obj_name]['id'] = obj.id
+                        self.vis_field_obj_dict[obj_name]['distance'] = obj_distance
+                        self.vis_field_obj_dict[obj_name]['angle_L'] = angle_L
+                        self.vis_field_obj_dict[obj_name]['angle_R'] = angle_R
+                        self.vis_field_obj_dict[obj_name]['coord'] = obj_coord
+
     # @timer
     def gather_agent_info(self, agents):
 
@@ -244,7 +296,6 @@ class Agent(pygame.sprite.Sprite):
 
                         if self.dist_field is not None:
                             self.fill_dist_field(i, phi, v["coord_L"], v["coord_R"])
-    
 
     def fill_dist_field(self, i, phi, coord_L, coord_R):
 
@@ -260,6 +311,29 @@ class Agent(pygame.sprite.Sprite):
         # fill in appropriate field entry with calculated distance
         distance = np.linalg.norm(self.pt_eye - pt_cross)
         self.dist_field[i] = distance
+
+    def fill_vis_field_objs(self):
+        """
+        Mark projection field according to each obj
+        """
+        # for each discretized perception angle within FOV range
+        for i, phi in enumerate(self.phis):
+
+            # look for intersections + keep list of occluded surfaces
+            occ_objs = []
+            for obj_name, v in self.vis_field_obj_dict.items():
+                if v["angle_L"] <= phi <= v["angle_R"]:
+                    occ_objs.append( (v["distance"], obj_name) )
+
+            if occ_objs:
+                # use closest object to fill in field
+                occ_objs.sort()
+                dist, name = occ_objs[0]
+
+                self.vis_field[i] = name
+
+                if self.dist_field is not None:
+                    self.dist_field[i] = dist
 
     # @timer
     def fill_vis_field_agents(self):
@@ -286,7 +360,7 @@ class Agent(pygame.sprite.Sprite):
                     self.vis_field[i] = "agent_explore"
 
     # @timer
-    def visual_sensing(self, agents):
+    def visual_sensing(self, objs, agents):
         """
         Accumulates visual sensory functions
         """
@@ -307,10 +381,12 @@ class Agent(pygame.sprite.Sprite):
         self.gather_self_percep_info()
         self.gather_boundary_endpt_info()
         self.gather_boundary_wall_info()
+        self.gather_obj_info(objs)
         if len(agents) > 1: self.gather_agent_info(agents)
 
         # Fill in vis_field with id info (wall name / agent mode) for each visual perception ray
         self.fill_vis_field_walls()
+        self.fill_vis_field_objs()
         if len(agents) > 1: self.fill_vis_field_agents()
 
         # Reset orientation
@@ -401,9 +477,10 @@ class Agent(pygame.sprite.Sprite):
             elif x == 'wall_south': field_onehot[1,i] = 1
             elif x == 'wall_east': field_onehot[2,i] = 1
             elif x == 'wall_west': field_onehot[3,i] = 1
-            elif x == 'agent_exploit': field_onehot[4,i] = 1
-            else: # x == 'agent_explore
-                field_onehot[5,i] = 1
+            elif x == 'obj': field_onehot[4,i] = 1
+            # elif x == 'agent_exploit': field_onehot[4,i] = 1
+            # else: # x == 'agent_explore
+            #     field_onehot[5,i] = 1
         return field_onehot
     
     def encode_labels(self, field):
