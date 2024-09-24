@@ -10,17 +10,18 @@ import torch
 import numpy as np
 import random
 
-def start(model_tuple=None, pv=None, load_dir=None, mode='test', T=100, views=None, x=None, y=None, display=False): # "abm-start" in terminal
+def start(model_tuple=None, pv=None, load_dir=None, seed=None, mode='train', pv_h2o_act=None, T=100, x=None, y=None, display=False): # "abm-start" in terminal
 
     envconf = de.dotenv_values(load_dir / '.env')
 
-    if pv == None:
-        vfr = int(envconf["VISUAL_FIELD_RESOLUTION"])
+    if pv is None:
+        # vfr = int(envconf["VISUAL_FIELD_RESOLUTION"])
+        vfr = 8
         o_size = vfr*2 + 1
-        h_size = 100
+        h_size = 50
         a_size = 8
 
-        NN = Model(arch=(o_size, h_size, a_size), activ='relu', sharpness=1, param_vector=None, mode='train')
+        NN = Model(arch=(o_size, h_size, a_size), activ='relu', sharpness=1, param_vector=None, mode='train_pred')
         # x = 5
         # y = 400
         # with open(fr'{load_dir}/abm/data/simulation_data/CML_traj5000_step200_a8_s2000_sh0_nq0.0025_goalWwall_vfr8_patchintensive/model.bin', 'rb') as f:
@@ -28,7 +29,11 @@ def start(model_tuple=None, pv=None, load_dir=None, mode='test', T=100, views=No
         # NN = model
 
     else:
-        NN = Model(arch=model_tuple, activ='relu', sharpness=1, param_vector=pv, mode='train')
+        arch, activ, sharpness = model_tuple
+        NN = Model(arch=arch, activ=activ, sharpness=sharpness, param_vector=pv, mode='train_act')
+
+    if pv_h2o_act is not None:
+        NN.assign_params_h2o_act(pv_h2o_act)
 
     if display == False:
         envconf['WITH_VISUALIZATION'] = 0
@@ -36,6 +41,9 @@ def start(model_tuple=None, pv=None, load_dir=None, mode='test', T=100, views=No
     else:
         envconf['WITH_VISUALIZATION'] = 1
         envconf['INIT_FRAMERATE'] = 100
+
+    # Set seed according to EA parent function to circumvent multiprocessing bug
+    np.random.seed(seed)
 
     with ExitStack():
         if x == None:
@@ -69,7 +77,6 @@ def start(model_tuple=None, pv=None, load_dir=None, mode='test', T=100, views=No
                             percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
                             action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
                             mode                   =mode,
-                            views                  =views,
                             )
             results = sim.start()
         else:
@@ -103,7 +110,6 @@ def start(model_tuple=None, pv=None, load_dir=None, mode='test', T=100, views=No
                             percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
                             action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
                             mode                   =mode,
-                            views                  =views,
                             x                      =x,
                             y                      =y,
                             )
@@ -141,10 +147,6 @@ def play_model(EA_save_name, num_steps):
 if __name__ == '__main__':
 
     # name = 'CML_traj10000_step100_s2500_sh1_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive'
-    # name = 'CML_traj10000_step100_s2500_sh0.1_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive'
-    # name = 'CML_traj10000_step100_s5000_sh0.1_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive'
-    # name = 'CML_traj10000_step100_s5000_sh0.1_nq0.005_nv0.001_nw0.001_goal108_patchintensive'
-    # name = 'CML_traj5000_step50_s4000_sh10_nq0.0025_nv0.0005_nw0.0005_goal108_patchintensive_a8'
 
     # num_trajs=1000
     # num_steps=100
@@ -159,4 +161,41 @@ if __name__ == '__main__':
     # play_model(name,1000)
 
     # set_seed(3)
-    start(load_dir=Path(__file__).parent.parent, mode='train', T=1000, display=True)
+    # start(load_dir=Path(__file__).parent.parent, mode='train', T=1000, display=True)
+
+
+    num_gen = 1000
+    pop_size = 50
+    h_size = 100
+    vis_trans = 'minmax'
+    # vis_trans = 'maxWF'
+
+    # start_EA_pred(num_gen, pop_size, h_size, vis_trans, 0, 'train_pred')
+
+    # exp = 'pred_sepangdist_h500_a8_vis8_maxWF_gen10k_pop50_rep0'
+    # gen = '9759'
+    # exp = 'pred_sepangdist_h500_a8_relu_vis8_noWF_n1_rep0'
+    # gen = '987'
+    exp = 'pred_sepangdist_h100_a8_vis8_minmax_pop50_rep0'
+
+    import os, pickle
+    data_dir = Path(__file__).parent / fr'data/simulation_data/{exp}'
+
+    gens = []
+    for name in os.listdir(data_dir):
+        if name.startswith('gen'):
+            gen = int(''.join(filter(str.isdigit, name))[:-1])
+            gens.append(gen)
+    gens.sort()
+
+    with open(fr'abm/data/simulation_data/{exp}/gen{gen}_NN0_pickle.bin', 'rb') as f:
+        pv = pickle.load(f)
+
+    arch = (33, 100, 8)
+    activ = 'relu'
+    sharpness = 1
+    model_tuple = (arch, activ, sharpness)
+
+    start(model_tuple, pv, Path(__file__).parent.parent, seed=0, mode='test', pv_h2o_act=None, T=100, display=True)
+
+    

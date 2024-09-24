@@ -23,7 +23,7 @@ class Simulation:
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
                  NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
                 #  landmark_radius, LM_dist_noise_std, LM_angle_noise_std, LM_radius_noise_std, 
-                mode, views=None, x=None, y=None,
+                mode, x=None, y=None,
                  ):
         """
         Initializing the main simulation instance
@@ -102,16 +102,11 @@ class Simulation:
             self.data_agent = np.zeros( (self.N, self.T, 4) ) # (pos_x, pos_y, mode, coll_res)
             self.data_res = []
 
-        self.views = views
         self.goal_pos = np.array([0, self.HEIGHT/2])
 
-        # # onehot
-        # self.o_pre = np.zeros([self.T-1])
-        # self.o_next = np.zeros([self.T-1])
-        # vector
-        o_len = vis_field_res*2 + 1
-        self.o_pre = np.zeros([self.T-1, o_len])
-        self.o_next = np.zeros([self.T-1, o_len])
+        o_len = vis_field_res*2
+        self.o_pred = np.zeros([self.T-1, o_len])
+        self.o_actual = np.zeros([self.T-1, o_len])
 
         self.x_ag = x
         self.y_ag = y
@@ -803,28 +798,25 @@ class Simulation:
                     # vector for RNN
                     # obs_current = vis_input.flatten()
                     # print(vis_input.shape, agent.dist_input.shape)
-                    obs_current = np.concatenate((vis_input.flatten(), agent.dist_input, np.array([agent.action])))
+                    obs_current = np.concatenate((vis_input.flatten(), agent.dist_input))
                     # print(obs_current.shape)
 
-                    if self.mode=='train':
-                        obs_pred, agent.hidden, agent.action = agent.model.forward(obs_current, agent.hidden)
-                    elif self.mode=='test':
-                        _, agent.hidden, agent.action = agent.model.forward(obs_current, agent.hidden)
+                    state = np.concatenate((obs_current, np.array([agent.action])))
+                    obs_pred, agent.hidden, agent.action = agent.model.forward(state, agent.hidden)
 
-                    if self.t < self.T-1:
-                        # self.o_pre[self.t] = obs_current # onehot
-                        self.o_pre[self.t,:] = obs_current # vector
-                    if self.t > 0:
-                        # self.o_next[self.t-1] = obs_current # onehot
-                        self.o_next[self.t-1,:] = obs_current # vector
+                    if self.mode == 'train_pred':
+                        if self.t < self.T-1:
+                            self.o_pred[self.t,:] = obs_pred.detach().numpy().flatten()
+                        if self.t > 0:
+                            self.o_actual[self.t-1,:] = obs_current
+
 
                     # if o_current == agent.model.goal and self.mode == 'test': # onehot
                     # if self.mode == 'test' and np.all(np.isclose(o_current, agent.model.goal, atol=5e-02)): # vector, dist
-                    if self.mode == 'test' and agent.mode == 'exploit': # foor present
-
-                            # self.recorder.end_recording()
-                            pygame.quit()
-                            return self.o_pre, self.o_next, self.t, self.goal_dist
+                    if (self.mode == 'train_act' or self.mode == 'test') and agent.mode == 'exploit':
+                        # self.recorder.end_recording()
+                        pygame.quit()
+                        return self.o_pred, self.o_actual, self.t, self.goal_dist
 
                     else: # No food (or training) --> move (stay stationary if collided object in front)
                         action = agent.action + np.random.randn()*self.action_noise_std
@@ -854,4 +846,4 @@ class Simulation:
 
         # self.recorder.end_recording()
         pygame.quit()
-        return self.o_pre, self.o_next, self.t, self.goal_dist
+        return self.o_pred, self.o_actual, self.t, self.goal_dist

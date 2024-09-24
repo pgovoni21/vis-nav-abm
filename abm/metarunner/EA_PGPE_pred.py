@@ -1,5 +1,5 @@
 from abm.NN.model_pred import Model
-from abm import start_sim
+from abm.start_sim_pred import start
 # from abm.monitoring import plot_funcs
 
 from pathlib import Path
@@ -14,29 +14,37 @@ class EvolAlgo():
     def __init__(self, arch, activ, sharpness,
                  generations, population_size, episodes, 
                  init_sigma, step_sigma, step_mu, momentum,
-                 EA_save_name, start_seed, est_method):
+                 EA_save_name, start_seed, est_method,
+                 mode, exp=None, gen=None):
 
         # init_time = time.time()
         self.overall_time = time.time()
 
-        # Pack model parameters 
         self.model_tuple = (arch, activ, sharpness)
-
-        # Calculate parameter vector size using an example NN (easy generalizable)
-        param_vec_size = sum(p.numel() for p in Model(arch,activ).parameters())
-
-        print(f'EA Save Name: {EA_save_name}')
-        print(f'Model Architecture: {arch}, {activ}, {sharpness}')
-        print(f'Total #Params: {param_vec_size}')
-        print(f'# vCPUs: {os.cpu_count()}')
-
-        # Evolution + Simulation parameters
         self.generations = generations
         self.population_size = population_size
         self.episodes = episodes
         self.init_sigma = init_sigma
         self.start_seed = start_seed
         self.est_method = est_method
+        self.mode = mode
+
+        if self.mode == 'train_pred':
+            self.T = 100
+            param_vec_size = sum(p.numel() for p in Model(arch,activ).parameters())
+        elif self.mode == 'train_act':
+            self.T = 1000
+            with open(fr'abm/data/simulation_data/{exp}/gen{gen}_NN0_pickle.bin', 'rb') as f:
+                self.pv = pickle.load(f)
+            # param_vec_size = sum(p.numel() for p in Model(arch,activ).parameters())
+            # print(param_vec_size, self.pv.shape)
+            m = Model(arch,activ, param_vector=self.pv)
+            param_vec_size = sum(p.numel() for p in m.h2o_act.parameters())
+
+        print(f'EA Save Name: {EA_save_name}')
+        print(f'Model Architecture: {arch}, {activ}, {sharpness}')
+        print(f'Total #Params: {param_vec_size}')
+        print(f'# vCPUs: {os.cpu_count()}')
 
         # Initialize ES optimizer
         self.es = PGPE(
@@ -60,7 +68,10 @@ class EvolAlgo():
         self.fitness_evol = np.zeros([generations, population_size, episodes])
         self.EA_save_name = EA_save_name
         self.root_dir = Path(__file__).parent.parent.parent
-        self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)
+        if self.mode == 'train_pred':
+            self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)
+        elif self.mode == 'train_act':
+            self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name, 'train_act_from_gen'+str(gen))
         
         self.mean_param_vec = np.zeros([generations, param_vec_size])
         self.std_param_vec = np.zeros([generations, param_vec_size])
@@ -83,6 +94,7 @@ class EvolAlgo():
         # init process pool executor/manager
         pool = multiprocessing.Pool()
 
+        last_top = -500 # min : top
         for i in range(self.generations):
 
             #### ---- Run sim + Save in running/nn/ep folder ---- ####
@@ -99,12 +111,17 @@ class EvolAlgo():
 
             # load inputs for each simulation instance into list (for starmap_async)
             sim_inputs_per_gen = []
-            for pv in self.NN_param_vectors:
-                for e in range(self.episodes):
-                    sim_inputs_per_gen.append( (self.model_tuple, pv, self.EA_save_dir, seeds_per_gen[e]) )
+            if self.mode == 'train_pred':
+                for pv in self.NN_param_vectors:
+                    for e in range(self.episodes):
+                        sim_inputs_per_gen.append( (self.model_tuple, pv, self.EA_save_dir, seeds_per_gen[e], self.mode, None, self.T) )
+            elif self.mode == 'train_act':
+                for pv_h2o_act in self.NN_param_vectors:
+                    for e in range(self.episodes):
+                        sim_inputs_per_gen.append( (self.model_tuple, self.pv, self.EA_save_dir, seeds_per_gen[e], self.mode, pv_h2o_act, self.T) )
 
             # issue all tasks to pool at once (non-blocking + ordered)
-            results = pool.starmap_async( start_sim.start, sim_inputs_per_gen )
+            results = pool.starmap_async( start, sim_inputs_per_gen )
             results_list = results.get()
 
             # print('Sim Results:')
@@ -115,15 +132,20 @@ class EvolAlgo():
 
             # pull sim data, skipping to start of each episode series/chunk
             for p, NN_index in enumerate(range(0, len(results_list), self.episodes)):
-                for e, (o_pre, o_next, time_taken, dist_from_patch) in enumerate(results_list[NN_index : NN_index + self.episodes]):
+                for e, (o_pred, o_actual, time_taken, dist_from_patch) in enumerate(results_list[NN_index : NN_index + self.episodes]):
 
-                    # if dist_from_patch == 0:
-                    #     self.fitness_evol[i,p,e] = int(time_taken)
-                    # else:
-                    #     self.fitness_evol[i,p,e] = int(time_taken + dist_from_patch)
+                    if self.mode == 'train_pred':
+                        # L2 pred norm
+                        # print(f'Pre: {o_pre}')
+                        # print(f'Post: {o_next}')
+                        # self.fitness_evol[i,p,e] = ((o_pred - o_actual)**2).mean(axis=None)
+                        self.fitness_evol[i,p,e] = ((o_pred - o_actual)**2).sum(axis=None)
 
-                    # L2 pred norm
-                    self.fitness_evol[i,p,e] = ((o_next - o_pre)**2).mean(axis=None)
+                    elif self.mode == 'train_act':
+                        if dist_from_patch == 0:
+                            self.fitness_evol[i,p,e] = int(time_taken)
+                        else:
+                            self.fitness_evol[i,p,e] = int(time_taken + dist_from_patch)
 
 
             # estimate episodal fitnesses by mean or median
@@ -143,20 +165,28 @@ class EvolAlgo():
 
             #### ---- Save current ES/model params + print info ---- ####
 
+            # top_fg = int(np.min(fitness_rank)) # max : top
+            top_fg = round(np.max(fitness_rank),2) # min : top
+            avg_fg = round(np.mean(fitness_rank),2)
+            med_fg = round(np.median(fitness_rank),2)
+
             # cycle through the top X performers
             # top_indices = np.argsort(fitness_rank)[ : -1-self.num_top_nn_saved : -1] # max : top
             # top_indices = np.argsort(fitness_rank)[ : self.num_top_nn_saved] # min : top
             # top_indices = np.argsort(fitness_rank)[-1] # max : top
             top_indices = np.argsort(fitness_rank)[:1] # min : top
 
-            # save top sim params
-            for n_top, n_gen in enumerate(top_indices):
-                with open(fr'{self.EA_save_dir}/gen{i}_NN{n_top}_pickle.bin','wb') as f:
-                    pickle.dump(self.NN_param_vectors[n_gen], f)
-            
-            # save center sim params
-            with open(fr'{self.EA_save_dir}/gen{i}_NNcen_pickle.bin', 'wb') as f:
-                pickle.dump(self.es.center.copy(), f)
+            if top_fg > last_top: # min : top
+                # save top sim params
+                for n_top, n_gen in enumerate(top_indices):
+                    with open(fr'{self.EA_save_dir}/gen{i}_NN{n_top}_pickle.bin','wb') as f:
+                        pickle.dump(self.NN_param_vectors[n_gen], f)
+
+                # # save center sim params
+                # with open(fr'{self.EA_save_dir}/gen{i}_NNcen_pickle.bin', 'wb') as f:
+                #     pickle.dump(self.es.center.copy(), f)
+
+                last_top = top_fg
 
             # Save param_vec distribution
             self.mean_param_vec[i,:] = self.es.center
@@ -164,11 +194,8 @@ class EvolAlgo():
 
             # print run info
             gen_time = round(time.time() - gen_time,2)
-            # top_fg = int(np.min(fitness_rank)) # max : top
-            top_fg = int(np.max(fitness_rank)) # min : top
-            avg_fg = int(np.mean(fitness_rank))
-            med_fg = int(np.median(fitness_rank))
             print(f'--- gen {i} | t: {gen_time}s | top: {top_fg} | avg: {avg_fg} | med: {med_fg} ---')
+
 
         #### ---- Post-evolution tasks ---- ####
 
