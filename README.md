@@ -1,4 +1,4 @@
-# Fundamental Visual Navigation Algorithms: *Indirect Sequential, Biased Diffusive, & Direct Pathing*
+# *Foraging on Autopilot*: Fundamental Visual Navigation Algorithms without Distance or Prediction
 
 <img src="./site_media/flow.png" width="800"/>
 
@@ -9,16 +9,19 @@
 **Timespan:** 2023-Present
 
 **Abstract:** <br>
-Effective foraging in a predictable local environment requires coordinating movement with observable
-spatial context - in a word, navigation. Distinct from search, navigating to specific areas known to
-be valuable entails its own particularities. How space is understood through vision and parsed for
-navigation is often examined experimentally, with limited ability to manipulate sensory inputs and
-probe into the algorithmic level of decision-making.
+Foraging in a predictable local environment requires coordinating effective movement with the observable spatial context, i.e. navigation.
+Separate from search, navigation has been recently shown to be controlled by two partially dissociable, concurrently developed systems in the brain.
+The cognitive map informs an organism of its location, bearing, and distances between environmental features, and critically allows the flexible use of shortcuts.
+Visual response-based navigation via routes, on the other hand, is commonly viewed as subserving map-based representations and described in terms of error from optimal movement.
+As such, navigation models widely assume the primacy of maps, with predictive control and distance perception as requirements, and neglect response-based perception and cognition.
+Here we show the sufficiency of a minimal feedforward framework for robust navigation, an emergent bifurcation in angle-based perceptual strategy, and convergence with multiple observed biological behaviors.
+Our agents, directly translating visual perception to movement, navigate to a known goal in an open field, an environment often assumed to require prediction and map-based representations.
+Despite identical environmental and cognitive constraints, as well as lacking perceptual distance information, 
+two distinct angle-based strategies develop, providing evidence for a perceptual-environmental attractor hypothesis for the origin of individual difference.
+Furthermore, the similarity of learned movement behavior with rodents, insects, fish, and sperm cells suggest the significance of response-based navigation throughout biology.
+We suggest the addition of feedforward, response-based models to the study of navigation as an alternative to predictive, map-based systems, 
+both to offer an option requiring less computational energy and to better explain biological behavior.
 
-As a generalizable, minimal alternative to empirical means, we evolve and study embodied neural
-networks to explore information processing algorithms an organism may use for visual spatial
-navigation. Surprisingly, three distinct classes of algorithms emerged, each with its own set of rules
-and tradeoffs, and each appear to be highly relevant to observable biological navigation behaviors.
 
 <p float="left">
   <img src="./site_media/sim_IS_respawn.gif" width="250" />
