@@ -1,12 +1,20 @@
 # from abm.metarunner.EA import EvolAlgo
 from abm.metarunner.EA_PGPE import EvolAlgo
+from abm.metarunner.EA_PGPE_ext import EvolAlgo as EvolAlgo_ext
 from abm.metarunner.EA_PGPE_pred import EvolAlgo as EvolAlgo_pred
 
 from pathlib import Path
 from dotenv import dotenv_values
 
 
-def start_EA(): # "EA-start" in terminal
+def start_EA(EA_type=None): # "EA-start" in terminal
+
+    if EA_type is None:
+        from abm.metarunner.EA_PGPE import EvolAlgo
+    elif EA_type == 'multi':
+        from abm.metarunner.EA_PGPE_multi import EvolAlgo
+    elif EA_type == 'multi_leader':
+        from abm.metarunner.EA_PGPE_multi_leader import EvolAlgo
 
     # calls env dict from root folder
     env_path = Path(__file__).parent.parent / ".env"
@@ -15,9 +23,14 @@ def start_EA(): # "EA-start" in terminal
     # gather NN variables
     N                    = int(envconf["N"])
 
+    # usual
     if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
-    elif envconf["SIM_TYPE"].startswith('nowalls'): num_class_elements = 2 # multi-agent --> 2 agent modes
     else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+
+    # overrides
+    if 'nowalls' in envconf["SIM_TYPE"]: num_class_elements = 2 # multi-agent --> 2 agent modes
+    elif 'social' in envconf["SIM_TYPE"]: num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+    # elif 'ghost' in envconf["SIM_TYPE"]: num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
     
     vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
     CNN_input_size       = (num_class_elements, vis_field_res)
@@ -52,8 +65,62 @@ def start_EA(): # "EA-start" in terminal
                   start_seed                =int(envconf["EA_START_SEED"]),
                   est_method                =str(envconf["EA_EST_METHOD"]),
                   sim_type                  =str(envconf['SIM_TYPE']),
+                  N                         =int(envconf["N"]), # for multi-agent sims
                   )
     EA.fit_parallel()
+
+
+# def start_EA_ext(EA_save_name, RNN_type_new, ext_method):
+
+#     # calls env dict from root folder
+#     root_dir = Path(__file__).parent.parent
+#     env_path = Path(root_dir, 'abm/data/simulation_data', EA_save_name, '.env')
+#     envconf = dotenv_values(env_path)
+
+#     # gather NN variables
+#     N                    = int(envconf["N"])
+
+#     if N == 1:  num_class_elements = 4 # single-agent --> perception of 4 walls
+#     elif envconf["SIM_TYPE"].startswith('nowalls'): num_class_elements = 2 # multi-agent --> 2 agent modes
+#     else:       num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
+    
+#     vis_field_res        = int(envconf["VISUAL_FIELD_RESOLUTION"])
+#     CNN_input_size       = (num_class_elements, vis_field_res)
+#     CNN_depths           = list(map(int,envconf["CNN_DEPTHS"].split(',')))
+#     CNN_dims             = list(map(int,envconf["CNN_DIMS"].split(',')))
+#     RNN_other_input_size = int(envconf["RNN_OTHER_INPUT_SIZE"])
+#     RNN_hidden_size      = int(envconf["RNN_HIDDEN_SIZE"])
+#     LCL_output_size      = int(envconf["LCL_OUTPUT_SIZE"])
+#     misc_weight          = float(envconf["MISC_WEIGHT"])
+
+#     architecture = (
+#         CNN_input_size, 
+#         CNN_depths, 
+#         CNN_dims, 
+#         RNN_other_input_size, 
+#         RNN_hidden_size, 
+#         LCL_output_size,
+#         misc_weight
+#         )
+
+#     EA = EvolAlgo_ext(arch                  =architecture, 
+#                   activ                     =str(envconf["NN_ACTIVATION_FUNCTION"]),
+#                   RNN_type                  =str(envconf["RNN_TYPE"]),
+#                   RNN_type_new              =str(RNN_type_new),
+#                   population_size           =int(envconf["EA_POPULATION_SIZE"]), 
+#                   init_sigma                =float(envconf["EA_INIT_SIGMA"]),
+#                   step_sigma                =float(envconf["EA_STEP_SIGMA"]),
+#                   step_mu                   =float(envconf["EA_STEP_MU"]),
+#                   momentum                  =float(envconf["EA_MOMENTUM"]),
+#                   generations               =int(envconf["EA_GENERATIONS"]), 
+#                   episodes                  =int(envconf["EA_EPISODES"]), 
+#                   EA_save_name              =str(EA_save_name),
+#                   start_seed                =int(envconf["EA_START_SEED"]),
+#                   est_method                =str(envconf["EA_EST_METHOD"]),
+#                   sim_type                  =str(envconf['SIM_TYPE']),
+#                   ext_method                =str(ext_method),
+#                   )
+#     EA.fit_parallel()
 
 
 def start_EA_pred(num_gen, pop_size, h_size, vis_trans, rep, mode, exp=None, gen=None): # "EA-start" in terminal

@@ -133,7 +133,7 @@ class Simulation:
         self.ghost = pygame.sprite.Group()
         self.viewable_agents = pygame.sprite.Group()
         self.resources = pygame.sprite.Group()
-        self.clock = pygame.time.Clock() # todo: look into this more in detail so we can control dt
+        self.clock = pygame.time.Clock()
 
 ### -------------------------- DRAWING FUNCTIONS -------------------------- ###
 
@@ -330,7 +330,7 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
-        x_min, x_max, y_min, y_max = self.boundary_info_coll              
+        x_min, x_max, y_min, y_max = self.boundary_info_coll
 
         if self.N == 2:
             i = 0
@@ -779,7 +779,7 @@ class Simulation:
 
                     # Calculate action
                     if self.other_input == 1:
-                        agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.acceleration / self.max_vel]), agent.hidden)
+                        agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.action]), agent.hidden)
                     else:
                         agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
 

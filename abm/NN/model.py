@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from abm.NN.memory import FNN, FNN2, FNN_noise, FNN_cognoise, CTRNN, GRU, GRU_parallel
+from abm.NN.memory import FNN, FNN2, FNN_noise, FNN_cognoise, FNN_random_as_choice, FNN_gaussian
+from abm.NN.memory import CTRNN, GRU, GRU_parallel
 from abm.NN.vision import ConvNeXt as CNN
 from abm.NN.vision import LayerNorm, GRN
 # from abm.helpers import timer
@@ -25,6 +26,7 @@ class WorldModel(nn.Module):
             RNN_other_input_size, 
             RNN_hidden_size, 
             LCL_output_size, 
+            misc_weight
         ) = arch
 
         # init vision module
@@ -41,11 +43,14 @@ class WorldModel(nn.Module):
         self.RNN_hidden_size = RNN_hidden_size
         # RNN_in_size = CNN_out_size + RNN_other_input_size
         RNN_in_size = CNN_out_size + 1
+        # RNN_in_size = CNN_out_size
         RNN_arch = (RNN_in_size, RNN_hidden_size)
         if RNN_type == 'fnn': self.rnn = FNN(arch=RNN_arch,activ=activ)
         elif RNN_type == 'fnn2': self.rnn = FNN2(arch=RNN_arch,activ=activ)
         elif RNN_type == 'fnn_noise': self.rnn = FNN_noise(arch=RNN_arch,activ=activ)
         elif RNN_type == 'fnn_cognoise': self.rnn = FNN_cognoise(arch=RNN_arch,activ=activ)
+        elif RNN_type == 'fnn_random_as_choice': self.rnn = FNN_random_as_choice(arch=RNN_arch,activ=activ,weight=misc_weight)
+        elif RNN_type == 'fnn_gaussian': self.rnn = FNN_gaussian(arch=RNN_arch,activ=activ)
         elif RNN_type == 'ctrnn': self.rnn = CTRNN(arch=RNN_arch,activ=activ)
         elif RNN_type == 'gru': self.rnn = GRU(arch=RNN_arch,activ=activ)
         elif RNN_type == 'gru_para': self.rnn = GRU_parallel(arch=RNN_arch,activ=activ)
@@ -72,6 +77,9 @@ class WorldModel(nn.Module):
         # a_size = LCL_output_size
         # self.actions = np.linspace(-1 + 2/a_size, 1, a_size)
 
+        # total_params = sum(p.numel() for p in self.parameters())
+        # print(f'Total #Params: {total_params}')
+
         # initialize w+b according to passed vector (via optimizer) or init distribution
         if param_vector is not None:
             self.assign_params(param_vector)
@@ -84,6 +92,11 @@ class WorldModel(nn.Module):
 
         # limit parallel computation to avoid CPU interference with multiproc sims
         torch.set_num_threads(1)
+
+        # if torch.cuda.is_available():
+        #     print(f"GPU: {torch.cuda.get_device_name(0)} is available.")
+        # else:
+        #     print("No GPU available. Training will run on CPU.")
 
 
     def assign_params(self, param_vector):
@@ -106,7 +119,7 @@ class WorldModel(nn.Module):
     #                 nn.init.constant_(m.bias, 0)
 
     # @timer
-    def forward(self, vis_input, other_input, hidden):
+    def forward(self, vis_input, other_input, hidden, feat_out=False):
 
         # initialize hidden state to zeros (t = 0 for sim run, saved in Agent instance)
         if hidden is None:
@@ -146,7 +159,10 @@ class WorldModel(nn.Module):
             decision = torch.argmax(LCL_out[0])
             action = self.actions[decision]
 
-        return action, hidden
+        if feat_out:
+            return action, hidden, vis_features.detach().numpy(), RNN_out.detach().numpy()
+        else:
+            return action, hidden
 
 
 # ----------------------------------------------------------------------------------------------
@@ -155,13 +171,15 @@ if __name__ == '__main__':
 
     from abm.NN.vision import LayerNorm,GRN
 
-    CNN_input_size = (4,32) # number elements, visual resolution
+    CNN_input_size = (2,8) # number elements, visual resolution
     CNN_depths = [1]
     CNN_dims = [4]
-    RNN_input_other_size = 1
-    RNN_hidden_size = 2
+    RNN_input_other_size = 0
+    RNN_hidden_size = 16
     LCL_output_size = 1
-    RNN_type = 'fnn'
+    # RNN_type = 'fnn'
+    RNN_type = 'fnn_random_as_choice'
+    misc_weight = 0
 
     arch = (
         CNN_input_size, 
@@ -170,6 +188,7 @@ if __name__ == '__main__':
         RNN_input_other_size, 
         RNN_hidden_size, 
         LCL_output_size,
+        misc_weight
         )
 
     model = WorldModel(arch=arch, RNN_type=RNN_type,)
@@ -178,8 +197,10 @@ if __name__ == '__main__':
         if isinstance(m, (nn.Linear, nn.InstanceNorm1d, nn.GRU, nn.LSTM, nn.Conv1d, nn.LayerNorm, LayerNorm, GRN)):
         
             print(f'Layer: {m}')
-            params = sum(p.numel() for p in m.parameters())
-            print(f'#Params: {params}')
+            # params = sum(p.numel() for p in m.parameters())
+            # print(f'#Params: {params}')
+            for p in m.parameters():
+                print(f'Param {p.shape} | {p.numel()}')
     
     total_params = sum(p.numel() for p in model.parameters())
     print(f'Total #Params: {total_params}')

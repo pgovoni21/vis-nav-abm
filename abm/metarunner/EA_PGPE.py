@@ -11,7 +11,7 @@ import pickle
 
 class EvolAlgo():
     
-    def __init__(self, arch, activ, RNN_type,
+    def __init__(self, arch, activ, RNN_type, N,
                  generations, population_size, episodes, 
                  init_sigma, step_sigma, step_mu, momentum,
                  EA_save_name, start_seed, est_method, sim_type):
@@ -28,7 +28,6 @@ class EvolAlgo():
         print(f'EA Save Name: {EA_save_name}')
         print(f'Model Architecture: {arch}, {RNN_type}')
         print(f'Total #Params: {param_vec_size}')
-        print(f'# vCPUs: {os.cpu_count()}')
 
         # Evolution + Simulation parameters
         self.generations = generations
@@ -102,7 +101,7 @@ class EvolAlgo():
             sim_inputs_per_gen = []
             for pv in self.NN_param_vectors:
                 for e in range(self.episodes):
-                    sim_inputs_per_gen.append( (self.model_tuple, pv, self.EA_save_dir, seeds_per_gen[e]) )
+                    sim_inputs_per_gen.append( (self.model_tuple, pv, self.EA_save_dir, seeds_per_gen[e]) ) # env_path=None
 
             # issue all tasks to pool at once (non-blocking + ordered)
             results = pool.starmap_async( start_sim.start, sim_inputs_per_gen )
@@ -117,7 +116,7 @@ class EvolAlgo():
             # pull sim data, skipping to start of each episode series/chunk
             if self.sim_type.startswith('walls'):
                 for p, NN_index in enumerate(range(0, len(results_list), self.episodes)):
-                    for e, (time_taken, dist_from_patch) in enumerate(results_list[NN_index : NN_index + self.episodes]):
+                    for e, (time_taken, dist_from_patch, data) in enumerate(results_list[NN_index : NN_index + self.episodes]):
 
                         if dist_from_patch == 0:
                             self.fitness_evol[i,p,e] = int(time_taken)

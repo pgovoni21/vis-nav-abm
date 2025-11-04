@@ -56,6 +56,7 @@ class Agent(pygame.sprite.Sprite):
         self.mode = "explore"  # explore / exploit / collide
         self.max_vel = max_vel
         self.collided_points = []
+        self.collide_timer = 0
 
         # Visual field parameters
         self.vis_field_res = vis_field_res
@@ -77,8 +78,8 @@ class Agent(pygame.sprite.Sprite):
         # Resource parameters
         self.collected_r = 0  # resource units collected by agent 
         self.on_res = 0 # binary : whether agent is currently on top of a resource patch or not
-        self.on_res_last_step = 0 # allows on_res to stay on 1 timestep (for agent to use this info next timestep)
         self.consumption = consumption
+        self.time_finished = None
 
         # Neural network init
         self.model = model
@@ -97,7 +98,7 @@ class Agent(pygame.sprite.Sprite):
             ('BL', BL),
             ('BR', BR)
         ]
-        self.extra_coll_block = 0 * np.pi / 180 # extra collision degrees where agent vel = 0 (since clip collision is slow 1 timestep)
+        self.extra_coll_block = 10 * np.pi / 180 # extra collision degrees where agent vel = 0 (since clip collision is slow 1 timestep)
         self.sim_type = sim_type
 
         # Visualization / human interaction parameters
@@ -449,15 +450,30 @@ class Agent(pygame.sprite.Sprite):
 
                 if R_limit > 2*np.pi:
                     if L_limit < self.orientation or (R_limit - 2*np.pi) > self.orientation:
-                        self.velocity = 0
+                        if self.model is None:
+                            # self.orientation += np.pi # perfect bouncy BC
+                            self.orientation = np.random.uniform(R_limit, R_limit+np.pi) # random/bounded bouncy BC
+                            self.collide_timer += 5
+                        else:
+                            self.velocity = 0 # sticky BC
                         # print('block wrap +')
                 elif L_limit < 0:
                     if R_limit > self.orientation or (L_limit + 2*np.pi) < self.orientation:
-                        self.velocity = 0
+                        if self.model is None:
+                            # self.orientation += np.pi # perfect bouncy BC
+                            self.orientation = np.random.uniform(R_limit, R_limit+np.pi) # random/bounded bouncy BC
+                            self.collide_timer += 5
+                        else:
+                            self.velocity = 0 # sticky BC
                         # print('block wrap -')
                 else:
                     if L_limit < self.orientation < R_limit:
-                        self.velocity = 0
+                        if self.model is None:
+                            # self.orientation += np.pi # perfect bouncy BC
+                            self.orientation = np.random.uniform(R_limit, R_limit+np.pi) # random/bounded bouncy BC
+                            self.collide_timer += 5
+                        else:
+                            self.velocity = 0 # sticky BC
                         # print('block')
 
         # Calculate agent's next position
@@ -500,7 +516,11 @@ class Agent(pygame.sprite.Sprite):
                 elif x == 'wall_west': field_onehot[3,i] = 1
                 elif x == 'agent_explore': field_onehot[4,i] = 1
                 elif x == 'agent_exploit': field_onehot[5,i] = 1
-                else: print('error - nothing is perceived')
+                # else: 
+                #     # pass
+                #     # print('error - nothing is perceived')
+                #     field_onehot[0,i] = 1
+            # print(field_onehot)
 
         return field_onehot
     
@@ -527,12 +547,21 @@ class Agent(pygame.sprite.Sprite):
 
     def change_color(self):
         """Changing color of agent according to the behavioral mode the agent is currently in."""
-        if self.mode == 'explore':
-            self.color = colors.BLUE
-        elif self.mode == 'exploit':
-            self.color = colors.GREEN
-        elif self.mode == 'collide':
-            self.color = colors.RED
+        if self.id == 0:
+            if self.mode == 'explore':
+                self.color = colors.BLUE
+            elif self.mode == 'exploit':
+                self.color = colors.GREEN
+            elif self.mode == 'collide':
+                self.color = colors.RED
+        else:
+            if self.mode == 'explore':
+                self.color = colors.CYAN
+            elif self.mode == 'exploit':
+                self.color = colors.VIOLET
+            elif self.mode == 'collide':
+                self.color = colors.RED
+
     # @timer
     def draw_update(self):
         """
