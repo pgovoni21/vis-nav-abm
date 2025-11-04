@@ -6,6 +6,10 @@ import tracemalloc
 from pathlib import Path
 import shutil
 import dotenv as de
+import pickle
+
+# Global dictionary to store accumulated runtimes
+accumulated_runtimes = {}
 
 def timer(func):
     """Print runtime of decorated function"""
@@ -15,8 +19,16 @@ def timer(func):
         value = func(*args, **kwargs)
         end_time = time.perf_counter()      # 2
         run_time = end_time - start_time    # 3
-        if run_time > 1e-05:
-            print(f"{func.__name__!r} : {run_time:.5f} secs")
+
+        # Update accumulated runtime
+        if func.__name__ not in accumulated_runtimes:
+            accumulated_runtimes[func.__name__] = 0
+        accumulated_runtimes[func.__name__] += run_time
+
+        print(accumulated_runtimes)
+        # if run_time > 1e-05:
+        #     print(f"{func.__name__!r} : {run_time:.5f} secs")
+
         return value
     return wrapper_timer
     return None
@@ -71,19 +83,33 @@ def trim_folders():
     root_dir = Path(__file__).parent / fr'data/simulation_data'
     for file in os.listdir(root_dir):
 
+        if 'SinitAg100' not in file:
+            continue
+
+        if 'multi' in file:
+            continue
+
         dir = Path(root_dir, file)
-        print(dir)
+        # print(dir)
 
-        for g in range(1000):
-            if os.path.isdir(Path(dir,fr'gen{g}')):
-                for file in os.listdir(Path(dir,fr'gen{g}')):
-                    if file.startswith('NN0'):
-                        if not file.endswith('png'):
-                            shutil.move(fr'{dir}/gen{g}/{file}/NN_pickle.bin', fr'{dir}/gen{g}_NN0.bin')
-                shutil.rmtree(fr'{dir}/gen{g}')
+        # for g in range(1000):
+        #     if os.path.isdir(Path(dir,fr'gen{g}')):
+        #         for file in os.listdir(Path(dir,fr'gen{g}')):
+        #             if file.startswith('NN0'):
+        #                 if not file.endswith('png'):
+        #                     shutil.move(fr'{dir}/gen{g}/{file}/NN_pickle.bin', fr'{dir}/gen{g}_NN0.bin')
+        #         shutil.rmtree(fr'{dir}/gen{g}')
 
-            # else: 
-            #     print(f'failed for: {dir,g}')
+        #     # else: 
+        #     #     print(f'failed for: {dir,g}')
+
+        for file in os.listdir(dir):
+            if file.startswith('gen'):
+                file_spaces = file[3:].replace('_',' ')
+                gen_num = [int(s) for s in file_spaces.split() if s.isdigit()][0]
+                if gen_num > 999:
+                    print(Path(dir, file))
+                    shutil.rmtree(Path(dir, file))
 
 
 
@@ -92,13 +118,21 @@ def rename_files():
     root_dir = Path(__file__).parent / fr'data/simulation_data'
     # root_dir = Path(__file__).parent / fr'data/simulation_data/traj_matrices'
 
-    word_to_change = 'mlWF'
-    for old_name in os.listdir(root_dir):
-        if word_to_change in old_name:
-            print(old_name, 'old')
-            new_name = old_name.replace(word_to_change, 'dist_p8WF')
-            # print(new_name, 'new')
-            # os.rename(Path(root_dir, old_name), Path(root_dir, new_name))
+    count = 0
+    string = 'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep'
+    for name in os.listdir(root_dir):
+        if string in name:
+            count += 1
+            print(name)
+            new_name = name.replace(string,'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep')
+            # print(name, new_name)
+            # shutil.rmtree(Path(root_dir, name))
+            os.rename(Path(root_dir, name), Path(root_dir, new_name))
+
+            # env_path = fr'{root_dir}/{name}/.env'
+            # envconf = de.dotenv_values(env_path)
+            # print(name, envconf['N'], envconf['N_RAND'])
+    print(count)
 
 
 def rename_file_in_folder():
@@ -106,13 +140,24 @@ def rename_file_in_folder():
     root_dir = Path(__file__).parent / fr'data/simulation_data'
     # root_dir = Path(__file__).parent / fr'data/simulation_data/traj_matrices'
 
+    log = []
     for folder_name in os.listdir(root_dir):
-        if 'ssWF' in folder_name and not folder_name.endswith('png'):
+        if 'sc_N' in folder_name and not folder_name.endswith('png'):
+            files = list(os.listdir(root_dir/folder_name))
+
             for file_name in os.listdir(root_dir/folder_name):
-                if 'val_result' in file_name:
+                if 'val_matrix_best_nosocial_perturb.bin' in file_name:
+                    # print(folder_name)
                 # if 'val_result' in file_name and 'cen' not in file_name:
-                    print(file_name, folder_name)
+                    # print(folder_name, file_name)
+                    log.append(folder_name)
+                    continue
                     # os.rename(Path(root_dir, folder_name, file_name), Path(root_dir, folder_name, 'val_results_cen.txt'))
+
+    # log.sort()
+    # for n in log:
+    # #     if 'ghost' in n:
+    #     print(n)
 
 
 
@@ -120,22 +165,67 @@ def modify_env_files():
 
     root_dir = Path(__file__).parent / fr'data/simulation_data'
 
+    count = 0
     for name in os.listdir(root_dir):
-        if name.startswith('sc_') and not name.endswith('png'):
-        # if name.startswith('sc_C') and not name.endswith('png'):
+        if 'SinitAg100' in name and 'collinput' not in name and 'multi' not in name and not name.endswith('png'):
+        # if name.startswith('nowall') and not name.endswith('png'):
+        
+            env_path = fr'{root_dir}/{name}/.env'
+            envconf = de.dotenv_values(env_path)
 
-            # if 'seed1' in name and 'mlWF' in name:
-            # if 'seed2' in name and 'sWF' in name:
-            # if 'seed2' in name and '24' in name:
-            if 'seed4' in name and 'dist' not in name and '24' not in name:
-
-                env_path = fr'{root_dir}/{name}/.env'
-                envconf = de.dotenv_values(env_path)
-
+            if envconf['EA_GENERATIONS'] == '2500':
                 print(name)
-                # print(envconf["EA_START_SEED"])
-                print(envconf["SIM_TYPE"])
-                # de.set_key(env_path, 'SIM_TYPE', 'walls')
+            #     count += 1
+            
+            # if 'NRW3' in name and envconf['N_RAND'] != '3':
+            #     print(name)
+
+            # if 'NRW3' in name and envconf['N_RAND'] != '3':
+            #     print(name, envconf['N_RAND'])
+
+            # de.set_key(env_path, 'EA_GENERATIONS', '2500')
+
+            # if 'SOCIAL_INIT_RANGE' in envconf.keys():
+            #     print(name, envconf['SOCIAL_INIT_RANGE'])
+
+            # if 'SinitRes' in name:
+            #     # print(name, envconf['SOCIAL_INIT_TYPE'])
+
+            #     de.set_key(env_path, 'SOCIAL_INIT_TYPE', 'res')
+
+
+            # if envconf['SIM_TYPE'] == 'walls, social-RW':
+            #     # print(name)
+            #     de.set_key(env_path, 'SIM_TYPE', 'walls, social')
+
+            # string = 'NRW0_ND5'
+            # if string in name:
+            #     print(name, envconf['N_RAND'])
+
+                # de.set_key(env_path, 'N_RAND', '0')
+
+
+
+
+
+            # if envconf['SIM_TYPE'] not in type_list:
+            #     type_list.append(envconf['SIM_TYPE'])
+            #     print(envconf['SIM_TYPE'])
+
+            # de.set_key(env_path, 'MISC_WEIGHT', '0.25')
+
+            # # if 'seed1' in name and 'mlWF' in name:
+            # # if 'seed2' in name and 'sWF' in name:
+            # # if 'seed2' in name and '24' in name:
+            # if 'seed4' in name and 'dist' not in name and '24' not in name:
+
+            #     env_path = fr'{root_dir}/{name}/.env'
+            #     envconf = de.dotenv_values(env_path)
+
+            #     print(name)
+            #     # print(envconf["EA_START_SEED"])
+            #     print(envconf["SIM_TYPE"])
+            #     # de.set_key(env_path, 'SIM_TYPE', 'walls')
 
             # de.set_key(env_path, 'PERCEP_LM_RADIUS_NOISE_STD', '0')
 
@@ -162,6 +252,18 @@ def modify_env_files():
             # if 'SIM_TYPE' not in envconf:
             #     print(name)
             #     de.set_key(env_path, 'SIM_TYPE', 'walls')
+    # print(count)
+
+
+def modify_pickled_files():
+
+    root_dir = Path(__file__).parent / fr'data/simulation_data'
+    EA_save_name = 'nowall_N5_CNN14_FNN16_vis8_rep0'
+    file_path = Path(root_dir, EA_save_name) / 'fitness_spread_per_generation.bin'
+    with open(file_path, 'rb') as f:
+        file = pickle.load(f)
+    
+    print(file)
 
 
 if __name__ == '__main__':
@@ -170,3 +272,4 @@ if __name__ == '__main__':
     # rename_files()
     rename_file_in_folder()
     # modify_env_files()
+    # modify_pickled_files()

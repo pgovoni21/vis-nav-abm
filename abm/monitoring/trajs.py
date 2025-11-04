@@ -1,9 +1,9 @@
-from abm.start_sim import reconstruct_NN
+from abm.start_sim import reconstruct_NN, start
 from abm.sprites.agent import Agent
 # from abm.sprites.agent_LM import Agent
 from abm.sprites.landmark import Landmark
 from abm.sprites import supcalc
-from abm.monitoring.plot_funcs import plot_map_iterative_traj, plot_map_iterative_traj_3d, beeswarm
+from abm.monitoring.plot_funcs import plot_map_iterative_traj, plot_map_iterative_traj_3d, plot_map_iterative_collisions, beeswarm
 
 import dotenv as de
 from pathlib import Path
@@ -14,12 +14,13 @@ import _pickle as pickle
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.markers import MarkerStyle
-import os
-
+import os, sys, platform
+import itertools
+import seaborn as sns
 
 # -------------------------- action -------------------------- #
 
-def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
+def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient, feat_out=False):
 
     width, height = tuple(eval(envconf["ENV_SIZE"]))
     agent_radius = int(envconf["RADIUS_AGENT"])
@@ -31,6 +32,12 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
     max_dist = np.hypot(width, height)
     min_dist = agent_radius*2
 
+    sim_type = str(envconf["SIM_TYPE"])
+    if sim_type == 'walls':
+        num_class = 4
+    elif sim_type == 'walls, social-RW':
+        num_class = 6
+
     agent = Agent(
             id=0,
             position=(x,y),
@@ -39,7 +46,7 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
             FOV=float(envconf['AGENT_FOV']),
             vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
             vision_range=int(envconf["VISION_RANGE"]),
-            num_class_elements=4,
+            num_class_elements=num_class,
             consumption=1,
             model=NN,
             boundary_endpts=boundary_endpts,
@@ -48,6 +55,7 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
             color=(0,0,0),
             vis_transform=vis_transform,
             percep_angle_noise_std=angl_noise_std,
+            sim_type=sim_type,
         )
 
     # gather visual input
@@ -86,16 +94,24 @@ def agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient):
 
     if other_input == 2:
         agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0, agent.acceleration / 2]), agent.hidden)
+    elif feat_out:
+        agent.action, agent.hidden, vis_feat, RNN_out = agent.model.forward(vis_input, np.array([0]), agent.hidden, feat_out=True)
+        output = np.concatenate([vis_feat, RNN_out], axis=-1)
+        output = np.insert(output, 0, agent.action)
+        return output
     else:
         agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
     
     return agent.action
 
 
-def build_action_matrix(exp_name, gen_ext, space_step, orient_step):
+def build_action_matrix(exp_name, gen_ext, space_step, orient_step, archive=False, feat_out=False):
 
-    # pull pv + envconf from save folders
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
+    else:
+        data_dir = save_data_dir
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
@@ -127,27 +143,43 @@ def build_action_matrix(exp_name, gen_ext, space_step, orient_step):
     orient_range = np.arange(0, 2*np.pi, orient_step) 
 
     # construct matrix for each grid pos/dir
-    act_matrix = np.zeros((len(x_range),
-                            len(y_range),
-                            len(orient_range),
-                            ))
-    print(f'act matrix shape (x, y, orient): {act_matrix.shape}')
+    if not feat_out:
+        act_matrix = np.zeros((len(x_range),
+                                len(y_range),
+                                len(orient_range),
+                                ))
+        # print(f'act matrix shape (x, y, orient): {act_matrix.shape}')
+        for i, x in enumerate(x_range):
+            for j, y in enumerate(y_range):
+                for k, orient in enumerate(orient_range):
+                    act_matrix[i,j,k] = agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient)
 
-    for i, x in enumerate(x_range):
-        for j, y in enumerate(y_range):
-            for k, orient in enumerate(orient_range):
-                act_matrix[i,j,k] = agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient)
+        with open(fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action.bin', 'wb') as f:
+            pickle.dump(act_matrix, f)
 
-    with open(fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action.bin', 'wb') as f:
-        pickle.dump(act_matrix, f)
+    else:
+        act_matrix = np.zeros((len(x_range),
+                                len(y_range),
+                                len(orient_range),
+                                7 # action + 4x CNN outputs + 2x RNN outputs
+                                ))
+        for i, x in enumerate(x_range):
+            for j, y in enumerate(y_range):
+                for k, orient in enumerate(orient_range):
+                    act_matrix[i,j,k,:] = agent_action_from_xyo(envconf, NN, boundary_endpts, x, y, orient, feat_out=True)
+
+        with open(fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_activs.bin', 'wb') as f:
+            pickle.dump(act_matrix, f)
+
     
-    return np.min(act_matrix), np.max(act_matrix)
-
-    
-def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='', colored='count', ex_lines=False, dpi=50):
+def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='', colored='count', ex_lines=False, archive=False, dpi=50):
     print(f'plotting action vector field - {exp_name} {plot_type}{colored} @ {dpi} dpi')
 
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
+    else:
+        data_dir = save_data_dir
     env_path = fr'{data_dir}/{exp_name}/.env'
     envconf = de.dotenv_values(env_path)
 
@@ -155,12 +187,13 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
     x_min, x_max = 0, width
     y_min, y_max = 0, height
     coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
+    num_bins = int((width - coll_boundary_thickness*2) / space_step)
     x_range = np.linspace(x_min + coll_boundary_thickness, 
                         x_max - coll_boundary_thickness + 1, 
-                        int((width - coll_boundary_thickness*2) / space_step))
+                        num_bins)
     y_range = np.linspace(y_min + coll_boundary_thickness, 
                         y_max - coll_boundary_thickness + 1, 
-                        int((height - coll_boundary_thickness*2) / space_step))
+                        num_bins)
     orient_range = np.arange(0, 2*np.pi, orient_step)
     # print(f'orient_range: {np.round(orient_range,2)}')
     # print('')
@@ -193,17 +226,12 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
         U_array = [U, Ua, Ub, Uc, Ud, Ue, Uf, Ug, Uh, Ui]
         V_array = [V, Va, Vb, Vc, Vd, Ve, Vf, Vg, Vh, Vi]
 
-    # elif plot_type == '_fwd_dirent' or plot_type == '_turn_dirent':
-    def calc_entropy(h):
-        h_norm = h / np.sum(h)
-        e = -np.sum( h_norm*np.log(h_norm) )
-        return e
-
-    h = np.ones(len(orient_range))/10000
-    e_max = calc_entropy(h) # random
-    h[0] = 1
-    e_min = calc_entropy(h) # uniform
-    # print(f'e_max: {e_max}, e_min: {e_min}')
+    elif plot_type == '_dirent_turn' or plot_type == '_dirent_fwd' or plot_type == '_fwdentropy':
+        h = np.ones(len(orient_range))/10000
+        e_max = calc_entropy(h) # random
+        h[0] = 1
+        e_min = calc_entropy(h) # uniform
+        # print(f'e_max: {e_max}, e_min: {e_min}')
 
 
     fig, axes = plt.subplots() 
@@ -213,24 +241,22 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
     l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
     fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
 
-    save_name = fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action'
+    save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_action'
     with open(save_name+'.bin', 'rb') as f:
         act_matrix = pickle.load(f)
-    # print(act_matrix.shape)
-    # print(f'action range: {abs(act_matrix.max() - act_matrix.min())}')
     act_matrix = np.abs(act_matrix)
     act_matrix = (act_matrix - act_matrix.min()) / (act_matrix.max() - act_matrix.min())
 
-    inits = [
-        [700, 200], #BR
-        [700, 600], #TR
-        [100, 200], #BL
-        [200, 700], #TL
-        [200, 500], #midL
-        [900, 500], #midR
-        [500, 500], #mid
-        [350, 350], #patch
-    ]
+    # inits = [
+    #     [700, 200], #BR
+    #     [700, 600], #TR
+    #     [100, 200], #BL
+    #     [200, 700], #TL
+    #     [200, 500], #midL
+    #     [900, 500], #midR
+    #     [500, 500], #mid
+    #     [350, 350], #patch
+    # ]
     # for x,y in inits:
     #     x_idx = (np.abs(x_range - x)).argmin()
     #     y_idx = (np.abs(y_range - y)).argmin()
@@ -238,6 +264,20 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
     #     # print(f'x_idx in range: {x_range[x_idx]}, y_idx in range: {y_range[y_idx]}')
     #     print(f'act_matrix[x_idx,y_idx,ori_idx]: {act_matrix[x_idx,y_idx,:]}')
 
+    if '_tuning' in plot_type:
+        if len(plot_type) == 8:
+            plot_index = int(plot_type[7])
+        elif len(plot_type) == 9:
+            act_index = int(plot_type[7])+1 # skip action
+            plot_index = int(plot_type[8])
+
+            save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_activs'
+            with open(save_name+'.bin', 'rb') as f:
+                act_matrix = pickle.load(f)
+            save_name += str(act_index)
+
+    As,Bs,Cs = [],[],[]
+    H_angles, H_activs = [],[]
     for i, x in enumerate(x_range):
         for j, y in enumerate(y_range):
 
@@ -320,12 +360,140 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
                         V_array[z][j,i] = ysys[p]
                         if z == 6: break
             
-            elif plot_type == '_avgact':
+            elif '_avgact' in plot_type and '_by_ori' not in plot_type:
+                if len(plot_type) == 7:
+                    pass
+                elif len(plot_type) == 8:
+                    act_index = int(plot_type[7])+1 # skip action
+
+                    save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_activs'
+                    with open(save_name+'.bin', 'rb') as f:
+                        act_matrix = pickle.load(f)
+                    save_name += str(act_index)
+                    # print(act_matrix.shape)
+
+                    act_matrix = (act_matrix - act_matrix.min()) / (act_matrix.max() - act_matrix.min())
+                    actions = act_matrix[i,j,:,act_index]
+
                 M[j,i] = np.mean(actions)
-            
+
+            elif '_avgact_by_ori' in plot_type:
+                if len(plot_type) == 15:
+                    ori_index = int(plot_type[14])
+                elif len(plot_type) == 16:
+                    act_index = int(plot_type[14])+1 # skip action
+                    ori_index = int(plot_type[15])
+
+                    save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_activs'
+                    with open(save_name+'.bin', 'rb') as f:
+                        act_matrix = pickle.load(f)
+                    save_name += str(act_index)
+                    # print(act_matrix.shape)
+
+                    act_matrix = (act_matrix - act_matrix.min()) / (act_matrix.max() - act_matrix.min())
+                    actions = act_matrix[i,j,:,act_index]
+
+                if ori_index == 0:
+                    actions = [actions[-1],actions[0]]
+                    actions = actions[-4:]
+                    actions = np.append(actions, actions[:4], -1)
+                else:
+                    actions = actions[4+(ori_index-1)*8 : 4+(ori_index-1)*8 + 8]
+                M[j,i] = np.mean(actions)
+
+            elif '_avg' in plot_type:
+                act_index = int(plot_type[4])+1 # skip action
+
+                save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_activs'
+                with open(save_name+'.bin', 'rb') as f:
+                    act_matrix = pickle.load(f)
+                save_name += str(act_index)
+                # print(act_matrix.shape)
+
+                act_matrix = (act_matrix - act_matrix.min()) / (act_matrix.max() - act_matrix.min())
+                actions = act_matrix[i,j,:,act_index]
+
+                if np.sum((1-actions)) == 0: # if all actions are 1, np.average cannot compute
+                    U[j,i] = 0
+                    V[j,i] = 0
+                else:
+                    U[j,i] = np.average(xs, weights=(1-actions))
+                    V[j,i] = np.average(ys, weights=(1-actions))
+
+            elif '_tuning' in plot_type:
+                actions = act_matrix[i,j,:,act_index]
+                # rank actions --> each pos has equal ori dist --> ranking eliminates local activity variations
+                # actions = scipy.stats.rankdata(-actions, method='average') # 1 is highest
+                # actions = scipy.stats.rankdata(actions, method='average') # 0 is highest
+                # actions = (actions - actions.min()) / (actions.max() - actions.min()) # 1 is highest
+                # actions = (actions.max() - actions) / (actions.max() - actions.min()) # 0 is highest
+
+                if plot_index == 0: # self-goal vector
+                    pt_target = np.array(eval(envconf["RESOURCE_POS"]))
+                    x_label = 'Goal-Direction'
+                elif plot_index == 1: # self-SW vector
+                    pt_target = np.array([0,0])
+                    x_label = 'SW Corner'
+                elif plot_index == 2: # self-SE vector
+                    pt_target = np.array([1000,0])
+                    x_label = 'SE Corner'
+                elif plot_index == 3: # self-NE vector
+                    pt_target = np.array([1000,1000])
+                    x_label = 'NE Corner'
+                elif plot_index == 4: # self-NW vector
+                    pt_target = np.array([0,1000])
+                    x_label = 'NW Corner'
+
+                pt_target[1] = 1000 - pt_target[1]
+                pt_self = np.array([x,1000 - y])
+                # pt_self = np.array([x,y])
+                pt_self = np.repeat(pt_self[np.newaxis,:], len(orient_range), axis=0)
+                disp = pt_self - pt_target
+
+                # angle_to_target = np.arctan2(disp[:,1], disp[:,0]) # [-pi, pi]
+                # As.append(angle_to_target[0])
+                # corr_patch_angle_diff = angle_to_target.transpose() - (orient_range-np.pi) # [-2pi, 2pi]
+                # Bs.append(corr_patch_angle_diff)
+                # corr_patch_angle_diff = corr_patch_angle_diff % (2*np.pi) - np.pi # [-pi, pi]
+                # Cs.append(corr_patch_angle_diff)
+
+                angle_to_target = np.arctan2(disp[:,1], disp[:,0]) + np.pi # [0, 2pi]
+                # As.append(angle_to_target[0])
+                corr_patch_angle_diff = angle_to_target.transpose() - orient_range # [-2pi, 2pi]
+                # Bs.append(corr_patch_angle_diff)
+                corr_patch_angle_diff = corr_patch_angle_diff % (2*np.pi) - np.pi # [-pi, pi]
+                # Cs.append(corr_patch_angle_diff)
+
+
+                # # top_N_action_ranks = np.argsort(action_ranks)[0] # top rank
+                # top_N_action_ranks = np.argsort(action_ranks)[-5:] # top 3 ranks
+                # action_ranks = action_ranks[top_N_action_ranks]
+                # corr_patch_angle_diff = corr_patch_angle_diff[top_N_action_ranks]
+
+
+                # dist = np.linalg.norm(disp[0,:])
+                # if dist < 100: 
+                #     # print(f'x: {x}, y: {y} | dist to {x_label}: {int(dist)}')
+                #     continue
+                # elif x > 900 or x < 100 or y > 900 or y < 100:
+                #     continue
+                # else:
+                H_angles.append(corr_patch_angle_diff)
+                # H_activs.append(actions)
+                H_activs.append(actions)
+
+                # if x > 350 and x < 450 and y > 350 and y < 450:
+                #     print(x,y)
+                #     print(angle_to_target[0])
+                #     for ind,ori in enumerate(orient_range):
+                #         print(ori, corr_patch_angle_diff[ind], action_ranks[ind])
+
             else:
                 print('invalid plot type')
 
+    # bins_below_thresh = np.sum(M < (M.max() * 0.15)) # count bins below threshold of max*.15
+    # print(f'% bins below thresh (max*.15): {bins_below_thresh / M.size * 100}')
+    M = scipy.ndimage.gaussian_filter(M, sigma=1)
 
     if colored == 'ori':
         M = np.arctan2(V, U)
@@ -418,19 +586,126 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
             # axes.quiver(X,Y, U_array[z]/r, V_array[z]/r, pivot='mid')
             axes.quiver(X,Y, U_array[z]/r, V_array[z]/r)
 
-    elif plot_type == '_avgact':
-        levs = np.linspace(0, 1, 11)
-        im = axes.contourf(X,Y,M, levs, cmap='plasma', alpha=.6)
-        # im = axes.contourf(X,Y,M, cmap='plasma', alpha=.6)
-        plt.colorbar(im, label='Mean Action')
-        axes.set_title(f'Avg: {np.mean(M):.2f}, Median: {np.median(M):.2f}, Min: {np.min(M):.2f}, Max: {np.max(M):.2f}')
+    elif '_avgact' in plot_type:
+        # levs = np.linspace(np.min(M), np.max(M), 11)
+        # im = axes.contourf(X,Y,M, levs, cmap='plasma', alpha=.6)
+
+        # norm = mpl.colors.Normalize(vmin=M.min(), vmax=M.max())
+        M += 0.001 # shift up to avoid log(0)
+        norm = mpl.colors.LogNorm(vmin=M.min(), vmax=M.max()) # lognorm by ori
+        im = axes.imshow(M, cmap='plasma', norm=norm, extent=(x_min, x_max, y_min, y_max), origin='lower') # pixelated background
+
+        # plt.colorbar(im, label='Mean Action')
+        # axes.set_title(f'Avg: {np.mean(M):.2f}, Median: {np.median(M):.2f}, Min: {np.min(M):.2f}, Max: {np.max(M):.2f}')
+
+    elif '_tuning' in plot_type:
+        H_angles = np.array(H_angles).flatten()
+        H_activs = np.array(H_activs).flatten()
+
+        # As = np.array(As).flatten()
+        # Bs = np.array(Bs).flatten()
+        # Cs = np.array(Cs).flatten()
+        # print(As.min(),As.max())
+        # print(Bs.min(),Bs.max())
+        # print(Cs.min(),Cs.max())
+        # print(H_angles.max(),H_angles.min())
+
+        orient_range = np.linspace(-np.pi, np.pi, 16+1)
+        avg_activ = np.histogram(H_angles, bins=orient_range, density=True, weights=H_activs)[0]
+        norm_activ = (avg_activ - avg_activ.min()) / (avg_activ.max() - avg_activ.min())
+
+        fig_hist, axes_hist = plt.subplots(figsize=(2,2))
+        axes_hist.plot(orient_range[:-1], norm_activ)
+        axes_hist.set_xticks(np.linspace(-np.pi,np.pi,3))
+        axes_hist.set_xticklabels([r'-$\pi$', '$0$', r'$\pi$'])
+        axes_hist.set_yticks([0,1])
+        # axes_hist.set_xlabel(x_label)
+        axes_hist.set_title(x_label)
+        axes_hist.set_ylabel('Normalized Activity')
+        plt.tight_layout()
+        plt.savefig(fr'{save_name}{plot_type}.png', dpi=dpi)
+        plt.close()
+        return
 
     else:
-        Q = axes.quiver(X,Y, U,V)
+        # Q = axes.quiver(X,Y, U,V)
+
+        # mask outer layer
+        mask = np.zeros([num_bins, num_bins])
+        mask[0,:] = 1
+        mask[:,0] = 1
+        mask[-1,:] = 1
+        mask[:,-1] = 1
+        U = np.ma.masked_where(mask == 1, U)
+        V = np.ma.masked_where(mask == 1, V)
+
+        # x_bins = np.linspace(0, x_max, num_bins)
+        # y_bins = np.linspace(0, y_max, num_bins)
+        # X,Y = np.meshgrid(x_bins, y_bins)
+
+        # # scale down U,V size by half
+        # rows, cols = U.shape
+        # U_reshaped = U.reshape(rows // 2, 2, cols // 2, 2)
+        # V_reshaped = V.reshape(rows // 2, 2, cols // 2, 2)
+        # U_scaled = U_reshaped.mean(axis=(1, 3))
+        # V_scaled = V_reshaped.mean(axis=(1, 3))
+        # U = U_scaled
+        # V = V_scaled
+
+        # # scale down U,V size by half, averaging for last (39x39 to 20x20)
+        # # pad if odd dimensions
+        # rows, cols = U.shape
+        # pad_rows = 0 if rows % 2 == 0 else 1
+        # pad_cols = 0 if cols % 2 == 0 else 1
+        # U_padded = np.pad(U, ((0, pad_rows), (0, pad_cols)), mode='edge')
+        # V_padded = np.pad(V, ((0, pad_rows), (0, pad_cols)), mode='edge')
+        # X_padded = np.pad(X, ((0, pad_rows), (0, pad_cols)), mode='edge')
+        # Y_padded = np.pad(Y, ((0, pad_rows), (0, pad_cols)), mode='edge')
+        # # reshape + average
+        # padded_rows, padded_cols = U_padded.shape
+        # X_reshaped = X_padded.reshape(padded_rows // 4, 4, padded_cols // 4, 4)
+        # Y_reshaped = Y_padded.reshape(padded_rows // 4, 4, padded_cols // 4, 4)
+        # U_reshaped = U_padded.reshape(padded_rows // 4, 4, padded_cols // 4, 4)
+        # V_reshaped = V_padded.reshape(padded_rows // 4, 4, padded_cols // 4, 4)
+        # U = U_reshaped.mean(axis=(1, 3))
+        # V = V_reshaped.mean(axis=(1, 3))
+        # X = X_reshaped.mean(axis=(1, 3))
+        # Y = Y_reshaped.mean(axis=(1, 3))
+
+        # rescale from using scipy.ndimage.zoom
+        rows, cols = U.shape
+        target = 20
+        scale_r = target / rows
+        scale_c = target / cols
+
+        # use linear interpolation (order=1) to downsample
+        U = scipy.ndimage.zoom(U, (scale_r, scale_c), order=1)
+        V = scipy.ndimage.zoom(V, (scale_r, scale_c), order=1)
+        X = scipy.ndimage.zoom(X, (scale_r, scale_c), order=1)
+        Y = scipy.ndimage.zoom(Y, (scale_r, scale_c), order=1)
+
+        H_len = np.hypot(U, V)
+
+        # # mask outer layer
+        # mask = np.zeros([num_bins, num_bins])
+        # mask[0,:] = 1
+        # mask[:,0] = 1
+        # mask[-1,:] = 1
+        # mask[:,-1] = 1
+        # U = np.ma.masked_where(mask == 1, U)
+        # V = np.ma.masked_where(mask == 1, V)
+        # H_len = np.ma.masked_where(mask == 1, H_len)
+
+        # arrow_len = np.sqrt(U**2 + V**2)
+        # U = U/arrow_len
+        # V = V/arrow_len
+        norm = mpl.colors.Normalize(vmin=H_len.min(), vmax=H_len.max())
+        # q = axes.quiver(X, Y, U, V, H_len.T, cmap='gray_r', norm=norm, pivot='middle')
+        q = axes.quiver(X, Y, U, V, H_len.T, cmap='Blues', norm=norm, pivot='middle', linewidths=H_len.T.flatten()+.5, edgecolors='royalblue')
 
 
     if ex_lines:
-        save_name_traj = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c25_o8_t500_cen_e1'
+        save_name_traj = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c25_o8_t500_cen_e1'
         with open(save_name_traj+'.bin', 'rb') as f:
             ag_data = pickle.load(f)
 
@@ -501,6 +776,9 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
         patch = np.array([x, y])
         basin_patch_dist = np.linalg.norm(basin - patch)
 
+    axes.set_xticklabels([])
+    axes.set_yticklabels([])
+    plt.tight_layout()
     if colored == 'count':
         plt.savefig(fr'{save_name}{plot_type}.png', dpi=dpi)
     else:
@@ -509,7 +787,7 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
     # plt.show()
     plt.close()
 
-    return np.mean(M), np.median(M), np.min(M), np.max(M), basin_patch_dist
+    return np.mean(M), np.median(M), np.min(M), np.max(M)
 
 
 # def plot_action_volume(exp_name, gen_ext, space_step, orient_step, transform='high'):
@@ -575,7 +853,7 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
 # -------------------------- early trajectory -------------------------- #
 
 
-def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, extra=''):
+def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, extra='', feat_out=False):
 
     width, height = tuple(eval(envconf["ENV_SIZE"]))
     window_pad = int(envconf["WINDOW_PAD"])
@@ -588,7 +866,26 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
     LM_dist_noise_std = float(envconf["LM_DIST_NOISE_STD"])
     LM_angle_noise_std = float(envconf["LM_ANGLE_NOISE_STD"])
     LM_radius_noise_std = float(envconf["LM_RADIUS_NOISE_STD"])
+
     sim_type = str(envconf["SIM_TYPE"])
+    if sim_type == 'walls':
+        num_class = 4
+    elif sim_type == 'walls, social-RW':
+        num_class = 6
+        if 'ghost' in extra:
+            ghost_agent = Agent(
+                    id=1,
+                    position=tuple(eval(envconf["RESOURCE_POS"])),
+                    orientation=0, max_vel=0, FOV=1, vision_range=1,
+                    num_class_elements=6, vis_field_res=8, 
+                    consumption=1, model=None, boundary_endpts=boundary_endpts,
+                    window_pad=window_pad, radius=agent_radius,
+                    color=(0,0,0), vis_transform=vis_transform,
+                    percep_angle_noise_std=0, sim_type=sim_type,
+                )
+            if extra == 'ghost_explorer': ghost_agent.mode = 'explore'
+            elif extra == 'ghost_exploiter': ghost_agent.mode = 'exploit'
+
     if extra.startswith('n0'):
         angl_noise_std = 0.
         dist_noise_std = 0.
@@ -604,6 +901,11 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
 
     max_dist = np.hypot(width, height)
     min_dist = agent_radius*2
+
+    agent_fov = float(envconf['AGENT_FOV'])
+    vis_field_res =int(envconf["VISUAL_FIELD_RESOLUTION"])
+    phis = np.linspace(-agent_fov*np.pi, agent_fov*np.pi, vis_field_res)
+    phi_angle_diff = phis[1] - phis[0]
 
     landmarks = []
     if sim_type == "LM":
@@ -683,7 +985,7 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
                 FOV=float(envconf['AGENT_FOV']),
                 vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
                 vision_range=int(envconf["VISION_RANGE"]),
-                num_class_elements=4,
+                num_class_elements=num_class,
                 consumption=1,
                 model=NN,
                 boundary_endpts=boundary_endpts,
@@ -692,14 +994,22 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
                 color=(0,0,0),
                 vis_transform=vis_transform,
                 percep_angle_noise_std=angl_noise_std,
+                sim_type=sim_type,
             )
 
-
-    traj = np.zeros((timesteps,4))
+    if feat_out and 'social' not in sim_type:
+        traj = np.zeros((timesteps,10))
+    elif feat_out and 'social' in sim_type:
+        traj = np.zeros((timesteps,24))
+    else:
+        traj = np.zeros((timesteps,4))
+    # last_moves = []
     for t in range(timesteps):
 
         if sim_type == 'walls': agent.visual_sensing([],[])
-        else: agent.visual_sensing(landmarks,[])
+        elif sim_type == 'walls, social-RW' and extra == '': agent.visual_sensing([], [])
+        elif sim_type == 'walls, social-RW' and 'ghost' in extra: agent.visual_sensing([], [agent,ghost_agent])
+        elif sim_type == 'LM': agent.visual_sensing(landmarks,[])
 
         vis_input = agent.encode_one_hot(agent.vis_field)
 
@@ -743,6 +1053,8 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
             agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0, agent.acceleration / 2]), agent.hidden)
         elif other_input == 1:
             agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.action]), agent.hidden)
+        elif feat_out:
+            agent.action, agent.hidden, vis_feat, RNN_out = agent.model.forward(vis_input, np.array([0]), agent.hidden, feat_out=True)
         else:
             agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
 
@@ -785,20 +1097,33 @@ def agent_traj_from_xyo(envconf, NN, boundary_endpts, x, y, orient, timesteps, e
         if extra.endswith('pos') and noise > 0: noise = 0
         elif extra.endswith('neg') and noise < 0: noise = 0
         action = agent.action + noise
+        # last_moves, coll_output = log_ray_boundary_collision(agent, action, last_moves, boundary_endpts, phi_angle_diff)
         agent.move(action)
 
-        traj[t,:2] = agent.pt_eye
-        traj[t,2] = agent.orientation
-        traj[t,3] = agent.action * np.pi / 2
-    
+        if feat_out:
+            traj[t,:2] = agent.pt_eye
+            traj[t,2] = agent.orientation
+            traj[t,3] = agent.action * np.pi / 2
+            traj[t,4:8] = vis_feat
+            traj[t,8:] = RNN_out
+        else:
+            traj[t,:2] = agent.pt_eye
+            traj[t,2] = agent.orientation
+            traj[t,3] = agent.action * np.pi / 2
+            # traj[t,4] = coll_output
+
     return traj
 
 
-def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra=''):
-    print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}')
+def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', archive=False, feat_out=False):
+    print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {extra}')
 
     # pull pv + envconf from save folders
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
+    else:
+        data_dir = save_data_dir
     if rank == 'top':   NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     elif rank == 'cen': NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
     with open(NN_pv_path,'rb') as f:
@@ -830,11 +1155,14 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
                         y_max - coll_boundary_thickness, 
                         int((height - coll_boundary_thickness*2) / space_step))
     orient_range = np.arange(0, 2*np.pi, orient_step)
-    print(f'testing ranges (max, min): x[{x_range[0], x_range[-1]}], y[{y_range[0], y_range[-1]}], o[{orient_range[0], orient_range[-1]}]')
+    # print(f'testing ranges (max, min): x[{x_range[0], x_range[-1]}], y[{y_range[0], y_range[-1]}], o[{orient_range[0], orient_range[-1]}]')
     
     # construct matrix of each traj for each grid pos/dir
     num_inits = len(x_range) * len(y_range) * len(orient_range)
-    traj_matrix = np.zeros( (num_inits, timesteps, 4) ) # (pos_x, pos_y, _, _) --> to match self.data_agent format
+    if feat_out:
+        traj_matrix = np.zeros( (num_inits, timesteps, 10) ) # (pos_x, pos_y, _, _) --> to match self.data_agent format
+    else:
+        traj_matrix = np.zeros( (num_inits, timesteps, 4) ) # (pos_x, pos_y, _, _) --> to match self.data_agent format
     print(f'traj matrix shape (# initializations, timesteps, ): {traj_matrix.shape}')
     
     # pack inputs for multiprocessing map
@@ -842,7 +1170,7 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
     for x in x_range:
         for y in y_range:
             for orient in orient_range:
-                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, extra) )
+                mp_inputs.append( (envconf, NN, boundary_endpts, x, y, orient, timesteps, extra, feat_out) )
     
     # run agent NNs in parallel
     with mp.Pool() as pool:
@@ -864,6 +1192,82 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
     traj_matrix[:,:,1] = y_max - traj_matrix[:,:,1]
 
     if extra == '':
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
+    else:
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin'
+    with open(save_name, 'wb') as f:
+        pickle.dump(traj_matrix, f)
+
+
+def build_agent_trajs_social(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', feat_out=False):
+    print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {extra}')
+
+    # pull pv + envconf from save folders
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if rank == 'top':   NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
+    elif rank == 'cen': NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
+    with open(NN_pv_path,'rb') as f:
+        pv = pickle.load(f)
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+    if extra == '': 
+        extra = envconf['N']
+        save_extra = ''
+    else:
+        save_extra = extra
+
+    # every grid position/direction
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x_min, x_max = 0, width
+    y_min, y_max = 0, height
+    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
+    x_range = np.linspace(x_min + coll_boundary_thickness, 
+                        x_max - coll_boundary_thickness, 
+                        int((width - coll_boundary_thickness*2) / space_step))
+    y_range = np.linspace(y_min + coll_boundary_thickness, 
+                        y_max - coll_boundary_thickness, 
+                        int((height - coll_boundary_thickness*2) / space_step))
+    orient_range = np.arange(0, 2*np.pi, orient_step)
+    # print(f'testing ranges (max, min): x[{x_range[0], x_range[-1]}], y[{y_range[0], y_range[-1]}], o[{orient_range[0], orient_range[-1]}]')
+
+    # construct matrix of each traj for each grid pos/dir
+    num_inits = len(x_range) * len(y_range) * len(orient_range)
+    if feat_out:
+        traj_matrix = np.zeros( (num_inits, timesteps, 24) ) # (pos_x, pos_y, _, _) --> to match self.data_agent format
+    else:
+        traj_matrix = np.zeros( (num_inits, timesteps, 4) ) # (pos_x, pos_y, _, _) --> to match self.data_agent format
+    # print(f'traj matrix shape (# initializations, timesteps, ): {traj_matrix.shape}')
+
+    # pack inputs for multiprocessing map
+    mp_inputs = []
+    seed = 0
+    for x in x_range:
+        for y in y_range:
+            for orient in orient_range:
+                init_info = x, y, orient, timesteps, extra
+                mp_inputs.append( (None, pv, None, seed, env_path, init_info, feat_out) ) # model_tuple=None, load_dir=None
+                seed += 1
+
+    # run agent NNs in parallel
+    with mp.Pool() as pool:
+        results = pool.starmap_async( start, mp_inputs )
+        pool.close()
+        pool.join()
+
+    # unpack results into matrix (y coords transformed for plotting)
+    results_list = results.get()
+
+    empties = []
+    for n, (time_taken, dist_from_patch, output) in enumerate(results_list):
+        traj_matrix[n,:,:] =  output
+        if not output[0,:].any():
+            empties.append(n) 
+    for n in empties:
+        traj_matrix = np.delete(traj_matrix, n, axis=0)
+
+    traj_matrix[:,:,1] = y_max - traj_matrix[:,:,1]
+
+    if save_extra == '':
         save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
     else:
         save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin'
@@ -871,19 +1275,23 @@ def build_agent_trajs_parallel(exp_name, gen_ext, space_step, orient_step, times
         pickle.dump(traj_matrix, f)
 
 
-def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, ex_lines=False, act_arr=False, extra='', dpi=50):
+def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, ex_lines=False, act_arr=False, extra='', archive=False, dpi=50):
     print(f'plotting map - {exp_name}, {gen_ext}, ell{ellipses}, ex_lines{ex_lines}, extra{extra}')
 
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
+    else:
+        data_dir = save_data_dir
     env_path = fr'{data_dir}/{exp_name}/.env'
     envconf = de.dotenv_values(env_path)
 
     if extra == '' or extra == '3d' or extra == 'clip' or extra == 'turn':
-        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
     elif extra.startswith('3d'):
-        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra[3:]}'
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra[3:]}'
     else:
-        save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}'
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}'
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
 
@@ -913,13 +1321,13 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
         # plot_map_iterative_traj_3d(traj_plot_data, x_max=width, y_max=height, save_name=save_name, plt_type='lines', var='ctime_arrows_only')
     else:
         sim_type = str(envconf["SIM_TYPE"])
-        if sim_type == 'walls':
+        if 'walls' in sim_type:
             if not act_arr:
                 # print('printing in action_maps')
                 # save_name = fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
                 plot_map_iterative_traj(traj_plot_data, x_max=width, y_max=height, save_name=save_name, ellipses=ellipses, ex_lines=ex_lines, extra=extra, dpi=dpi)
             else:
-                save_name = fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o32_action' # hardset at 32
+                save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o32_action' # hardset at 32
                 with open(save_name+'.bin', 'rb') as f:
                     act_matrix = pickle.load(f)
                 act_matrix = np.abs(act_matrix)
@@ -951,48 +1359,44 @@ def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank
 
 def calc_entropy(h):
     h_norm = h / np.sum(h)
-    e = -np.sum( h_norm*np.log(h_norm) )
+    e = np.sum( h_norm*np.log(1/h_norm) )
     return e
 
-def calc_dirent(i, j, bin_ori, orient_range):
-    if len(bin_ori) > 1:
-        print(i,j)
-        # est range
-        h = np.ones(len(bin_ori))/10000
-        e_max = calc_entropy(h) # random
-        h[0] = 1
-        e_min = calc_entropy(h) # uniform
-        # hist + calc
-        h = np.histogram(bin_ori, bins=orient_range)[0]
-        e = calc_entropy(h + 1/10000)
-        d = (e_max - e) / (e_max - e_min)
+def calc_KLdiv(x,y):
+    x = x + 1/10000
+    y = y + 1/10000
+    x_norm = x / np.sum(x)
+    y_norm = y / np.sum(y)
+    KL = np.sum( x_norm*np.log(x_norm/y_norm) )
+    return KL
+
+def calc_JSdiv(x,y):
+    x = x + 1/10000
+    y = y + 1/10000
+    x_norm = x / np.sum(x)
+    y_norm = y / np.sum(y)
+    mix = (x_norm + y_norm)/2
+    KL_x_mix = np.sum( x_norm*np.log(x_norm/mix) )
+    KL_y_mix = np.sum( y_norm*np.log(y_norm/mix) )
+    JS = KL_x_mix/2 + KL_y_mix/2
+    return JS
+
+
+def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, plot_type='', extra='', archive=False, dpi=50):
+    print(f'traj vecfield - {plot_type} - {exp_name} @ {dpi} dpi')
+
+    save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
     else:
-        print(i,j,'no data')
-        d = 0
-    return d
+        data_dir = save_data_dir
 
-
-def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, plot_type='', ex_lines=False, dpi=50):
-    print(f'plotting traj vector field - {exp_name}{plot_type} @ {dpi} dpi')
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     env_path = fr'{data_dir}/{exp_name}/.env'
     envconf = de.dotenv_values(env_path)
-
     width, height = tuple(eval(envconf["ENV_SIZE"]))
     x_min, x_max = 0, width
     y_min, y_max = 0, height
-    # coll_boundary_thickness = int(envconf["RADIUS_AGENT"])
-    # x_range = np.linspace(x_min + coll_boundary_thickness, 
-    #                     x_max - coll_boundary_thickness + 1, 
-    #                     int((width - coll_boundary_thickness*2) / space_step))
-    # y_range = np.linspace(y_min + coll_boundary_thickness, 
-    #                     y_max - coll_boundary_thickness + 1, 
-    #                     int((height - coll_boundary_thickness*2) / space_step))
     orient_range = np.arange(0, 2*np.pi, orient_step)
-    # print(f'orient_range: {np.round(orient_range,2)}')
-    # print('')
-
 
     fig, axes = plt.subplots() 
     axes.set_xlim(0, x_max)
@@ -1001,11 +1405,14 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
     l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
     fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
 
-    save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    if extra == '':
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    else:
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_{extra}'
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
     # print(ag_data.shape)
-    
+        
     # if os.path.exists(fr'{save_name}_hist{plot_type}.png'):
     #     print('plot exists')
     #     return
@@ -1017,9 +1424,9 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
     action = ag_data[:,delay:,3].flatten()
     action = np.abs(action)
 
-    num_bins = 101
-    x_bins = np.linspace(0, x_max, num_bins)
-    y_bins = np.linspace(0, y_max, num_bins)
+    num_bins = 25
+    x_bins = np.linspace(0, x_max, num_bins+1)
+    y_bins = np.linspace(0, y_max, num_bins+1)
 
     if plot_type == '_count':
         H,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
@@ -1033,10 +1440,7 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
         H = np.divide(H, H_count, out=np.zeros_like(H), where=H_count!=0)
  
         X,Y = np.meshgrid(x_bins, y_bins)
-        min = H.min()
-        max = H.max()
-        norm = mpl.colors.Normalize(vmin=min, vmax=(max-min)*.10+min)
-        # norm = mpl.colors.Normalize(vmin=H.min(), vmax=H.max())
+        norm = mpl.colors.Normalize(vmin=H.min(), vmax=H.max())
         axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
 
     elif plot_type == '_avgori':
@@ -1055,10 +1459,23 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
                     fraction=0.046, pad=0.04,
                     ticks=np.arange(0, 2*np.pi+0.01, np.pi/2),
                     format=mpl.ticker.FixedFormatter(['$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']),)
+        
+    elif plot_type == '_avgori_arrows':
+        H_count,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
+        H_x,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.cos(ori))
+        H_x = np.divide(H_x, H_count, out=np.zeros_like(H_x), where=H_count!=0)
+        H_y,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.sin(ori))
+        H_y = np.divide(H_y, H_count, out=np.zeros_like(H_y), where=H_count!=0)
+        H = np.arctan2(H_y, H_x)
+        H = (H + 2*np.pi)%(2*np.pi)
 
-        # mask if action < 10%
-        H_mask = np.ma.array(H, mask=np.where(H_count < 1, False, True))
-        im_mask = axes.imshow(H_mask.T, cmap='binary', extent=(x_min, x_max, y_min, y_max), origin='lower')
+        norm = mpl.colors.Normalize(vmin=0, vmax=2*np.pi)
+        im = axes.imshow(H.T, cmap='hsv', norm=norm, extent=(x_min, x_max, y_min, y_max), origin='lower')
+
+        plt.colorbar(im, label='Orientation',
+                    fraction=0.046, pad=0.04,
+                    ticks=np.arange(0, 2*np.pi+0.01, np.pi/2),
+                    format=mpl.ticker.FixedFormatter(['$0$', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']),)
 
     elif plot_type == '_avglen':
         H_count,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
@@ -1072,18 +1489,85 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
         norm = mpl.colors.Normalize(vmin=0, vmax=1)
         axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
 
+    elif plot_type == '_avgorilen':
+        H_count,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
+        H_x,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.cos(ori))
+        H_x = np.divide(H_x, H_count, out=np.zeros_like(H_x), where=H_count!=0)
+        H_y,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.sin(ori))
+        H_y = np.divide(H_y, H_count, out=np.zeros_like(H_y), where=H_count!=0)
+
+        H_x = scipy.ndimage.gaussian_filter(H_x, sigma=2) # smoothen
+        H_y = scipy.ndimage.gaussian_filter(H_y, sigma=2) # smoothen
+
+        H_ori = np.arctan2(H_y, H_x)
+        H_ori = (H_ori + 2*np.pi)%(2*np.pi)
+        H_len = np.hypot(H_x, H_y)
+
+        mask = np.zeros_like(H_count)
+        mask[H_count < 100] = 1
+
+        H_ori = np.ma.masked_where(mask == 1, H_ori)
+        H_len = np.ma.masked_where(mask == 1, H_len)
+
+        thickness = int(envconf["RADIUS_AGENT"])
+        x_bins = np.linspace(thickness, x_max-thickness, num_bins)
+        y_bins = np.linspace(thickness, y_max-thickness, num_bins)
+        X,Y = np.meshgrid(x_bins, y_bins)
+
+        U = np.cos(H_ori.T)*H_len.T
+        V = np.sin(H_ori.T)*H_len.T
+        U = np.ma.masked_where(mask.T == 1, U)
+        V = np.ma.masked_where(mask.T == 1, V)
+
+        mask = np.zeros((num_bins,num_bins))
+        mask[0:2, :] = 1
+        mask[:, 0:2] = 1
+        mask[-2:, :] = 1
+        mask[:, -2:] = 1
+        U = np.ma.masked_where(mask == 1, U)
+        V = np.ma.masked_where(mask == 1, V)
+
+        # rescale from using scipy.ndimage.zoom
+        rows, cols = U.shape
+        target = 20
+        scale_r = target / rows
+        scale_c = target / cols
+
+        # use linear interpolation (order=1) to downsample
+        U = scipy.ndimage.zoom(U, (scale_r, scale_c), order=1)
+        V = scipy.ndimage.zoom(V, (scale_r, scale_c), order=1)
+        X = scipy.ndimage.zoom(X, (scale_r, scale_c), order=1)
+        Y = scipy.ndimage.zoom(Y, (scale_r, scale_c), order=1)
+
+        H_len = np.hypot(U, V)
+
+        # # mask outer layer (now target x target)
+        # mask = np.zeros((target, target))
+        # mask[0, :] = 1
+        # mask[:, 0] = 1
+        # mask[-1:, :] = 1
+        # mask[:, -1:] = 1
+        # U = np.ma.masked_where(mask == 1, U)
+        # V = np.ma.masked_where(mask == 1, V)
+        # H_len = np.ma.masked_where(mask == 1, H_len)
+
+        norm = mpl.colors.Normalize(vmin=H_len.min(), vmax=H_len.max())
+        q = axes.quiver(X, Y, U, V, H_len.T, cmap='Blues', norm=norm, pivot='middle',
+                linewidths=H_len.T.flatten() + .5, edgecolors='royalblue')
+
+
     elif plot_type == '_dirent':
         # simplify data
         x = ag_data[::10,delay:,0].flatten()
         y = ag_data[::10,delay:,1].flatten()
         ori = ag_data[::10,delay:,2].flatten()
-        num_bins = 51
-        x_bins = np.linspace(0, x_max, num_bins)
-        y_bins = np.linspace(0, y_max, num_bins)
+        num_bins = 50
+        x_bins = np.linspace(0, x_max, num_bins+1)
+        y_bins = np.linspace(0, y_max, num_bins+1)
 
         # drop into bins + organize
-        hitx = np.digitize(x, x_bins)
-        hity = np.digitize(y, y_bins)
+        hitx = np.digitize(x, x_bins[1:]) # digitize counts first bin as to left of initial element
+        hity = np.digitize(y, y_bins[1:])
         hitbins = list(zip(hitx, hity))
         ori_and_bins = list(zip(ori, hitbins))
 
@@ -1092,9 +1576,9 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
         h[0] = 1
         e_min = calc_entropy(h) # uniform
 
-        H = np.zeros((num_bins-1, num_bins-1))
-        for i in range(num_bins-1):
-            for j in range(num_bins-1):
+        H = np.zeros((num_bins, num_bins))
+        for i in range(num_bins):
+            for j in range(num_bins):
                 # print(i,j)
                 bin_ori = [ori for (ori,bin) in ori_and_bins if bin == (i,j)]
                 if bin_ori:
@@ -1103,30 +1587,576 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
                     d = (e_max - e) / (e_max - e_min)
                     H[i,j] = d
                 # else:
+                #     H[i,j] = 0
                 #     print(i,j,'no data')
 
         X,Y = np.meshgrid(x_bins, y_bins)
         norm = mpl.colors.Normalize(vmin=0, vmax=1)
-        axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
+        im = axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
+        # cbar = axes.figure.colorbar(im, label='Directedness', ax=axes, fraction=0.046, pad=0.04)
+
+        # mask edges (100 from each edge) + patch vicinity (100 from center)
+        mask = np.zeros([num_bins, num_bins])
+        mask[0:10,:] = 1
+        mask[:,0:10] = 1
+        mask[89:,:] = 1
+        mask[:,89:] = 1
+        mask[29:50,49:70] = 1
+        H_mask = np.ma.array(H, mask=mask)
+        axes.set_title(f'Avg Ent. Directedness: {np.mean(H_mask):.2f}')
+        print(f'{np.mean(H_mask):.2f}, {np.min(H_mask):.2f}, {np.max(H_mask):.2f}')
+
+
+    elif '_avgactiv' in plot_type and '_by_ori' not in plot_type:
+        name_len = 9
+        if exp_name.startswith('sc_N'):
+            act_index = int(plot_type[name_len:])+4 # skip x/y/o/a
+        else:
+            act_index = int(plot_type[name_len:])+3 # skip x/y/o
+        # print(f'act_index: {act_index}')
+
+        activ = ag_data[:,delay:,act_index].flatten()
+        min_activ = activ.min()
+        max_activ = activ.max()
+        # print(min_activ, max_activ)
+        if min_activ == max_activ:
+            print(min_activ, max_activ, 'nothing printed')
+            return
+        activ = (activ - min_activ) / (max_activ - min_activ) # norm to [0,1]
+        # print(activ.mean())
+
+        num_bins = 50
+        x_bins = np.linspace(0, x_max, num_bins+1)
+        y_bins = np.linspace(0, y_max, num_bins+1)
+
+        H_count,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
+        # H_x,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.cos(ori))
+        # H_x = np.divide(H_x, H_count, out=np.zeros_like(H_x), where=H_count!=0)
+        # H_y,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.sin(ori))
+        # H_y = np.divide(H_y, H_count, out=np.zeros_like(H_y), where=H_count!=0)
+        # H_ori = np.arctan2(H_y, H_x)
+        # H_ori = (H_ori + 2*np.pi)%(2*np.pi)
+        # H_len = np.hypot(H_x, H_y)
+        H_activ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=activ)[0]
+        H_activ = np.divide(H_activ, H_count, out=np.zeros_like(H_activ), where=H_count!=0)
+
+        mask = np.zeros_like(H_count)
+        mask[H_count < 100] = 1
+        # H_ori = np.ma.masked_where(mask == 1, H_ori)
+        # H_len = np.ma.masked_where(mask == 1, H_len)
+        H_activ = np.ma.masked_where(mask == 1, H_activ)
+        bins_below_thresh = np.sum(H_activ < (H_activ.max() * 0.15)) # count bins below threshold of max*.15
+        print(f'% bins below thresh (max*.15): {bins_below_thresh / H_activ.size * 100}')
+        H_activ = np.ma.filled(H_activ, 0) # backfill masked values with zero
+        H_activ = scipy.ndimage.gaussian_filter(H_activ, sigma=1) # smoothen
+
+        x_bins = np.linspace(0, x_max, num_bins)
+        y_bins = np.linspace(0, y_max, num_bins)
+        X,Y = np.meshgrid(x_bins, y_bins)
+
+        # norm = mpl.colors.Normalize(vmin=0, vmax=H_activ.max())
+        H_activ += 0.001 # shift up to avoid log(0)
+        norm = mpl.colors.LogNorm(vmin=H_activ.min(), vmax=H_activ.max()) # lognorm by ori
+        im = axes.pcolormesh(X, Y, H_activ.T, cmap='plasma', norm=norm)
+        # print(H_activ.min())
+
+        # U = np.cos(H_ori.T)*H_len.T
+        # V = np.sin(H_ori.T)*H_len.T
+        # U = np.ma.masked_where(mask.T == 1, U)
+        # V = np.ma.masked_where(mask.T == 1, V)
+        # norm = mpl.colors.Normalize(vmin=H_len.min(), vmax=H_len.max())
+        # q = axes.quiver(X, Y, U, V, H_len.T, cmap='gray_r', norm=norm, pivot='middle')
+
+        # # print where H_len.min() is
+        # H_len_min_pos = np.where(H_len == H_len.min())
+        # H_len_min_x = x_bins[H_len_min_pos[0][0]]
+        # H_len_min_y = y_bins[H_len_min_pos[1][0]]
+        # print(f'H_len.min @ ({H_len_min_x:.2f},{H_len_min_y:.2f})')
+
+    elif '_avgactiv_by_ori' in plot_type:
+        name_len = 16
+        act_index = int(plot_type[name_len])+3 # skip x/y/o
+        ori_index = int(plot_type[name_len+1])
+
+        activ = ag_data[:,delay:,act_index].flatten()
+        min_activ = activ.min()
+        max_activ = activ.max()
+        activ = (activ - min_activ) / (max_activ - min_activ) # norm to [0,1]
+
+        num_ori_bins = 8
+        ori += 2*np.pi/num_ori_bins/2 # shift data by half bin size --> centers bins on 0
+        ori[ori > 2*np.pi] -= 2*np.pi # spin data that were pushed over 360
+        o_bins = np.linspace(0, 2*np.pi, num_ori_bins+1)
+        ori_mask = (ori >= o_bins[ori_index]) & (ori < o_bins[ori_index+1]) # mask if outside ori bin
+        x = x[ori_mask]
+        y = y[ori_mask]
+        ori = ori[ori_mask]
+        activ = activ[ori_mask]
+        ori -= np.pi/8 # restore for histo/arrows
+
+        num_bins = 50
+        x_bins = np.linspace(0, x_max, num_bins+1)
+        y_bins = np.linspace(0, y_max, num_bins+1)
+
+        H_count,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
+        # H_x,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.cos(ori))
+        # H_x = np.divide(H_x, H_count, out=np.zeros_like(H_x), where=H_count!=0)
+        # H_y,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=np.sin(ori))
+        # H_y = np.divide(H_y, H_count, out=np.zeros_like(H_y), where=H_count!=0)
+        # H_ori = np.arctan2(H_y, H_x)
+        # H_ori = (H_ori + 2*np.pi)%(2*np.pi)
+        # H_len = np.hypot(H_x, H_y)
+        H_activ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=activ)[0]
+        H_activ = np.divide(H_activ, H_count, out=np.zeros_like(H_activ), where=H_count!=0)
+        
+        mask = np.zeros_like(H_count)
+        mask[H_count < 15] = 1
+        H_activ = np.ma.masked_where(mask == 1, H_activ)
+        H_activ = np.ma.filled(H_activ, 0) # backfill masked values with zero
+        H_activ = scipy.ndimage.gaussian_filter(H_activ, sigma=1) # smoothen
+
+        # mask = np.zeros_like(H_count)
+        # mask[H_count < 1] = 1
+        # H_ori = np.ma.masked_where(mask == 1, H_ori)
+        # H_len = np.ma.masked_where(mask == 1, H_len)
+        # # H_activ = np.ma.masked_where(mask == 1, H_activ) # no mask since bottom normalized + gaussian smoothened
+
+        x_bins = np.linspace(0, x_max, num_bins)
+        y_bins = np.linspace(0, y_max, num_bins)
+        X,Y = np.meshgrid(x_bins, y_bins)
+        # U = np.cos(H_ori.T)*H_len.T
+        # V = np.sin(H_ori.T)*H_len.T
+        # U = np.ma.masked_where(mask.T == 1, U)
+        # V = np.ma.masked_where(mask.T == 1, V)
+        # print(H_activ.min())
+
+        # norm = mpl.colors.Normalize(vmin=0, vmax=H_activ.max()) # norm by ori
+        H_activ += 0.001 # shift up to avoid log(0)
+        norm = mpl.colors.LogNorm(vmin=H_activ.min(), vmax=H_activ.max()) # lognorm by ori
+        # norm = mpl.colors.Normalize(vmin=0, vmax=1) # norm by node
+        im = axes.pcolormesh(X, Y, H_activ.T, cmap='plasma', norm=norm)
+
+        # norm = mpl.colors.Normalize(vmin=H_len.min(), vmax=H_len.max())
+        # q = axes.quiver(X, Y, U, V, H_len.T, cmap='gray_r', norm=norm, pivot='middle')
+
+
+    elif '_tuning' in plot_type:
+        act_index = int(plot_type[7])+3 # skip x/y/o
+        plot_index = int(plot_type[8])
+
+        x = ag_data[:,:,0]
+        y = ag_data[:,:,1]
+        ori = ag_data[:,:,2]
+        activ = ag_data[:,:,act_index]
+        orient_range = np.linspace(-np.pi, np.pi, 16+1)
+        # print(ori.min(), ori.max())
+
+        # # to flip on/off SE quarter
+        # print(x.shape)
+        # x_ind_to_mask = np.where(x[:,0] > 500)[0]
+        # y_ind_to_mask = np.where(y[:,0] < 500)[0]
+        # indices_to_mask = np.union1d(x_ind_to_mask, y_ind_to_mask)
+        # # x without those indices (for array[:,0:])
+        # x = np.delete(x, indices_to_mask, axis=0)
+        # y = np.delete(y, indices_to_mask, axis=0)
+        # ori = np.delete(ori, indices_to_mask, axis=0)
+        # activ = np.delete(activ, indices_to_mask, axis=0)
+        # # # x with only those indices (for array[:,0:])
+        # # x = x[indices_to_mask,:]
+        # # y = y[indices_to_mask,:]
+        # # ori = ori[indices_to_mask,:]
+        # # activ = activ[indices_to_mask,:]
+        # print(x.shape)
+
+        x = x.flatten()
+        y = y.flatten()
+        ori = ori.flatten()
+        activ = activ.flatten()
+
+        # min_activ = activ.min()
+        # max_activ = activ.max()
+        # activ = (activ - min_activ) / (max_activ - min_activ) # norm to [0,1]
+        activ = scipy.stats.rankdata(activ, method='average') # 0 is highest
+
+        fig_hist, axes_hist = plt.subplots(figsize=(4,4))
+
+        if plot_index == 0:
+            pt_target = np.array(eval(envconf["RESOURCE_POS"]))
+            x_label = 'Goal-Direction'
+        elif plot_index == 1: # self-SW vector
+            pt_target = np.array([0,0])
+            x_label = 'SW Corner'
+        elif plot_index == 2: # self-SE vector
+            pt_target = np.array([1000,0])
+            x_label = 'SE Corner'
+        elif plot_index == 3: # self-NE vector
+            pt_target = np.array([1000,1000])
+            x_label = 'NE Corner'
+        elif plot_index == 4: # self-NW vector
+            pt_target = np.array([0,1000])
+            x_label = 'NW Corner'
+
+        pt_target[1] = 1000 - pt_target[1]
+        pt_self = np.array([x,1000 - y])
+        pt_target = np.repeat(pt_target[np.newaxis,:], pt_self.shape[1], axis=0).transpose()
+        disp = pt_self - pt_target
+
+        angle_to_target = np.arctan2(disp[1,:], disp[0,:]) + np.pi # [0, 2pi]
+        corr_patch_angle_diff = angle_to_target - ori # [-2pi, 2pi]
+        corr_patch_angle_diff = corr_patch_angle_diff % (2*np.pi) - np.pi # [-pi, pi]
+
+        # # for only positions > 50 away from target (outside the patch boundary)
+        # dist = np.linalg.norm(disp, axis=0)
+        # m = np.ma.masked_less(dist, 1000)
+        # corr_patch_angle_diff = corr_patch_angle_diff.transpose().flatten()
+        # # remove masked values from array
+        # activ = activ[~m.mask]
+        # corr_patch_angle_diff = corr_patch_angle_diff[~m.mask]
+
+        orient_range = np.linspace(-np.pi, np.pi, 16+1)
+        hist_activ = np.histogram(corr_patch_angle_diff, bins=orient_range, weights=activ)[0]
+        norm_activ = (hist_activ - hist_activ.min()) / (hist_activ.max() - hist_activ.min())
+        # hist_activ = np.histogram(corr_patch_angle_diff, bins=orient_range)[0]
+        # norm_activ = hist_activ
+
+        fig_hist, axes_hist = plt.subplots(figsize=(2,2))
+        axes_hist.plot(orient_range[:-1], norm_activ)
+        axes_hist.set_xticks(np.linspace(-np.pi,np.pi,3))
+        axes_hist.set_xticklabels([r'-$\pi$', '$0$', r'$\pi$'])
+        axes_hist.set_yticks([0,1])
+        # axes_hist.set_xlabel(x_label)
+        axes_hist.set_title(x_label)
+        axes_hist.set_ylabel('Normalized Activity')
+        plt.tight_layout()
+        plt.savefig(fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_traj_hist{plot_type}.png', dpi=dpi)
+        plt.close()
+        return
 
     radius = int(envconf["RADIUS_RESOURCE"])
     x,y = tuple(eval(envconf["RESOURCE_POS"]))
     axes.add_patch( plt.Circle((x, height-y), radius, edgecolor='k', fill=False, zorder=1) )
 
-    save_name = fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_traj'
+    if extra == '':
+        save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_traj'
+    else:
+        save_name = fr'{save_data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{extra}_traj'
+
+    axes.set_xticklabels([])
+    axes.set_yticklabels([])
+    plt.tight_layout()
     plt.savefig(fr'{save_name}_hist{plot_type}.png', dpi=dpi)
     plt.close()
 
-    # mask edges (100 from each edge) + patch vicinity (100 from center)
-    mask = np.zeros([num_bins-1, num_bins-1])
-    mask[0:10,:] = 1
-    mask[:,0:10] = 1
-    mask[89:,:] = 1
-    mask[:,89:] = 1
-    mask[29:50,49:70] = 1
-    H_mask = np.ma.array(H, mask=mask)
+    # print(fr'{save_name}_hist{plot_type}.png')
 
-    print(f'{np.mean(H_mask):.2f}, {np.min(H_mask):.2f}, {np.max(H_mask):.2f}')
+    if plot_type == '_dirent':
+        return np.mean(H_mask), np.min(H_mask), np.max(H_mask)
+
+
+
+def print_activfield_results():
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/traj_matrices/activfield.bin', 'rb') as f:
+        data = pickle.load(f)
+
+    ## spatial specificity regardless of ori
+    for name in data:
+        print(f'Name: {name}')
+        for call in data[name]:
+            # if '(8' in call:
+            if '(0' in call:
+                print(f'  {call}: {data[name][call]}')
+
+
+
+def plot_activfield_results(plot_type, data_type=''):
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/traj_matrices/activfield.bin', 'rb') as f:
+        data = pickle.load(f)
+
+    ## ori specificity wrt goal
+
+    # for act_index in range(6)
+    # data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    # env_path = fr'{data_dir}/{name}/.env'
+    # envconf = de.dotenv_values(env_path)
+
+    # width, height = tuple(eval(envconf["ENV_SIZE"]))
+    # x_min, x_max = 0, width
+    # y_min, y_max = 0, height
+    x_max = 1000
+    y_max = 1000
+    # orient_range = np.arange(0, 2*np.pi, orient_step)
+    patch_x, patch_y = 400, 600 # center of patch
+    patch_radius = 50 # radius of patch
+
+    axes_pos = [(0,0), (1,0), (2,0),
+                (0,1), (1,1), (2,1),
+                (0,2), (1,2), (2,2),
+                (0,3), (1,3), (2,3) ]
+
+    if plot_type == 'ori_x_goal':
+        for act_index in range(4):
+        # for act_index in [4,5]:
+
+            fig, axes = plt.subplots(3,4) 
+            h,w = 12,16
+            l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+            fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+            ori_colors = np.array(list(range(8)))
+            norm = mpl.colors.Normalize(vmin=0, vmax=8)
+
+            for i, name in enumerate(data):
+                # print(f'Name: {name}')
+                axes[axes_pos[i]].add_patch( plt.Circle((patch_x, patch_y), patch_radius, edgecolor='k', fill=False) )
+
+                pts = []
+                for call in data[name]:
+                    if f'{act_index})' in call and '(8' not in call:
+                        # print(f'  {call}: {data[name][call]}')
+                        # print(len(data[name][call]))
+
+                        if data_type == 'max':
+                            pts.append((data[name][call][1],data[name][call][2])) # max
+                        elif data_type == 'thresh_p15':
+                            pts.append((data[name][call][4],data[name][call][5])) # avg above thresh max*.15
+                        elif data_type == 'thresh_p25':
+                            pts.append((data[name][call][8],data[name][call][9])) # avg above thresh max*.25
+                        elif data_type == 'thresh_p50':
+                            pts.append((data[name][call][12],data[name][call][13])) # avg above thresh max*.50
+
+                if 'thresh' in data_type:
+                    pts = np.array(pts)*1000/50 # scale from bins to grid
+                else:
+                    pts = np.array(pts)
+                axes[axes_pos[i]].scatter(pts[:,0], pts[:,1], c=ori_colors, cmap='hsv', norm=norm, s=100, alpha=1)
+                axes[axes_pos[i]].set_xlim(0, x_max)
+                axes[axes_pos[i]].set_ylim(0, y_max)
+                axes[axes_pos[i]].set_title(name, fontsize=6)
+            fig.suptitle(f'Data Type {data_type} || Action {act_index}')
+
+            # axes[0,0].legend(loc='upper right', bbox_to_anchor=(1.2, 1.0))
+            plt.tight_layout()
+            plt.savefig(fr'{data_dir}/action_maps/activfield_results_{plot_type}_{data_type}_a{act_index}.png', dpi=50)
+            plt.close()
+
+    elif plot_type == 'histo_dist':
+
+        fig, axes = plt.subplots(3,4) 
+        h,w = 12,16
+        l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+        fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+        y_maxs = []
+        for i, name in enumerate(data):
+
+            dists = []
+            for call in data[name]:
+                if '(8' not in call:
+                    x = float(data[name][call][4])*1000/50 # thresh_p15 + rescale
+                    y = float(data[name][call][5])*1000/50
+                    dist_to_patch = np.sqrt((x - patch_x)**2 + (y - patch_y)**2)
+                    dists.append(dist_to_patch)
+            dists = np.array(dists)
+
+            axes[axes_pos[i]].hist(dists, bins=np.linspace(0, 1000, 20), color='blue', alpha=0.5)
+            axes[axes_pos[i]].set_xlim(0, 800)
+            y_maxs.append(axes[axes_pos[i]].get_ylim()[1])
+
+            median = np.median(dists)
+            axes[axes_pos[i]].axvline(median, color='red', linestyle='--', linewidth=1)
+
+            hist, _ = np.histogram(dists, bins=np.linspace(0, 1000, 20), density=True)
+            hist = hist[hist > 0]  # ignore empty bins
+            entropy = -np.sum(hist * np.log(hist))
+            axes[axes_pos[i]].annotate(f'Entropy: {entropy:.2f}', xy=(0.7, 0.9), xycoords='axes fraction', ha='center', fontsize=16)
+        
+        max_y = max(y_maxs)
+        for ax in axes_pos:
+            axes[ax].set_ylim(0, max_y)
+
+        plt.tight_layout()
+        plt.savefig(fr'{data_dir}/action_maps/activfield_results_{plot_type}.png', dpi=50)
+        plt.close()
+
+    elif plot_type == 'histo_ori':
+
+        fig, axes = plt.subplots(3,4) 
+        h,w = 12,16
+        l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+        fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+        y_maxs = []
+        for i, name in enumerate(data):
+
+            oris = []
+            for call in data[name]:
+                if '(8' not in call:
+                    x = float(data[name][call][4])*1000/50 # thresh_p15 + rescale
+                    y = float(data[name][call][5])*1000/50
+                    ori_to_patch = np.arctan2(y - patch_y, x - patch_x) + np.pi
+                    oris.append(ori_to_patch)
+            oris = np.array(oris)
+
+            axes[axes_pos[i]].hist(oris, bins=np.linspace(0, 2*np.pi, 8), color='blue', alpha=0.5)
+            axes[axes_pos[i]].set_xlim(0, 2*np.pi)
+            y_maxs.append(axes[axes_pos[i]].get_ylim()[1])
+
+            hist, _ = np.histogram(oris, bins=np.linspace(0, 2*np.pi, 8), density=True)
+            hist = hist[hist > 0]  # ignore empty bins
+            entropy = -np.sum(hist * np.log(hist))
+            axes[axes_pos[i]].annotate(f'Entropy: {entropy:.2f}', xy=(0.7, 0.9), xycoords='axes fraction', ha='center', fontsize=16)
+
+        # set ylim relative to highest bin of all subplots
+        max_y = max(y_maxs)
+        for ax in axes_pos:
+            axes[ax].set_ylim(0, max_y)
+
+        plt.tight_layout()
+        plt.savefig(fr'{data_dir}/action_maps/activfield_results_{plot_type}.png', dpi=50)
+        plt.close()
+
+
+
+def plot_traj_vecfield_perturb_div(exp_name, gen_ext, space_step, orient_step, timesteps, plot_type='', base_cond='', perturb_cond='', mask_cond='', dpi=50):
+    print(f'plotting traj vector field - {exp_name}: {plot_type} + {base_cond}/{perturb_cond} @ {dpi} dpi')
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x_min, x_max = 0, width
+    y_min, y_max = 0, height
+    orient_range = np.arange(0, 2*np.pi, orient_step)
+
+    fig, axes = plt.subplots() 
+    axes.set_xlim(0, x_max)
+    axes.set_ylim(0, y_max)
+    h,w = 8,8
+    l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+    fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+    if base_cond == '':
+        save_name_baseline = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    else:
+        save_name_baseline = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_{base_cond}'
+    with open(save_name_baseline+'.bin', 'rb') as f:
+        ag_data_base = pickle.load(f)
+    # print(ag_data.shape)
+
+    delay = 25
+    x_base = ag_data_base[::10,delay:,0].flatten()
+    y_base = ag_data_base[::10,delay:,1].flatten()
+    ori_base = ag_data_base[::10,delay:,2].flatten()
+
+    if perturb_cond == '':
+        save_name_perturb = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    else:
+        save_name_perturb = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_{perturb_cond}'
+    with open(save_name_perturb+'.bin', 'rb') as f:
+        ag_data_perturb = pickle.load(f)
+    # print(ag_data.shape)
+
+    x_perturb = ag_data_perturb[::10,delay:,0].flatten()
+    y_perturb = ag_data_perturb[::10,delay:,1].flatten()
+    ori_perturb = ag_data_perturb[::10,delay:,2].flatten()
+
+    # print(ag_data_base == ag_data_perturb)
+
+    num_bins = 51
+    # num_bins = 101
+    x_bins = np.linspace(0, x_max, num_bins)
+    y_bins = np.linspace(0, y_max, num_bins)
+    # organize base
+    hitx = np.digitize(x_base, x_bins[1:])
+    hity = np.digitize(y_base, y_bins[1:])
+    hitbins = list(zip(hitx, hity))
+    ori_and_bins_base = list(zip(ori_base, hitbins))
+    # organize perturb
+    hitx = np.digitize(x_perturb, x_bins[1:])
+    hity = np.digitize(y_perturb, y_bins[1:])
+    hitbins = list(zip(hitx, hity))
+    ori_and_bins_perturb = list(zip(ori_perturb, hitbins))
+
+    H = np.zeros((num_bins-1, num_bins-1))
+
+    if plot_type == 'JS':
+        norm = mpl.colors.LogNorm(vmin=.01, vmax=1)
+        # norm = mpl.colors.Normalize(vmin=0, vmax=0.5)
+        for i in range(num_bins-1):
+            for j in range(num_bins-1):
+                bin_ori_base = [ori for (ori,bin) in ori_and_bins_base if bin == (i,j)]
+                bin_ori_perturb = [ori for (ori,bin) in ori_and_bins_perturb if bin == (i,j)]
+                if bin_ori_base and bin_ori_perturb:
+                    x = np.histogram(bin_ori_base, bins=orient_range)[0]
+                    y = np.histogram(bin_ori_perturb, bins=orient_range)[0]
+                    H[i,j] = calc_JSdiv(x,y)
+                    # print('y')
+                # else:
+                #     print(i,j,'no data')
+    # elif plot_type == 'KL':
+    #     norm = mpl.colors.LogNorm(vmin=.01, vmax=10)
+    #     for i in range(num_bins-1):
+    #         for j in range(num_bins-1):
+    #             bin_ori_base = [ori for (ori,bin) in ori_and_bins_base if bin == (i,j)]
+    #             bin_ori_perturb = [ori for (ori,bin) in ori_and_bins_perturb if bin == (i,j)]
+    #             if bin_ori_base and bin_ori_perturb:
+    #                 x = np.histogram(bin_ori_base, bins=orient_range)[0]
+    #                 y = np.histogram(bin_ori_perturb, bins=orient_range)[0]
+    #                 H[i,j] = calc_KLdiv(x,y)
+
+    # norm = mpl.colors.Normalize(vmin=0, vmax=1)
+    X,Y = np.meshgrid(x_bins, y_bins)
+    im = axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
+    # cbar = axes.figure.colorbar(im, ax=axes, fraction=0.046, pad=0.04, extend='both')
+
+    radius = int(envconf["RADIUS_RESOURCE"])
+    x,y = tuple(eval(envconf["RESOURCE_POS"]))
+    axes.add_patch( plt.Circle((x, height-y), radius, edgecolor='k', fill=False, zorder=1) )
+
+    if mask_cond == '':
+        # mask edges (100 from each edge) + patch vicinity (100 from center)
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:5,:] = 1
+        mask[:,:5] = 1
+        mask[46:,:] = 1
+        mask[:,46:] = 1
+        mask[16:25,26:35] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    elif mask_cond == 'no_patch':
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:5,:] = 1
+        mask[:,:5] = 1
+        mask[46:,:] = 1
+        mask[:,46:] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    elif mask_cond == 'patch_only':
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:16,:] = 1
+        mask[25:,:] = 1
+        mask[:,:26] = 1
+        mask[:,35:] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    elif mask_cond == 'near_patch':
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:11,:] = 1
+        mask[30:,:] = 1
+        mask[:,:21] = 1
+        mask[:,40:] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    else:
+        print('no valid mask condition specified')
+    axes.set_title(f'Masked + Mean JS Divergence: {np.mean(H_mask):.3f}')
+
+    if base_cond == '': base_cond = 'base'
+    if perturb_cond == '': perturb_cond = 'base'
+    plt.savefig(fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{base_cond}_{perturb_cond}_traj_hist_{plot_type}{mask_cond}.png', dpi=dpi)
+    plt.close()
+
+    print(f'min/mean/max: {np.min(H_mask):.3f}/{np.mean(H_mask):.3f}/{np.max(H_mask):.3f}')
+
     return np.mean(H_mask), np.min(H_mask), np.max(H_mask)
 
 
@@ -1172,7 +2202,7 @@ def circular_hist(ax, x, bins=16, density=True, offset=0, gaps=True, colored=Fal
         or list of such containers if there are multiple input datasets.
     """
     # Wrap angles to [-pi, pi)
-    x = (x+np.pi) % (2*np.pi) - np.pi
+    x = (x-np.pi) % (2*np.pi) - np.pi
     # Force bins to partition entire circle
     if not gaps:
         bins = np.linspace(-np.pi, np.pi, num=bins+1)
@@ -1218,17 +2248,25 @@ def circular_hist(ax, x, bins=16, density=True, offset=0, gaps=True, colored=Fal
 
 
 
-def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, dpi=None):
+def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', archive=False, dpi=None):
     print(f'plotting corr - {exp_name} @ {dpi} dpi')
 
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
+    save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
+    else:
+        data_dir = save_data_dir
+
+    if extra == '':
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
+    else:
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}{extra}'
     if not os.path.exists(save_name+'.bin'):
         print(f'no data found for {save_name}')
         return 0,0,0,0
     with open(save_name+'.bin', 'rb') as f:
         ag_data = pickle.load(f)
-    save_name = fr'{data_dir}/corrs/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
+    save_name = fr'{save_data_dir}/corrs/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
 
     num_runs,t_len,_ = ag_data.shape
     t = np.linspace(0,t_len,t_len)
@@ -1242,7 +2280,7 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     orient_0 = orient[:,0]
     orient_0 = np.tile(orient_0,(t_len,1)).transpose()
     corr_init_angle_diff = orient - orient_0
-    corr_init_angle_diff_scaled = (corr_init_angle_diff + np.pi) % (2*np.pi) - np.pi # [-pi/2, pi/2]
+    corr_init_angle_diff_scaled = (corr_init_angle_diff - np.pi) % (2*np.pi) - np.pi # [-pi/2, pi/2]
     corr_init = np.cos(corr_init_angle_diff)
     # print(f'corr_init shape: {corr_init.shape}')
 
@@ -1263,7 +2301,7 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     angle_to_target = np.arctan2(disp[:,:,1], disp[:,:,0]) + np.pi # shift by pi for [0-2pi]
     # print('max/min angle_to_target: ', np.max(angle_to_target), np.min(angle_to_target))
     corr_patch_angle_diff = angle_to_target.transpose() - orient
-    corr_patch_angle_diff_scaled = (corr_patch_angle_diff + np.pi) % (2*np.pi) - np.pi # [-pi/2, pi/2]
+    corr_patch_angle_diff_scaled = (corr_patch_angle_diff - np.pi) % (2*np.pi) - np.pi # [-pi/2, pi/2]
     corr_patch = np.cos(corr_patch_angle_diff)
     # print(f'corr_patch shape: {corr_patch.shape}')
 
@@ -1302,7 +2340,7 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     ax0.set_ylabel('Orientation Correlation')
 
     plt.tight_layout()
-    plt.savefig(fr'{save_name}_corr_orient_{dpi}.png', dpi=dpi)
+    plt.savefig(fr'{save_name}{extra}_corr_orient_{dpi}.png', dpi=dpi)
     # plt.show()
     plt.close()
 
@@ -1339,8 +2377,10 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     ins.set_xticks([])
 
     inits = [
-        [700, 200, np.pi], #BR-W
-        [800, 900, 3*np.pi/2], #TR-S
+        [800, 200, np.pi], #BR-W
+        # [800, 300, 0], #BR-N
+        # [800, 900, 3*np.pi/2], #TR-S
+        [800, 900, np.pi/2], #TR-W
         [100, 200, np.pi/2], #BL-N
         [100, 900, 3*np.pi/2], #TL-S
     ]
@@ -1376,7 +2416,7 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     ax1.set_ylabel('Relative Orientation')
 
     plt.tight_layout()
-    plt.savefig(fr'{save_name}_corr_trajs_init_{dpi}.png', dpi=dpi)
+    plt.savefig(fr'{save_name}{extra}_corr_trajs_init_{dpi}.png', dpi=dpi)
     # plt.show()
     plt.close()
 
@@ -1395,8 +2435,10 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     ins.set_xticks([])
 
     inits = [
-        [700, 200, np.pi], #BR-W
-        [800, 900, 3*np.pi/2], #TR-S
+        [800, 200, np.pi], #BR-W
+        # [800, 300, 0], #BR-N
+        # [800, 900, 3*np.pi/2], #TR-S
+        [800, 900, np.pi/2], #TR-W
         [100, 200, np.pi/2], #BL-N
         [100, 900, 3*np.pi/2], #TL-S
     ]
@@ -1420,7 +2462,7 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     ax1.set_ylabel('Relative Orientation')
 
     plt.tight_layout()
-    plt.savefig(fr'{save_name}_corr_trajs_patch_{dpi}.png', dpi=dpi)
+    plt.savefig(fr'{save_name}{extra}_corr_trajs_patch_{dpi}.png', dpi=dpi)
     # plt.show()
     plt.close()
 
@@ -1458,16 +2500,11 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     histo_peaks_init = len(peaks)
 
     plt.tight_layout()
-    plt.savefig(fr'{save_name}_corr_polar_init_{dpi}.png', dpi=dpi)
+    plt.savefig(fr'{save_name}{extra}_corr_polar_init_{dpi}.png', dpi=dpi)
     # plt.show()
     plt.close()
 
     ### directedness ###
-
-    def calc_entropy(h):
-        h_norm = h / np.sum(h)
-        e = -np.sum( h_norm*np.log(h_norm) )
-        return e
 
     h = np.ones(len(n))/10000
     e_max = calc_entropy(h) # random
@@ -1512,7 +2549,7 @@ def plot_agent_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps
     histo_peaks_patch = len(peaks)
 
     plt.tight_layout()
-    plt.savefig(fr'{save_name}_corr_polar_patch_{dpi}.png', dpi=dpi)
+    plt.savefig(fr'{save_name}{extra}_corr_polar_patch_{dpi}.png', dpi=dpi)
     # plt.show()
     plt.close()
 
@@ -1601,8 +2638,11 @@ def log_ray_boundary_collision(agent, action, last_moves, boundary_endpts, phi_a
         if len(vis_diff_idx) > 0:
             corner_intersecting_pts = []
             for i,phi in enumerate(agent.phis):
+                # print(f'phis: {i}, {phi}')
 
                 for pt_idx, pt in enumerate(boundary_endpts):
+                    # print(f'boundary_endpts: {pt_idx}, {pt}')
+
                     vec_between = pt - agent.pt_eye
                     angle_bw = supcalc.angle_bw_vis(agent.vec_self_dir, vec_between, agent.radius, np.linalg.norm(vec_between))
 
@@ -1610,91 +2650,890 @@ def log_ray_boundary_collision(agent, action, last_moves, boundary_endpts, phi_a
                     if len(vis_diff_idx) == 1 and i == vis_diff_idx[0]:
                         if np.abs(angle_bw-phi) / phi_angle_diff < 1:
                             intersect = True
+                            coll_output = (i+1)*10 + (pt_idx+1)
 
-                            if len(set(agent.vis_field)) == 2:
-                                # coll_output = (pt, agent.pt_eye, 2)
-                                coll_output = 200 + pt_idx
-                            elif len(set(agent.vis_field)) == 3:
-                                # coll_output = (pt, agent.pt_eye, 3)
-                                coll_output = 300 + pt_idx
-
-                    # check for ellipse - looser query (single/multi rays), stricter criteria (10% proximity)
-                    if np.abs(angle_bw-phi) / phi_angle_diff < 0.1:
-                        # corner_intersecting_pts.append(pt)
-                        corner_intersecting_pts.append(pt_idx)
+                    # check for ellipse - looser query (single/multi rays), stricter criteria (15% proximity)
+                    if np.abs(angle_bw-phi) / phi_angle_diff < 0.15:
+                        corner_intersecting_pts.append((i+1)*10 + (pt_idx+1))
 
             # for 2 corners intersecting --> ellipse
             if len(corner_intersecting_pts) == 2:
                 intersect = True
-                # coll_output = (corner_intersecting_pts, agent.pt_eye, 0)
-                coll_output = corner_intersecting_pts[0] + corner_intersecting_pts[1]/10
+                coll_output = corner_intersecting_pts[0]*100 + corner_intersecting_pts[1]
 
             # no single ray coll + no ellipse
             elif intersect == False:
-                # coll_output = ([], agent.pt_eye, 0)
                 coll_output = 100
-    
+
     # fading memory of last moves
     last_moves.append(action)
     if len(last_moves) > 2:
         last_moves.pop(0)
-    
+
     return last_moves, coll_output
 
 
-
-def plot_agent_ray_boundary_collision_corr(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, dpi=None):
-    print(f'plotting corr - {exp_name} @ {dpi} dpi')
+def plot_agent_ray_boundary_collision_stats(exp_name, gen_ext, space_step, orient_step, timesteps, dpi=None):
+    print(f'plotting collision stats - {exp_name} @ {dpi} dpi')
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    save_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
-    if not os.path.exists(save_name+'.bin'):
-        print(f'no data found for {save_name}')
-        return 0,0,0,0
-    with open(save_name+'.bin', 'rb') as f:
-        ag_data = pickle.load(f)
-    save_name = fr'{data_dir}/corrs/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
-
-    num_runs,t_len,_ = ag_data.shape
-    t = np.linspace(0,t_len,t_len)
-    # print(f'ag_data shape: {num_runs, len(t)}')
-
-    # corr to init
-    delay = 25
-    t = t[:-delay]
-    t_len -= delay
-    orient = ag_data[:,delay:,2]
-    orient_0 = orient[:,0]
-    orient_0 = np.tile(orient_0,(t_len,1)).transpose()
-    corr_init_angle_diff = orient - orient_0
-    corr_init_angle_diff_scaled = (corr_init_angle_diff + np.pi) % (2*np.pi) - np.pi # [-pi/2, pi/2]
-    corr_init = np.cos(corr_init_angle_diff)
-    # print(f'corr_init shape: {corr_init.shape}')
-
-    # patch position
     env_path = fr'{data_dir}/{exp_name}/.env'
     envconf = de.dotenv_values(env_path)
-    pt_target = np.array(eval(envconf["RESOURCE_POS"]))
-    pt_target[1] = 1000 - pt_target[1]
 
-    # distance to patch
+    load_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    if not os.path.exists(load_name+'.bin'):
+        print(f'no data found for {load_name}')
+        return 0,0,0,0
+    else:
+        with open(load_name+'.bin', 'rb') as f:
+            ag_data = pickle.load(f)
+    save_name = fr'{data_dir}/corrs/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+
+    # cut init
+    delay = 25
     x = ag_data[:,delay:,0]
     y = ag_data[:,delay:,1]
-    pt_self = np.array([x,y])
-    disp = pt_self.transpose() - pt_target
-    dist = np.linalg.norm(disp, axis=2)
+    ori = ag_data[:,delay:,2]
+    action = ag_data[:,delay:,3]
+    action = np.abs(action)
+    coll_output = ag_data[:,delay:,4]
 
-    # corr to patch
-    angle_to_target = np.arctan2(disp[:,:,1], disp[:,:,0]) + np.pi # shift by pi for [0-2pi]
-    # print('max/min angle_to_target: ', np.max(angle_to_target), np.min(angle_to_target))
-    corr_patch_angle_diff = angle_to_target.transpose() - orient
-    corr_patch_angle_diff_scaled = (corr_patch_angle_diff + np.pi) % (2*np.pi) - np.pi # [-pi/2, pi/2]
-    corr_patch = np.cos(corr_patch_angle_diff)
-    # print(f'corr_patch shape: {corr_patch.shape}')
+    # print(x.min(), x.max(), y.min(), y.max(), ori.min(), ori.max())
 
-    # action
-    action = np.abs(ag_data[:,delay:,3])/(np.pi/2) # [0,1]
+    # cut when reached patch
+    patch_radius = int(envconf["RADIUS_RESOURCE"])
+    patch_x, patch_y = tuple(eval(envconf["RESOURCE_POS"]))
+    patch_y = 1000 - patch_y
+    extra_buffer = 25
 
+    spike_counts = {
+        'SC': 0,
+        # 'SC: 2 Walls': 0,
+        # 'SC: 3 Walls': 0,
+        'SC: NW': 0,
+        'SC: NE': 0,
+        'SC: SE': 0,
+        'SC: SW': 0,
+        'SC: Ray 1': 0,
+        'SC: Ray 2': 0,
+        'SC: Ray 3': 0,
+        'SC: Ray 4': 0,
+        'SC: Ray 5': 0,
+        'SC: Ray 6': 0,
+        'SC: Ray 7': 0,
+        'SC: Ray 8': 0,
+        'DC': 0,
+        'DC-Adj: NW-NE': 0,
+        'DC-Adj: NE-SE': 0,
+        'DC-Adj: SE-SW': 0,
+        'DC-Adj: SW-NW': 0,
+        'DC-Opp: NW-SE': 0,
+        'DC-Opp: NE-SW': 0,
+        'DC: Rays 1 x 2': 0,
+        'DC: Rays 1 x 3': 0,
+        'DC: Rays 1 x 4': 0,
+        'DC: Rays 1 x 5': 0,
+        'DC: Rays 1 x 6': 0,
+        'DC: Rays 1 x 7': 0,
+        'DC: Rays 1 x 8': 0,
+        'DC: Rays 2 x 3': 0,
+        'DC: Rays 2 x 4': 0,
+        'DC: Rays 2 x 5': 0,
+        'DC: Rays 2 x 6': 0,
+        'DC: Rays 2 x 7': 0,
+        'DC: Rays 2 x 8': 0,
+        'DC: Rays 3 x 4': 0,
+        'DC: Rays 3 x 5': 0,
+        'DC: Rays 3 x 6': 0,
+        'DC: Rays 3 x 7': 0,
+        'DC: Rays 3 x 8': 0,
+        'DC: Rays 4 x 5': 0,
+        'DC: Rays 4 x 6': 0,
+        'DC: Rays 4 x 7': 0,
+        'DC: Rays 4 x 8': 0,
+        'DC: Rays 5 x 6': 0,
+        'DC: Rays 5 x 7': 0,
+        'DC: Rays 5 x 8': 0,
+        'DC: Rays 6 x 7': 0,
+        'DC: Rays 6 x 8': 0,
+        'DC: Rays 7 x 8': 0,
+        # 'C>2': 0,
+    }
+
+    # isi = {
+    #     'All': [],
+    #     'SC': [],
+    #     'SC: NW': [],
+    #     'SC: NE': [],
+    #     'SC: SE': [],
+    #     'SC: SW': [],
+    #     'SC: Ray 1': [],
+    #     'SC: Ray 2': [],
+    #     'SC: Ray 3': [],
+    #     'SC: Ray 4': [],
+    #     'SC: Ray 5': [],
+    #     'SC: Ray 6': [],
+    #     'SC: Ray 7': [],
+    #     'SC: Ray 8': [],
+    #     'DC': [],
+    # }
+
+    spike_locs = {
+        'SC': [],
+        # 'SC: 2 Walls': [],
+        # 'SC: 3 Walls': [],
+        'SC: NW': [],
+        'SC: NE': [],
+        'SC: SE': [],
+        'SC: SW': [],
+        'SC: Ray 1': [],
+        'SC: Ray 2': [],
+        'SC: Ray 3': [],
+        'SC: Ray 4': [],
+        'SC: Ray 5': [],
+        'SC: Ray 6': [],
+        'SC: Ray 7': [],
+        'SC: Ray 8': [],
+        'DC': [],
+        'DC-Adj: NW-NE': [],
+        'DC-Adj: NE-SE': [],
+        'DC-Adj: SE-SW': [],
+        'DC-Adj: SW-NW': [],
+        'DC-Opp: NW-SE': [],
+        'DC-Opp: NE-SW': [],
+        'DC: Rays 1 x 2': [],
+        'DC: Rays 1 x 3': [],
+        'DC: Rays 1 x 4': [],
+        'DC: Rays 1 x 5': [],
+        'DC: Rays 1 x 6': [],
+        'DC: Rays 1 x 7': [],
+        'DC: Rays 1 x 8': [],
+        'DC: Rays 2 x 3': [],
+        'DC: Rays 2 x 4': [],
+        'DC: Rays 2 x 5': [],
+        'DC: Rays 2 x 6': [],
+        'DC: Rays 2 x 7': [],
+        'DC: Rays 2 x 8': [],
+        'DC: Rays 3 x 4': [],
+        'DC: Rays 3 x 5': [],
+        'DC: Rays 3 x 6': [],
+        'DC: Rays 3 x 7': [],
+        'DC: Rays 3 x 8': [],
+        'DC: Rays 4 x 5': [],
+        'DC: Rays 4 x 6': [],
+        'DC: Rays 4 x 7': [],
+        'DC: Rays 4 x 8': [],
+        'DC: Rays 5 x 6': [],
+        'DC: Rays 5 x 7': [],
+        'DC: Rays 5 x 8': [],
+        'DC: Rays 6 x 7': [],
+        'DC: Rays 6 x 8': [],
+        'DC: Rays 7 x 8': [],
+        # 'C>2': [],
+    }
+
+    if os.path.exists(fr'{save_name}_spikecounts_dict.p'):
+        print('exists, skip counting')
+        spike_counts = pickle.load(open(fr'{save_name}_spikecounts_dict.p','rb'))
+    else:
+
+        unique_counts = []
+        num_reach_patch = 0
+        runs, timesteps = x.shape
+        for run in range(runs):
+
+            # count all
+            # spike_counts,spike_locs = count_spikes(x,y,ori,action,coll_output,run,timesteps+1,spike_counts,spike_locs)
+
+            # if x,y within patch radius, mask rest of array, append to accumulating list
+            for t in range(timesteps):
+                # stop when within patch radius
+                if np.linalg.norm([x[run,t]-patch_x, y[run,t]-patch_y]) < patch_radius:
+                # stop when within patch radius (+buffer)
+                # if np.linalg.norm([x[run,t]-patch_x, y[run,t]-patch_y]) < patch_radius + extra_buffer:
+                    spike_counts,spike_locs, unique_count = count_spikes(x,y,ori,action,coll_output,run,t,spike_counts,spike_locs)
+                    unique_counts.append(unique_count)
+                    num_reach_patch += 1
+                    break
+                elif t == timesteps-1:
+                    spike_counts,spike_locs, unique_count = count_spikes(x,y,ori,action,coll_output,run,t+1,spike_counts,spike_locs)
+                    unique_counts.append(unique_count)
+                    break
+                else:
+                    pass
+        
+        # pickle.dump(spike_counts, open(fr'{save_name}_spikecounts_dict.p', 'wb'))
+    # print(spike_counts)
+    # import pprint
+    # pprint.pprint(spike_counts)
+    
+    unique_counts = np.array(unique_counts)
+    print(f'# unq states to reach patch: {int(np.median(unique_counts)), np.mean(unique_counts).round(2)} / # reach patch: {num_reach_patch} / total: {runs}')
+
+    # transition matrix + markov chain
+    tran_matrix, states = estimate_transition_matrix(coll_output)
+    visualize_transition_matrix(tran_matrix, states, save_name=fr'{save_name}_tran_matrix.png', dpi=dpi)
+    # visualize_markov_chain(tran_matrix, states, save_name=fr'{save_name}_markov.png', dpi=dpi)
+
+    # # trim states not used as often
+    # count_matrix, states = labeled_histo(coll_output)
+    # states_trimmed = []
+    # for s,c in zip(states,count_matrix):
+    #     if c > .01:
+    #         print(f'{int(s)}: {round(c,4)}')
+    #         states_trimmed.append(s)
+    # tran_matrix = estimate_transition_matrix_trimmed(coll_output, states_trimmed)
+    # visualize_transition_matrix(tran_matrix, states_trimmed, save_name=fr'{save_name}_tran_matrix_trimmed.png', dpi=dpi)
+    # # visualize_markov_chain(tran_matrix, states_trimmed, save_name=fr'{save_name}_markov.png', dpi=dpi)
+
+    # spike count histo
+    plt.figure(figsize=(10, 6))
+    cmap = plt.get_cmap('plasma')
+    colors = cmap(np.linspace(0, 1, len(spike_counts)))
+    plt.bar(spike_counts.keys(), spike_counts.values(), color=colors, alpha=.7)
+    plt.xticks(rotation=45, ha='right')
+    plt.title(f'{exp_name} | med # unq states to reach patch: {int(np.median(unique_counts))}')
+    plt.xlabel('Spike Type')
+    plt.ylabel('Count')
+    # for line in [2.5, 6.5, 14.5, 21.5]:
+    for line in [.5, 4.5, 13.5, 19.5]:
+        plt.axvline(x = line, color='gray', linestyle='--', linewidth=0.5)
+    for line in [12.5]:
+        plt.axvline(x = line, color='black', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    # plt.show()
+    plt.savefig(fr'{save_name}_spike_counts.png', dpi=dpi)
+    plt.close()
+
+    # plt.figure(figsize=(10, 6))
+    # cmap = plt.get_cmap('plasma')
+    # ks,vs = [],[]
+    # for k,v in spike_counts.items():
+    #     if 'SC' in k:
+    #         ks.append(k)
+    #         vs.append(v)
+    # colors = cmap(np.linspace(0, 1, len(ks)))
+    # plt.bar(ks, vs, color=colors, alpha=.7)
+    # plt.xticks(rotation=45, ha='right')
+    # plt.title(exp_name)
+    # plt.xlabel('Spike Type')
+    # plt.ylabel('Count')
+    # for line in [.5, 4.5]:
+    #     plt.axvline(x = line, color='gray', linestyle='--', linewidth=0.5)
+    # plt.tight_layout()
+    # plt.savefig(fr'{save_name}_spike_counts_onlySC.png', dpi=dpi)
+    # plt.close()
+
+    # plt.figure(figsize=(10, 6))
+    # cmap = plt.get_cmap('plasma')
+    # ks,vs = [],[]
+    # for k,v in spike_counts.items():
+    #     if 'DC' in k:
+    #         ks.append(k)
+    #         vs.append(v)
+    # colors = cmap(np.linspace(0, 1, len(ks)))
+    # plt.bar(ks, vs, color=colors, alpha=.7)
+    # plt.xticks(rotation=45, ha='right')
+    # plt.title(exp_name)
+    # plt.xlabel('Spike Type')
+    # plt.ylabel('Count')
+    # for line in [.5, 2.5]:
+    #     plt.axvline(x = line, color='gray', linestyle='--', linewidth=0.5)
+    # plt.tight_layout()
+    # plt.savefig(fr'{save_name}_spike_counts_onlyDC.png', dpi=dpi)
+    # plt.close()
+
+    # Heatmaps
+    res_data = np.zeros((1,1,3))
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    res_data[0,0,:] = np.array((patch_x, patch_y, patch_radius))
+    ag_rad = int(envconf["RADIUS_AGENT"])
+    plot_map_iterative_collisions(spike_locs, res_data, width, height, ag_rad, save_name=load_name, dpi=dpi)
+
+    # ISI stats
+    # for isi_type in isi:
+    #     print(f'{isi_type}: {np.mean(isi[isi_type]):.2f}, {np.median(isi[isi_type]):.2f}')
+    # pickle.dump(isi, open(fr'{save_name}_isi_dict.p', 'wb'))
+
+    # ISI histo
+    # isi_range = (0,100)
+    # isi_bins = 50
+    # mean_isi = np.mean(isi)
+    # median_isi = np.median(isi)
+    # std_isi = np.std(isi)
+    # min_isi = np.min(isi)
+    # max_isi = np.max(isi)
+    # print(f'All ISI | mean: {mean_isi:.2f} // med: {median_isi:.2f} // std: {std_isi:.2f} // min-max: {min_isi:.2f}-{max_isi:.2f} // #outliers: {np.sum(np.array(isi) > isi_range[1])}/{len(isi)}')
+    # # plt.figure(figsize=(10, 6))
+    # # plt.hist(isi, bins=isi_bins, range=isi_range, alpha=.7)
+    # # plt.title('Interspike Interval (ISI) Histogram')
+    # # plt.xlabel('Interspike Interval (timesteps)')
+    # # plt.ylabel('Frequency')
+    # # # plt.show()
+    # # plt.savefig(fr'{save_name}_isi_{dpi}.png', dpi=dpi)
+    # # plt.close()
+
+
+def count_spikes(x,y,ori,action,coll_output,run,t,spike_counts,spike_locs):
+    x_masked = x[run,:t]
+    y_masked = y[run,:t]
+    ori_masked = ori[run,:t]
+    action_masked = action[run,:t]
+    coll_output_masked = coll_output[run,:t]
+
+    # count unique states needed to reach patch
+    unique_count = len(set(coll_output_masked))-1
+
+    # # find the indices of spikes
+    # spike_times = np.where(coll_output_masked > 0)[0]
+    # spike_times_sc = np.where(coll_output_masked >= 200)[0]
+    # # spike_times_sc_2W = np.where((coll_output_masked >= 200) & (coll_output_masked < 300))[0]
+    # # spike_times_sc_3W = np.where(coll_output_masked > 300)[0]
+    # spike_times_sc_NW = np.where((coll_output_masked%10 == 1) & (coll_output_masked >= 200))[0]
+    # spike_times_sc_NE = np.where((coll_output_masked%10 == 2) & (coll_output_masked >= 200))[0]
+    # spike_times_sc_SW = np.where((coll_output_masked%10 == 3) & (coll_output_masked >= 200))[0]
+    # spike_times_sc_SE = np.where((coll_output_masked%10 == 4) & (coll_output_masked >= 200))[0]
+    # spike_times_sc_r1 = np.where((coll_output_masked-coll_output_masked%10 == 210) | (coll_output_masked-coll_output_masked%10 == 310))[0]
+    # spike_times_sc_r2 = np.where((coll_output_masked-coll_output_masked%10 == 220) | (coll_output_masked-coll_output_masked%10 == 320))[0]
+    # spike_times_sc_r3 = np.where((coll_output_masked-coll_output_masked%10 == 230) | (coll_output_masked-coll_output_masked%10 == 330))[0]
+    # spike_times_sc_r4 = np.where((coll_output_masked-coll_output_masked%10 == 240) | (coll_output_masked-coll_output_masked%10 == 340))[0]
+    # spike_times_sc_r5 = np.where((coll_output_masked-coll_output_masked%10 == 250) | (coll_output_masked-coll_output_masked%10 == 350))[0]
+    # spike_times_sc_r6 = np.where((coll_output_masked-coll_output_masked%10 == 260) | (coll_output_masked-coll_output_masked%10 == 360))[0]
+    # spike_times_sc_r7 = np.where((coll_output_masked-coll_output_masked%10 == 270) | (coll_output_masked-coll_output_masked%10 == 370))[0]
+    # spike_times_sc_r8 = np.where((coll_output_masked-coll_output_masked%10 == 280) | (coll_output_masked-coll_output_masked%10 == 380))[0]
+    # spike_times_dc = np.where((coll_output_masked > 0) & (coll_output_masked < 100))[0]
+    # spike_times_dc_adj_NWNE = np.where((coll_output_masked == 21) | (coll_output_masked == 12))[0]
+    # spike_times_dc_adj_NESE = np.where((coll_output_masked == 42) | (coll_output_masked == 24))[0]
+    # spike_times_dc_adj_SESW = np.where((coll_output_masked == 43) | (coll_output_masked == 34))[0]
+    # spike_times_dc_adj_SWNW = np.where((coll_output_masked == 13) | (coll_output_masked == 31))[0]
+    # spike_times_dc_opp_NWSE = np.where((coll_output_masked == 41) | (coll_output_masked == 14))[0]
+    # spike_times_dc_opp_NESW = np.where((coll_output_masked == 32) | (coll_output_masked == 23))[0]
+    # # spike_times_Cgr2 = np.where(coll_output_masked == 100)[0]
+
+    # find the indices of spikes (SC/DC encoding)
+    n = coll_output_masked
+    spike_times = np.where(n > 0)[0]
+    spike_times_sc = np.where((n > 0) & (n < 100))[0]
+    spike_times_sc_NW = np.where((n%10 == 1) & (n < 100))[0]
+    spike_times_sc_NE = np.where((n%10 == 2) & (n < 100))[0]
+    spike_times_sc_SW = np.where((n%10 == 3) & (n < 100))[0]
+    spike_times_sc_SE = np.where((n%10 == 4) & (n < 100))[0]
+    spike_times_sc_r1 = np.where((n-n%10 == 10) & (n < 100))[0]
+    spike_times_sc_r2 = np.where((n-n%10 == 20) & (n < 100))[0]
+    spike_times_sc_r3 = np.where((n-n%10 == 30) & (n < 100))[0]
+    spike_times_sc_r4 = np.where((n-n%10 == 40) & (n < 100))[0]
+    spike_times_sc_r5 = np.where((n-n%10 == 50) & (n < 100))[0]
+    spike_times_sc_r6 = np.where((n-n%10 == 60) & (n < 100))[0]
+    spike_times_sc_r7 = np.where((n-n%10 == 70) & (n < 100))[0]
+    spike_times_sc_r8 = np.where((n-n%10 == 80) & (n < 100))[0]
+    spike_times_dc = np.where(n > 100)[0]
+    spike_times_dc_adj_NWNE = np.where(((n%10 == 2) & ((n-n%100)/100%10 == 1)) | ((n%10 == 1) & ((n-n%100)/100%10 == 2)))[0]
+    spike_times_dc_adj_NESE = np.where(((n%10 == 4) & ((n-n%100)/100%10 == 2)) | ((n%10 == 2) & ((n-n%100)/100%10 == 4)))[0]
+    spike_times_dc_adj_SESW = np.where(((n%10 == 4) & ((n-n%100)/100%10 == 3)) | ((n%10 == 3) & ((n-n%100)/100%10 == 4)))[0]
+    spike_times_dc_adj_SWNW = np.where(((n%10 == 1) & ((n-n%100)/100%10 == 3)) | ((n%10 == 3) & ((n-n%100)/100%10 == 1)))[0]
+    spike_times_dc_opp_NWSE = np.where(((n%10 == 4) & ((n-n%100)/100%10 == 1)) | ((n%10 == 1) & ((n-n%100)/100%10 == 4)))[0]
+    spike_times_dc_opp_NESW = np.where(((n%10 == 3) & ((n-n%100)/100%10 == 2)) | ((n%10 == 2) & ((n-n%100)/100%10 == 3)))[0]
+    spike_times_dc_r1_r2 = np.where((((n-n%10)/10%10 == 1) & (n-n%1000 == 2000)) | (((n-n%10)/10%10 == 2) & (n-n%1000 == 1000)))[0]
+    spike_times_dc_r1_r3 = np.where((((n-n%10)/10%10 == 1) & (n-n%1000 == 3000)) | (((n-n%10)/10%10 == 3) & (n-n%1000 == 1000)))[0]
+    spike_times_dc_r1_r4 = np.where((((n-n%10)/10%10 == 1) & (n-n%1000 == 4000)) | (((n-n%10)/10%10 == 4) & (n-n%1000 == 1000)))[0]
+    spike_times_dc_r1_r5 = np.where((((n-n%10)/10%10 == 1) & (n-n%1000 == 5000)) | (((n-n%10)/10%10 == 5) & (n-n%1000 == 1000)))[0]
+    spike_times_dc_r1_r6 = np.where((((n-n%10)/10%10 == 1) & (n-n%1000 == 6000)) | (((n-n%10)/10%10 == 6) & (n-n%1000 == 1000)))[0]
+    spike_times_dc_r1_r7 = np.where((((n-n%10)/10%10 == 1) & (n-n%1000 == 7000)) | (((n-n%10)/10%10 == 7) & (n-n%1000 == 1000)))[0]
+    spike_times_dc_r1_r8 = np.where((((n-n%10)/10%10 == 1) & (n-n%1000 == 8000)) | (((n-n%10)/10%10 == 8) & (n-n%1000 == 1000)))[0]
+    spike_times_dc_r2_r3 = np.where((((n-n%10)/10%10 == 2) & (n-n%1000 == 3000)) | (((n-n%10)/10%10 == 3) & (n-n%1000 == 2000)))[0]
+    spike_times_dc_r2_r4 = np.where((((n-n%10)/10%10 == 2) & (n-n%1000 == 4000)) | (((n-n%10)/10%10 == 4) & (n-n%1000 == 2000)))[0]
+    spike_times_dc_r2_r5 = np.where((((n-n%10)/10%10 == 2) & (n-n%1000 == 5000)) | (((n-n%10)/10%10 == 5) & (n-n%1000 == 2000)))[0]
+    spike_times_dc_r2_r6 = np.where((((n-n%10)/10%10 == 2) & (n-n%1000 == 6000)) | (((n-n%10)/10%10 == 6) & (n-n%1000 == 2000)))[0]
+    spike_times_dc_r2_r7 = np.where((((n-n%10)/10%10 == 2) & (n-n%1000 == 7000)) | (((n-n%10)/10%10 == 7) & (n-n%1000 == 2000)))[0]
+    spike_times_dc_r2_r8 = np.where((((n-n%10)/10%10 == 2) & (n-n%1000 == 8000)) | (((n-n%10)/10%10 == 8) & (n-n%1000 == 2000)))[0]
+    spike_times_dc_r3_r4 = np.where((((n-n%10)/10%10 == 3) & (n-n%1000 == 4000)) | (((n-n%10)/10%10 == 4) & (n-n%1000 == 3000)))[0]
+    spike_times_dc_r3_r5 = np.where((((n-n%10)/10%10 == 3) & (n-n%1000 == 5000)) | (((n-n%10)/10%10 == 5) & (n-n%1000 == 3000)))[0]
+    spike_times_dc_r3_r6 = np.where((((n-n%10)/10%10 == 3) & (n-n%1000 == 6000)) | (((n-n%10)/10%10 == 6) & (n-n%1000 == 3000)))[0]
+    spike_times_dc_r3_r7 = np.where((((n-n%10)/10%10 == 3) & (n-n%1000 == 7000)) | (((n-n%10)/10%10 == 7) & (n-n%1000 == 3000)))[0]
+    spike_times_dc_r3_r8 = np.where((((n-n%10)/10%10 == 3) & (n-n%1000 == 8000)) | (((n-n%10)/10%10 == 8) & (n-n%1000 == 3000)))[0]
+    spike_times_dc_r4_r5 = np.where((((n-n%10)/10%10 == 4) & (n-n%1000 == 5000)) | (((n-n%10)/10%10 == 5) & (n-n%1000 == 4000)))[0]
+    spike_times_dc_r4_r6 = np.where((((n-n%10)/10%10 == 4) & (n-n%1000 == 6000)) | (((n-n%10)/10%10 == 6) & (n-n%1000 == 4000)))[0]
+    spike_times_dc_r4_r7 = np.where((((n-n%10)/10%10 == 4) & (n-n%1000 == 7000)) | (((n-n%10)/10%10 == 7) & (n-n%1000 == 4000)))[0]
+    spike_times_dc_r4_r8 = np.where((((n-n%10)/10%10 == 4) & (n-n%1000 == 8000)) | (((n-n%10)/10%10 == 8) & (n-n%1000 == 4000)))[0]
+    spike_times_dc_r5_r6 = np.where((((n-n%10)/10%10 == 5) & (n-n%1000 == 6000)) | (((n-n%10)/10%10 == 6) & (n-n%1000 == 5000)))[0]
+    spike_times_dc_r5_r7 = np.where((((n-n%10)/10%10 == 5) & (n-n%1000 == 7000)) | (((n-n%10)/10%10 == 7) & (n-n%1000 == 5000)))[0]
+    spike_times_dc_r5_r8 = np.where((((n-n%10)/10%10 == 5) & (n-n%1000 == 8000)) | (((n-n%10)/10%10 == 8) & (n-n%1000 == 5000)))[0]
+    spike_times_dc_r6_r7 = np.where((((n-n%10)/10%10 == 6) & (n-n%1000 == 7000)) | (((n-n%10)/10%10 == 7) & (n-n%1000 == 6000)))[0]
+    spike_times_dc_r6_r8 = np.where((((n-n%10)/10%10 == 6) & (n-n%1000 == 8000)) | (((n-n%10)/10%10 == 8) & (n-n%1000 == 6000)))[0]
+    spike_times_dc_r7_r8 = np.where((((n-n%10)/10%10 == 7) & (n-n%1000 == 8000)) | (((n-n%10)/10%10 == 8) & (n-n%1000 == 7000)))[0]
+
+
+    ## to check encoding validity
+
+    # sc_corners = [
+    #     spike_times_sc_NW,
+    #     spike_times_sc_NE,
+    #     spike_times_sc_SW,
+    #     spike_times_sc_SE,
+    #     spike_times_dc
+    # ]
+    # for i,j in itertools.combinations(sc_corners,2):
+    #     if np.any(np.intersect1d(i,j)):
+    #         print(f'SC corner overlap: {np.intersect1d(i,j)}')
+
+    # sc_rays = [
+    #     spike_times_sc_r1,
+    #     spike_times_sc_r2,
+    #     spike_times_sc_r3,
+    #     spike_times_sc_r4,
+    #     spike_times_sc_r5,
+    #     spike_times_sc_r6,
+    #     spike_times_sc_r7,
+    #     spike_times_sc_r8,
+    #     spike_times_dc
+    # ]
+    # for i,j in itertools.combinations(sc_rays,2):
+    #     if np.any(np.intersect1d(i,j)):
+    #         print(f'SC ray overlap: {np.intersect1d(i,j)}')
+
+    # dc_corners = [
+    #     spike_times_dc_adj_NWNE,
+    #     spike_times_dc_adj_NESE,
+    #     spike_times_dc_adj_SESW,
+    #     spike_times_dc_adj_SWNW,
+    #     spike_times_dc_opp_NWSE,
+    #     spike_times_dc_opp_NESW,
+    #     spike_times_sc
+    # ]
+    # for i,j in itertools.combinations(dc_corners,2):
+    #     if np.any(np.intersect1d(i,j)):
+    #         print(f'DC corner overlap: {np.intersect1d(i,j)}')
+
+    # dc_rays = [
+    #     spike_times_dc_r1_r2,
+    #     spike_times_dc_r1_r3,
+    #     spike_times_dc_r1_r4,
+    #     spike_times_dc_r1_r5,
+    #     spike_times_dc_r1_r6,
+    #     spike_times_dc_r1_r7,
+    #     spike_times_dc_r1_r8,
+    #     spike_times_dc_r2_r3,
+    #     spike_times_dc_r2_r4,
+    #     spike_times_dc_r2_r5,
+    #     spike_times_dc_r2_r6,
+    #     spike_times_dc_r2_r7,
+    #     spike_times_dc_r2_r8,
+    #     spike_times_dc_r3_r4,
+    #     spike_times_dc_r3_r5,
+    #     spike_times_dc_r3_r6,
+    #     spike_times_dc_r3_r7,
+    #     spike_times_dc_r3_r8,
+    #     spike_times_dc_r4_r5,
+    #     spike_times_dc_r4_r6,
+    #     spike_times_dc_r4_r7,
+    #     spike_times_dc_r4_r8,
+    #     spike_times_dc_r5_r6,
+    #     spike_times_dc_r5_r7,
+    #     spike_times_dc_r5_r8,
+    #     spike_times_dc_r6_r7,
+    #     spike_times_dc_r6_r8,
+    #     spike_times_dc_r7_r8,
+    #     spike_times_sc
+    # ]
+    # for i,j in itertools.combinations(dc_rays,2):
+    #     if np.any(np.intersect1d(i,j)):
+    #         print(f'DC ray overlap: {np.intersect1d(i,j)}')
+
+
+    # count spike types
+    spike_counts['SC'] += len(spike_times_sc)
+    # spike_counts['SC: 2 Walls'] += len(spike_times_sc_2W)
+    # spike_counts['SC: 3 Walls'] += len(spike_times_sc_3W)
+    spike_counts['SC: NW'] += len(spike_times_sc_NW)
+    spike_counts['SC: NE'] += len(spike_times_sc_NE)
+    spike_counts['SC: SW'] += len(spike_times_sc_SW)
+    spike_counts['SC: SE'] += len(spike_times_sc_SE)
+    spike_counts['SC: Ray 1'] += len(spike_times_sc_r1)
+    spike_counts['SC: Ray 2'] += len(spike_times_sc_r2)
+    spike_counts['SC: Ray 3'] += len(spike_times_sc_r3)
+    spike_counts['SC: Ray 4'] += len(spike_times_sc_r4)
+    spike_counts['SC: Ray 5'] += len(spike_times_sc_r5)
+    spike_counts['SC: Ray 6'] += len(spike_times_sc_r6)
+    spike_counts['SC: Ray 7'] += len(spike_times_sc_r7)
+    spike_counts['SC: Ray 8'] += len(spike_times_sc_r8)
+    spike_counts['DC'] += len(spike_times_dc)
+    spike_counts['DC-Adj: NW-NE'] += len(spike_times_dc_adj_NWNE)
+    spike_counts['DC-Adj: NE-SE'] += len(spike_times_dc_adj_NESE)
+    spike_counts['DC-Adj: SE-SW'] += len(spike_times_dc_adj_SESW)
+    spike_counts['DC-Adj: SW-NW'] += len(spike_times_dc_adj_SWNW)
+    spike_counts['DC-Opp: NW-SE'] += len(spike_times_dc_opp_NWSE)
+    spike_counts['DC-Opp: NE-SW'] += len(spike_times_dc_opp_NESW)
+    spike_counts['DC: Rays 1 x 2'] += len(spike_times_dc_r1_r2)
+    spike_counts['DC: Rays 1 x 3'] += len(spike_times_dc_r1_r3)
+    spike_counts['DC: Rays 1 x 4'] += len(spike_times_dc_r1_r4)
+    spike_counts['DC: Rays 1 x 5'] += len(spike_times_dc_r1_r5)
+    spike_counts['DC: Rays 1 x 6'] += len(spike_times_dc_r1_r6)
+    spike_counts['DC: Rays 1 x 7'] += len(spike_times_dc_r1_r7)
+    spike_counts['DC: Rays 1 x 8'] += len(spike_times_dc_r1_r8)
+    spike_counts['DC: Rays 2 x 3'] += len(spike_times_dc_r2_r3)
+    spike_counts['DC: Rays 2 x 4'] += len(spike_times_dc_r2_r4)
+    spike_counts['DC: Rays 2 x 5'] += len(spike_times_dc_r2_r5)
+    spike_counts['DC: Rays 2 x 6'] += len(spike_times_dc_r2_r6)
+    spike_counts['DC: Rays 2 x 7'] += len(spike_times_dc_r2_r7)
+    spike_counts['DC: Rays 2 x 8'] += len(spike_times_dc_r2_r8)
+    spike_counts['DC: Rays 3 x 4'] += len(spike_times_dc_r3_r4)
+    spike_counts['DC: Rays 3 x 5'] += len(spike_times_dc_r3_r5)
+    spike_counts['DC: Rays 3 x 6'] += len(spike_times_dc_r3_r6)
+    spike_counts['DC: Rays 3 x 7'] += len(spike_times_dc_r3_r7)
+    spike_counts['DC: Rays 3 x 8'] += len(spike_times_dc_r3_r8)
+    spike_counts['DC: Rays 4 x 5'] += len(spike_times_dc_r4_r5)
+    spike_counts['DC: Rays 4 x 6'] += len(spike_times_dc_r4_r6)
+    spike_counts['DC: Rays 4 x 7'] += len(spike_times_dc_r4_r7)
+    spike_counts['DC: Rays 4 x 8'] += len(spike_times_dc_r4_r8)
+    spike_counts['DC: Rays 5 x 6'] += len(spike_times_dc_r5_r6)
+    spike_counts['DC: Rays 5 x 7'] += len(spike_times_dc_r5_r7)
+    spike_counts['DC: Rays 5 x 8'] += len(spike_times_dc_r5_r8)
+    spike_counts['DC: Rays 6 x 7'] += len(spike_times_dc_r6_r7)
+    spike_counts['DC: Rays 6 x 8'] += len(spike_times_dc_r6_r8)
+    spike_counts['DC: Rays 7 x 8'] += len(spike_times_dc_r7_r8)
+    # spike_counts['C>2'] += len(spike_times_Cgr2)
+
+    # # calculate interspike intervals
+    # isi['All'].extend(np.diff(spike_times))
+    # isi['SC'].extend(np.diff(spike_times_sc))
+    # isi['SC: NW'].extend(np.diff(spike_times_sc_NW))
+    # isi['SC: NE'].extend(np.diff(spike_times_sc_NE))
+    # isi['SC: SW'].extend(np.diff(spike_times_sc_SW))
+    # isi['SC: SE'].extend(np.diff(spike_times_sc_SE))
+    # isi['SC: Ray 1'].extend(np.diff(spike_times_sc_r1))
+    # isi['SC: Ray 2'].extend(np.diff(spike_times_sc_r2))
+    # isi['SC: Ray 3'].extend(np.diff(spike_times_sc_r3))
+    # isi['SC: Ray 4'].extend(np.diff(spike_times_sc_r4))
+    # isi['SC: Ray 5'].extend(np.diff(spike_times_sc_r5))
+    # isi['SC: Ray 6'].extend(np.diff(spike_times_sc_r6))
+    # isi['SC: Ray 7'].extend(np.diff(spike_times_sc_r7))
+    # isi['SC: Ray 8'].extend(np.diff(spike_times_sc_r8))
+    # isi['DC'].extend(np.diff(spike_times_dc))
+
+    spike_locs['SC'].extend(np.vstack((x_masked[spike_times_sc], y_masked[spike_times_sc], ori_masked[spike_times_sc])).T)
+    # spike_locs['SC: 2 Walls'].extend(np.vstack((x_masked[spike_times_sc_2W], y_masked[spike_times_sc_2W], ori_masked[spike_times_sc_2W])).T)
+    # spike_locs['SC: 3 Walls'].extend(np.vstack((x_masked[spike_times_sc_3W], y_masked[spike_times_sc_3W], ori_masked[spike_times_sc_3W])).T)
+    spike_locs['SC: NW'].extend(np.vstack((x_masked[spike_times_sc_NW], y_masked[spike_times_sc_NW], ori_masked[spike_times_sc_NW])).T)
+    spike_locs['SC: NE'].extend(np.vstack((x_masked[spike_times_sc_NE], y_masked[spike_times_sc_NE], ori_masked[spike_times_sc_NE])).T)
+    spike_locs['SC: SW'].extend(np.vstack((x_masked[spike_times_sc_SW], y_masked[spike_times_sc_SW], ori_masked[spike_times_sc_SW])).T)
+    spike_locs['SC: SE'].extend(np.vstack((x_masked[spike_times_sc_SE], y_masked[spike_times_sc_SE], ori_masked[spike_times_sc_SE])).T)
+    spike_locs['SC: Ray 1'].extend(np.vstack((x_masked[spike_times_sc_r1], y_masked[spike_times_sc_r1], ori_masked[spike_times_sc_r1])).T)
+    spike_locs['SC: Ray 2'].extend(np.vstack((x_masked[spike_times_sc_r2], y_masked[spike_times_sc_r2], ori_masked[spike_times_sc_r2])).T)
+    spike_locs['SC: Ray 3'].extend(np.vstack((x_masked[spike_times_sc_r3], y_masked[spike_times_sc_r3], ori_masked[spike_times_sc_r3])).T)
+    spike_locs['SC: Ray 4'].extend(np.vstack((x_masked[spike_times_sc_r4], y_masked[spike_times_sc_r4], ori_masked[spike_times_sc_r4])).T)
+    spike_locs['SC: Ray 5'].extend(np.vstack((x_masked[spike_times_sc_r5], y_masked[spike_times_sc_r5], ori_masked[spike_times_sc_r5])).T)
+    spike_locs['SC: Ray 6'].extend(np.vstack((x_masked[spike_times_sc_r6], y_masked[spike_times_sc_r6], ori_masked[spike_times_sc_r6])).T)
+    spike_locs['SC: Ray 7'].extend(np.vstack((x_masked[spike_times_sc_r7], y_masked[spike_times_sc_r7], ori_masked[spike_times_sc_r7])).T)
+    spike_locs['SC: Ray 8'].extend(np.vstack((x_masked[spike_times_sc_r8], y_masked[spike_times_sc_r8], ori_masked[spike_times_sc_r8])).T)
+    spike_locs['DC'].extend(np.vstack((x_masked[spike_times_dc], y_masked[spike_times_dc], ori_masked[spike_times_dc])).T)
+    spike_locs['DC-Adj: NW-NE'].extend(np.vstack((x_masked[spike_times_dc_adj_NWNE], y_masked[spike_times_dc_adj_NWNE], ori_masked[spike_times_dc_adj_NWNE])).T)
+    spike_locs['DC-Adj: NE-SE'].extend(np.vstack((x_masked[spike_times_dc_adj_NESE], y_masked[spike_times_dc_adj_NESE], ori_masked[spike_times_dc_adj_NESE])).T)
+    spike_locs['DC-Adj: SE-SW'].extend(np.vstack((x_masked[spike_times_dc_adj_SESW], y_masked[spike_times_dc_adj_SESW], ori_masked[spike_times_dc_adj_SESW])).T)
+    spike_locs['DC-Adj: SW-NW'].extend(np.vstack((x_masked[spike_times_dc_adj_SWNW], y_masked[spike_times_dc_adj_SWNW], ori_masked[spike_times_dc_adj_SWNW])).T)
+    spike_locs['DC-Opp: NW-SE'].extend(np.vstack((x_masked[spike_times_dc_opp_NWSE], y_masked[spike_times_dc_opp_NWSE], ori_masked[spike_times_dc_opp_NWSE])).T)
+    spike_locs['DC-Opp: NE-SW'].extend(np.vstack((x_masked[spike_times_dc_opp_NESW], y_masked[spike_times_dc_opp_NESW], ori_masked[spike_times_dc_opp_NESW])).T)
+    spike_locs['DC: Rays 1 x 2'].extend(np.vstack((x_masked[spike_times_dc_r1_r2], y_masked[spike_times_dc_r1_r2], ori_masked[spike_times_dc_r1_r2])).T)
+    spike_locs['DC: Rays 1 x 3'].extend(np.vstack((x_masked[spike_times_dc_r1_r3], y_masked[spike_times_dc_r1_r3], ori_masked[spike_times_dc_r1_r3])).T)
+    spike_locs['DC: Rays 1 x 4'].extend(np.vstack((x_masked[spike_times_dc_r1_r4], y_masked[spike_times_dc_r1_r4], ori_masked[spike_times_dc_r1_r4])).T)
+    spike_locs['DC: Rays 1 x 5'].extend(np.vstack((x_masked[spike_times_dc_r1_r5], y_masked[spike_times_dc_r1_r5], ori_masked[spike_times_dc_r1_r5])).T)
+    spike_locs['DC: Rays 1 x 6'].extend(np.vstack((x_masked[spike_times_dc_r1_r6], y_masked[spike_times_dc_r1_r6], ori_masked[spike_times_dc_r1_r6])).T)
+    spike_locs['DC: Rays 1 x 7'].extend(np.vstack((x_masked[spike_times_dc_r1_r7], y_masked[spike_times_dc_r1_r7], ori_masked[spike_times_dc_r1_r7])).T)
+    spike_locs['DC: Rays 1 x 8'].extend(np.vstack((x_masked[spike_times_dc_r1_r8], y_masked[spike_times_dc_r1_r8], ori_masked[spike_times_dc_r1_r8])).T)
+    spike_locs['DC: Rays 2 x 3'].extend(np.vstack((x_masked[spike_times_dc_r2_r3], y_masked[spike_times_dc_r2_r3], ori_masked[spike_times_dc_r2_r3])).T)
+    spike_locs['DC: Rays 2 x 4'].extend(np.vstack((x_masked[spike_times_dc_r2_r4], y_masked[spike_times_dc_r2_r4], ori_masked[spike_times_dc_r2_r4])).T)
+    spike_locs['DC: Rays 2 x 5'].extend(np.vstack((x_masked[spike_times_dc_r2_r5], y_masked[spike_times_dc_r2_r5], ori_masked[spike_times_dc_r2_r5])).T)
+    spike_locs['DC: Rays 2 x 6'].extend(np.vstack((x_masked[spike_times_dc_r2_r6], y_masked[spike_times_dc_r2_r6], ori_masked[spike_times_dc_r2_r6])).T)
+    spike_locs['DC: Rays 2 x 7'].extend(np.vstack((x_masked[spike_times_dc_r2_r7], y_masked[spike_times_dc_r2_r7], ori_masked[spike_times_dc_r2_r7])).T)
+    spike_locs['DC: Rays 2 x 8'].extend(np.vstack((x_masked[spike_times_dc_r2_r8], y_masked[spike_times_dc_r2_r8], ori_masked[spike_times_dc_r2_r8])).T)
+    spike_locs['DC: Rays 3 x 4'].extend(np.vstack((x_masked[spike_times_dc_r3_r4], y_masked[spike_times_dc_r3_r4], ori_masked[spike_times_dc_r3_r4])).T)
+    spike_locs['DC: Rays 3 x 5'].extend(np.vstack((x_masked[spike_times_dc_r3_r5], y_masked[spike_times_dc_r3_r5], ori_masked[spike_times_dc_r3_r5])).T)
+    spike_locs['DC: Rays 3 x 6'].extend(np.vstack((x_masked[spike_times_dc_r3_r6], y_masked[spike_times_dc_r3_r6], ori_masked[spike_times_dc_r3_r6])).T)
+    spike_locs['DC: Rays 3 x 7'].extend(np.vstack((x_masked[spike_times_dc_r3_r7], y_masked[spike_times_dc_r3_r7], ori_masked[spike_times_dc_r3_r7])).T)
+    spike_locs['DC: Rays 3 x 8'].extend(np.vstack((x_masked[spike_times_dc_r3_r8], y_masked[spike_times_dc_r3_r8], ori_masked[spike_times_dc_r3_r8])).T)
+    spike_locs['DC: Rays 4 x 5'].extend(np.vstack((x_masked[spike_times_dc_r4_r5], y_masked[spike_times_dc_r4_r5], ori_masked[spike_times_dc_r4_r5])).T)
+    spike_locs['DC: Rays 4 x 6'].extend(np.vstack((x_masked[spike_times_dc_r4_r6], y_masked[spike_times_dc_r4_r6], ori_masked[spike_times_dc_r4_r6])).T)
+    spike_locs['DC: Rays 4 x 7'].extend(np.vstack((x_masked[spike_times_dc_r4_r7], y_masked[spike_times_dc_r4_r7], ori_masked[spike_times_dc_r4_r7])).T)
+    spike_locs['DC: Rays 4 x 8'].extend(np.vstack((x_masked[spike_times_dc_r4_r8], y_masked[spike_times_dc_r4_r8], ori_masked[spike_times_dc_r4_r8])).T)
+    spike_locs['DC: Rays 5 x 6'].extend(np.vstack((x_masked[spike_times_dc_r5_r6], y_masked[spike_times_dc_r5_r6], ori_masked[spike_times_dc_r5_r6])).T)
+    spike_locs['DC: Rays 5 x 7'].extend(np.vstack((x_masked[spike_times_dc_r5_r7], y_masked[spike_times_dc_r5_r7], ori_masked[spike_times_dc_r5_r7])).T)
+    spike_locs['DC: Rays 5 x 8'].extend(np.vstack((x_masked[spike_times_dc_r5_r8], y_masked[spike_times_dc_r5_r8], ori_masked[spike_times_dc_r5_r8])).T)
+    spike_locs['DC: Rays 6 x 7'].extend(np.vstack((x_masked[spike_times_dc_r6_r7], y_masked[spike_times_dc_r6_r7], ori_masked[spike_times_dc_r6_r7])).T)
+    spike_locs['DC: Rays 6 x 8'].extend(np.vstack((x_masked[spike_times_dc_r6_r8], y_masked[spike_times_dc_r6_r8], ori_masked[spike_times_dc_r6_r8])).T)
+    spike_locs['DC: Rays 7 x 8'].extend(np.vstack((x_masked[spike_times_dc_r7_r8], y_masked[spike_times_dc_r7_r8], ori_masked[spike_times_dc_r7_r8])).T)
+    # spike_locs['C>2'].extend(np.vstack((x_masked[spike_times_Cgr2], y_masked[spike_times_Cgr2], ori_masked[spike_times_Cgr2])).T)
+
+    return spike_counts, spike_locs, unique_count
+
+
+def gather_agent_ray_boundary_collision_tran_matrix(exp_name, gen_ext, space_step, orient_step, timesteps):
+    # print(f'plotting collision stats - {exp_name} @ {dpi} dpi')
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    load_name = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    if not os.path.exists(load_name+'.bin'):
+        print(f'no data found for {load_name}')
+        return 0,0,0,0
+    else:
+        with open(load_name+'.bin', 'rb') as f:
+            ag_data = pickle.load(f)
+
+    # cut init
+    delay = 25
+    # x = ag_data[:,delay:,0]
+    # y = ag_data[:,delay:,1]
+    # ori = ag_data[:,delay:,2]
+    # action = ag_data[:,delay:,3]
+    # action = np.abs(action)
+    coll_output = ag_data[:,delay:,4]
+
+    count_matrix, states = labeled_histo(coll_output)
+    # states_trimmed = []
+    # for s,c in zip(states,count_matrix):
+    #     if c > .01:
+    #         # print(f'{int(s)}: {round(c,4)}')
+    #         states_trimmed.append(s)
+    # # print(states_trimmed)
+
+    # # output transition matrix
+    # tran_matrix = estimate_transition_matrix(coll_output, states_trimmed)
+    tran_matrix, states = estimate_transition_matrix(coll_output, states)
+
+    return tran_matrix, states
+
+
+def labeled_histo(sequence_array):
+
+    # Step 1: Identify unique states
+    states = sorted(list(set(sequence_array.flatten())))  # Get unique states and sort them
+    states = states[1:] # remove zero (only events)
+    # print(states)
+
+    # Step 2: Initialize a count matrix to store transitions
+    num_states = len(states)
+    count_matrix = np.zeros(num_states, dtype=int)
+
+    # Step 3: Count transitions
+    sequence = sequence_array.flatten()
+    seq_trimmed = sequence[sequence != 0] # only events
+
+    for i in seq_trimmed:
+        state_index = states.index(i)
+        count_matrix[state_index] += 1
+
+    # Step 4: Normalize the count matrix to get probabilities
+    count_matrix = count_matrix.astype(float)  # Convert to float for division
+    count_matrix = count_matrix / count_matrix.sum() # Normalize to total count
+
+    return count_matrix, states
+
+
+def estimate_transition_matrix(sequence_array):
+    """
+    Estimate the transition matrix from a sequence of states.
+
+    Parameters:
+    - sequence: A list of states (e.g., ["Sunny", "Cloudy", "Rainy", "Sunny", ...]).
+
+    Returns:
+    - transition_matrix: A 2D NumPy array representing the transition probabilities.
+    - states: A list of unique states in the sequence.
+    """
+    # Step 1: Identify unique states
+    states = sorted(list(set(sequence_array.flatten())))  # Get unique states and sort them
+    states = states[1:] # remove zero (only events)
+    # print(states)
+
+    # remove symmetries for DC colls?? not sure if needed
+    # sequence_array = np.where(sequence_array == 100, 0, sequence_array)
+
+    # Step 2: Initialize a count matrix to store transitions
+    # num_states = len(states)
+    num_states = len(states)
+    count_matrix = np.zeros((num_states, num_states), dtype=int)
+
+    # Step 3: Count transitions
+    runs, timesteps = sequence_array.shape
+    for run in range(runs):
+        sequence = sequence_array[run,:]
+        seq_trimmed = sequence[sequence != 0] # only events
+
+        for (i, j) in zip(seq_trimmed[:-1], seq_trimmed[1:]):
+            current_state_index = states.index(i)
+            next_state_index = states.index(j)
+            count_matrix[current_state_index, next_state_index] += 1
+
+    # Step 4: Normalize the count matrix to get probabilities
+    transition_matrix = count_matrix.astype(float)  # Convert to float for division
+    row_sums = transition_matrix.sum(axis=1, keepdims=True)
+
+    # rows ~ columns (but not exactly, off by ~ # runs, since this isn't one long seq)
+    # print(row_sums.T)
+    # print(transition_matrix.sum(axis=0, keepdims=True))
+    # print(np.sum(np.abs(row_sums.T - transition_matrix.sum(axis=0, keepdims=True)))/2)
+    # print(runs, timesteps)
+
+    transition_matrix = transition_matrix / row_sums  # Normalize rows to sum to 1
+
+    # Handle rows with no transitions (replace NaNs with uniform probabilities)
+    transition_matrix[np.isnan(transition_matrix)] = 1.0 / num_states
+
+    return transition_matrix, states
+
+
+def estimate_transition_matrix_trimmed(sequence_array, states_trimmed):
+    """
+    Estimate the transition matrix from a sequence of states.
+
+    Parameters:
+    - sequence: A list of states (e.g., ["Sunny", "Cloudy", "Rainy", "Sunny", ...]).
+
+    Returns:
+    - transition_matrix: A 2D NumPy array representing the transition probabilities.
+    - states: A list of unique states in the sequence.
+    """
+    # Step 1: Identify unique states
+    states = sorted(list(set(sequence_array.flatten())))  # Get unique states and sort them
+    states = states[1:] # remove zero (only events)
+    # print(states)
+
+    states_unconsidered = []
+    for s in states:
+        if s not in states_trimmed:
+            states_unconsidered.append(s)
+
+    # Step 2: Initialize a count matrix to store transitions
+    num_states = len(states_trimmed)
+    count_matrix = np.zeros((num_states, num_states), dtype=int)
+
+    # Step 3: Count transitions
+    runs, timesteps = sequence_array.shape
+    for run in range(runs):
+        sequence = sequence_array[run,:]
+        seq_trimmed = sequence[sequence != 0] # only events
+
+        for s in states_unconsidered:
+            seq_trimmed = seq_trimmed[seq_trimmed != s]
+
+        for (i, j) in zip(seq_trimmed[:-1], seq_trimmed[1:]):
+            current_state_index = states_trimmed.index(i)
+            next_state_index = states_trimmed.index(j)
+            count_matrix[current_state_index, next_state_index] += 1
+
+    # Step 4: Normalize the count matrix to get probabilities
+    transition_matrix = count_matrix.astype(float)  # Convert to float for division
+    row_sums = transition_matrix.sum(axis=1, keepdims=True)
+    transition_matrix = transition_matrix / row_sums  # Normalize rows to sum to 1
+    # Handle rows with no transitions (replace NaNs with uniform probabilities)
+    transition_matrix[np.isnan(transition_matrix)] = 1.0 / num_states
+
+    return transition_matrix
+
+
+def visualize_transition_matrix(transition_matrix, states, save_name=None, dpi=50):
+    """
+    Visualize the transition matrix as a heatmap.
+
+    Parameters:
+    - transition_matrix: A 2D NumPy array representing the transition probabilities.
+    - states: A list of state labels corresponding to the rows/columns of the matrix.
+    - title: Title of the plot (optional).
+    """
+    # Create a mask for zero values: "X" for zero values, empty string otherwise
+    zero_mask = transition_matrix == np.min(transition_matrix)
+    annotations = np.where(zero_mask, "X", "")
+
+    # Convert states to int
+    states = [int(x) for x in states]
+
+    plt.figure(figsize=(16,12))
+    # plt.figure(figsize=(8,6))
+    sns.heatmap(
+        transition_matrix,
+        # annot=True,  # Annotate cells with the probability values
+        # fmt=".2f",   # Format annotations to 2 decimal places
+        annot=annotations,  # Use custom annotations
+        fmt="", # strings
+        cmap="Blues",  # Color map
+        xticklabels=states,
+        yticklabels=states,
+        cbar=True,   # Show color bar
+        linewidths=0.5,  # Add lines between cells
+    )
+    plt.xlabel("Next State")
+    plt.ylabel("Current State")
+    plt.tight_layout()
+
+    SC_DC_divider = np.argmax(np.array(states) > 100)
+    plt.axvline(x = SC_DC_divider, color='gray', linestyle='--', linewidth=0.5)
+    plt.axhline(y = SC_DC_divider, color='gray', linestyle='--', linewidth=0.5)
+
+    if save_name:
+        plt.savefig(save_name, dpi=dpi)
+        plt.close()
+    else:
+        plt.show()
+
+
+def visualize_markov_chain(transition_matrix, states, save_name=None, dpi=50):
+    from netgraph import Graph
+    # https://github.com/paulbrodersen/netgraph
+
+    sources, targets = np.where(transition_matrix)
+    weights = transition_matrix[sources, targets]
+    edges = list(zip(sources, targets))
+    edge_labels = dict(zip(edges, weights))
+
+    states = [int(x) for x in states]
+    nodes = list(range(len(states)))
+    node_labels = dict(zip(nodes, states))
+
+    # create a dictionary that maps nodes to the community they belong to
+    community = []
+    colors = []
+    for node in states:
+        if node < 100:
+            community.append(0)
+            colors.append('tab:blue')
+        else:
+            community.append(1)
+            colors.append('tab:red')
+    node_community = dict(zip(nodes, community))
+    node_colors = dict(zip(nodes, colors))
+
+    # all_src = list(set(sources))
+    # print(all_src, len(all_src))
+    # print(nodes, len(nodes))
+    # print(states, len(states))
+    # print(colors, len(colors))
+
+    fig, ax = plt.subplots(figsize=(16,12))
+    Graph(edges,
+        arrows=True,
+        edge_layout='curved',
+        edge_layout_kwargs=dict(bundle_parallel_edges=False),
+        # edge_layout='bundled',
+        # edge_layout_kwargs=dict(k=2000),
+        edge_width={(u, v):2*d+.5 for (u, v),d in edge_labels.items()},
+        # edge_labels=edge_labels,
+        # edge_label_position=0.66,
+        # edge_label_fontdict=dict(fontweight='bold'),
+        # node_layout=node_positions,
+        node_positions=None,
+        node_layout='spring',
+        # node_layout='community',
+        # node_layout_kwargs=dict(node_to_community=node_community),
+        node_color=node_colors,
+        # node_size=4,
+        node_labels=node_labels,
+        # node_label_fontdict=dict(size=14,fontweight='bold'),
+        # node_label_offset=0.12,
+        ax=ax
+        )
+    if save_name:
+        plt.savefig(save_name, dpi=dpi)
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_agent_valnoise_dists(run_name, noise_types, val='cen', dpi=None):
@@ -1837,7 +3676,7 @@ def agent_traj_from_xyo_PRW(envconf, NN, boundary_endpts, x, y, orient, timestep
     return traj
 
 
-def build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=None):
+def build_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=None):
     print(f'building {behavior} PRW w {rot_diff} rot_diff, @ {space_step}, {int(np.pi/orient_step)}, {timesteps}, {curve}, {limit}')
 
     # pull pv + envconf from save folders
@@ -2045,8 +3884,8 @@ def plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff
     y_bins = np.linspace(0, y_max, num_bins)
 
     # drop into bins + organize
-    hitx = np.digitize(x, x_bins)
-    hity = np.digitize(y, y_bins)
+    hitx = np.digitize(x, x_bins[1:])
+    hity = np.digitize(y, y_bins[1:])
     hitbins = list(zip(hitx, hity))
     ori_and_bins = list(zip(ori, hitbins))
 
@@ -2339,8 +4178,9 @@ def plot_IDM_ori(space_step, orient_step, template_orient=0, vis_field_res=32, p
         plt.close()
 
 
-def build_agent_views(vis_field_res = 8):
+def build_agent_views(space_step=5, orient_step=np.pi/256, vis_field_res = 8):
 
+    print(f'building agent views @ ss{space_step}, os{int(np.pi/orient_step)}, vfr{vis_field_res}')
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'
     env_path = fr'{data_dir}/{exp_name}/.env'
@@ -2390,6 +4230,7 @@ def build_agent_views(vis_field_res = 8):
                         color=(0,0,0),
                         vis_transform='',
                         percep_angle_noise_std=0,
+                        sim_type='walls',
                     )
                 agent.visual_sensing([],[])
 
@@ -2402,7 +4243,7 @@ def build_agent_views(vis_field_res = 8):
     #     print(v)
     # print(len(views))
 
-    with open(fr'{data_dir}/views_vfr{vis_field_res}.bin', 'wb') as f:
+    with open(fr'{data_dir}/IDM/views_vfr{vis_field_res}.bin', 'wb') as f:
         pickle.dump(sorted(views), f)
 
     # with open(fr'{data_dir}/views.bin', 'rb') as f:
@@ -2580,6 +4421,12 @@ def plot_IDM_view(space_step, orient_step, view_onehot, vis_field_res=32, plot_t
 
 def agent_action_from_view(envconf, NN, view):
 
+    sim_type = str(envconf["SIM_TYPE"])
+    if sim_type == 'walls':
+        num_class = 4
+    elif sim_type == 'walls, social-RW':
+        num_class = 6
+
     agent = Agent(
             id=0,
             position=(0,0),
@@ -2588,7 +4435,7 @@ def agent_action_from_view(envconf, NN, view):
             FOV=float(envconf['AGENT_FOV']),
             vis_field_res=int(envconf["VISUAL_FIELD_RESOLUTION"]),
             vision_range=int(envconf["VISION_RANGE"]),
-            num_class_elements=4,
+            num_class_elements=num_class,
             consumption=1,
             model=NN,
             boundary_endpts=(None,None,None,None),
@@ -2597,6 +4444,7 @@ def agent_action_from_view(envconf, NN, view):
             color=(0,0,0),
             vis_transform='',
             percep_angle_noise_std=0,
+            sim_type=sim_type,
         )
     vis_input = agent.encode_one_hot(view)
     agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
@@ -2859,77 +4707,265 @@ def run_gamut(group_name, names, dpi):
             print('')
             continue
 
-        # traj data
         orient_step = np.pi/8
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
-        traj_exists = False
-        if os.path.exists(save_name_traj):
-            print('traj already built')
-            traj_exists = True
-        else:
-            build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
-
         save_name_trajmap = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_ex_lines'
-        if os.path.exists(save_name_trajmap+'_100.png'):
-            print('traj already plotted at dpi100')
-        elif os.path.exists(save_name_trajmap+'_50.png'):
-            print('traj already plotted at dpi50')
-        elif os.path.exists(save_name_trajmap+'.png'):
+        if os.path.exists(save_name_trajmap+'_50.png'):
             print('traj already plotted')
         else:
+            # traj data
+            orient_step = np.pi/8
+            save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
+            traj_exists = False
+            if os.path.exists(save_name_traj):
+                print('traj already built')
+                traj_exists = True
+            else:
+                build_agent_trajs(name, gen, space_step, orient_step, timesteps)
+
+            save_name_trajmap = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_ex_lines'
+            if os.path.exists(save_name_trajmap+'_100.png'):
+                print('traj already plotted at dpi100')
+            elif os.path.exists(save_name_trajmap+'_50.png'):
+                print('traj already plotted at dpi50')
+            elif os.path.exists(save_name_trajmap+'.png'):
+                print('traj already plotted')
+            else:
+                plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi)
+
+        # act_mean, act_min, act_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgact', dpi=dpi)
+        # _, _, _ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgori', dpi=dpi)
+        # len_mean, len_min, len_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avglen', dpi=dpi)
+        # de_mean, de_min, de_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi)
+
+        # corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch = plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps, dpi=dpi)
+
+        # # action data
+        # orient_step = np.pi/32
+        # save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_action.bin'
+        # action_exists = False
+        # if os.path.exists(save_name_act):
+        #     print('action already built')
+        #     action_exists = True
+        #     with open(save_name_act, 'rb') as f:
+        #         act_matrix = pickle.load(f)
+        #     min_action, max_action = act_matrix.min(), act_matrix.max()
+        # else:
+        #     print('building action map')
+        #     min_action, max_action = build_action_matrix(name, gen, space_step, orient_step)
+
+        # avglen_mean, avglen_med, avglen_min, avglen_max, basin_patch_dist = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='len', dpi=dpi)
+        # mean, med, min, max, basin_patch_dist = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='ori', dpi=dpi)
+
+        # data[name] = (corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max, basin_patch_dist)
+        # print(f'data dict len: {len(data)}')
+        # print('')
+
+        # with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
+        #     pickle.dump(data, f)
+
+        # delete .bin files if not already saved
+        # if not traj_exists:
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o8_t{timesteps}_{rank}_e{int(eye)}.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        # if not action_exists:
+        #     save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o32_action.bin'
+        #     if os.path.exists(save_name_act):
+        #         os.remove(save_name_act)
+
+
+
+def run_gamut_social(group_name, names, dpi):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    rank = 'cen'
+    space_step = 25
+    timesteps = 500
+    orient_step = np.pi/8
+
+    for name in names:
+
+        gen, valfit = find_top_val_gen(name, rank)
+        print(f'{name} @ {gen} w {valfit} fitness')
+        # if valfit >= 500:
+        #     print(f'skip, valfit: {valfit}')
+        #     print('')
+        #     continue
+
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+            data = pickle.load(f)
+        if name in data:
+            print('already there')
+            print('')
+
+            save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+            if os.path.exists(save_name_traj):
+                os.remove(save_name_traj)
+            save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+            if os.path.exists(save_name_traj):
+                os.remove(save_name_traj)
+            save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+            if os.path.exists(save_name_traj):
+                os.remove(save_name_traj)
+            save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
+            if os.path.exists(save_name_traj):
+                os.remove(save_name_traj)
+
+            continue
+
+        #### for 2nd rounds ####
+        # with open(fr'{data_dir}/traj_matrices/{group_name}_slurm.bin', 'rb') as f:
+        #     slurm = pickle.load(f)
+        # if name in slurm:
+        #     print('already slurmed')
+        #     print('')
+        #     continue
+
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs_social(name, gen, space_step, orient_step, timesteps)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='nosocial')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer')
+
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ex_lines_50.png'
+        if not os.path.exists(save_name_traj):
             plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial_ex_lines_50.png'
+        if not os.path.exists(save_name_traj):
+            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='nosocial')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter_ex_lines_50.png'
+        if not os.path.exists(save_name_traj):
+            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_exploiter')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer_ex_lines_50.png'
+        if not os.path.exists(save_name_traj):
+            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_explorer')
 
-        act_mean, act_min, act_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgact', dpi=dpi)
-        _, _, _ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgori', dpi=dpi)
-        len_mean, len_min, len_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avglen', dpi=dpi)
-        de_mean, de_min, de_max = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_traj_hist_dirent.png'
+        if not os.path.exists(save_name_traj):
+            de_mean_OG,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_nosocial_traj_hist_dirent.png'
+        if not os.path.exists(save_name_traj):
+            de_mean_NS,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi, extra='nosocial')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_ghost_exploiter_traj_hist_dirent.png'
+        if not os.path.exists(save_name_traj):
+            de_mean_ET,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi, extra='ghost_exploiter')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_ghost_explorer_traj_hist_dirent.png'
+        if not os.path.exists(save_name_traj):
+            de_mean_ER,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi, extra='ghost_explorer')
 
-        corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch = plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps, dpi=dpi)
-        # angle_medians = plot_agent_valnoise_dists(name, noise_types, dpi=dpi)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_nosocial_base_traj_hist_JS.png'
+        if not os.path.exists(save_name_traj):
+            JS_mean_OGNS,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_nosocial_ghost_exploiter_traj_hist_JS.png'
+        if not os.path.exists(save_name_traj):
+            JS_mean_NSET,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='ghost_exploiter')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_nosocial_ghost_explorer_traj_hist_JS.png'
+        if not os.path.exists(save_name_traj):
+            JS_mean_NSER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='ghost_explorer')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_ghost_exploiter_ghost_explorer_traj_hist_JS.png'
+        if not os.path.exists(save_name_traj):
+            JS_mean_ETER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='ghost_exploiter', perturb_cond='ghost_explorer')
 
-        # action data
-        orient_step = np.pi/32
-        save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_action.bin'
-        action_exists = False
-        if os.path.exists(save_name_act):
-            print('action already built')
-            action_exists = True
-            with open(save_name_act, 'rb') as f:
-                act_matrix = pickle.load(f)
-            min_action, max_action = act_matrix.min(), act_matrix.max()
-        else:
-            print('building action map')
-            min_action, max_action = build_action_matrix(name, gen, space_step, orient_step)
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+            data = pickle.load(f)
+        # print(f'data dict len: {len(data)}')
 
-        avglen_mean, avglen_med, avglen_min, avglen_max, basin_patch_dist = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='len', dpi=dpi)
-        mean, med, min, max, basin_patch_dist = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_avg', colored='ori', dpi=dpi)
-        # pkf_mean, pkf_med, pkf_min, pkf_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_fwd', colored='count', ex_lines=True, dpi=dpi)
-        # pkt_mean, pkt_med, pkt_min, pkt_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_peaks_turn', colored='count', ex_lines=True, dpi=dpi)
-        # def_mean, def_med, def_min, def_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_fwd', dpi=dpi)
-        # det_mean, det_med, det_min, det_max = plot_action_vecfield(name, gen, space_step, orient_step, plot_type='_dirent_turn', dpi=dpi)
-
-        # data[name] = (corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, min_action, max_action, avglen_mean, avglen_med, avglen_min, avglen_max, pkf_mean, pkf_med, pkf_min, pkf_max, pkt_mean, pkt_med, pkt_min, pkt_max, def_mean, def_med, def_min, def_max, det_mean, det_med, det_min, det_max, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max)
-        # data[name] = (corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max)
-        # data[name] = basin_patch_dist
-        data[name] = (corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, act_mean, act_min, act_max, len_mean, len_min, len_max, de_mean, de_min, de_max, basin_patch_dist)
-        print(f'data dict len: {len(data)}')
-        print('')
+        data[name] = (
+            de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER,
+            JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER
+            )
+        # _, de_mean_NS, de_mean_ET, de_mean_ER, _, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER = data[name]
+        # data[name] = de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER
 
         with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
             pickle.dump(data, f)
 
+        # with open(fr'{data_dir}/traj_matrices/{group_name}_slurm.bin', 'rb') as f:
+        #     slurm = pickle.load(f)
+        # slurm[name] = 1
+        # with open(fr'{data_dir}/traj_matrices/{group_name}_slurm.bin', 'wb') as f:
+        #     pickle.dump(slurm, f)
+
         # delete .bin files if not already saved
-        if not traj_exists:
-            save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o8_t{timesteps}_{rank}_e{int(eye)}.bin'
-            if os.path.exists(save_name_traj):
-                os.remove(save_name_traj)
-        if not action_exists:
-            save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o32_action.bin'
-            if os.path.exists(save_name_act):
-                os.remove(save_name_act)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
 
 
 
+
+def run_gamut_social_extra(group_name, names, dpi):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    rank = 'cen'
+    space_step = 25
+    timesteps = 500
+    orient_step = np.pi/8
+
+    for name in names:
+
+        gen, valfit = find_top_val_gen(name, rank)
+        print(f'{name} @ {gen} w {valfit} fitness')
+
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+            data = pickle.load(f)
+        if name in data:
+            print('already there')
+            continue
+
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='nosocial')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter')
+
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_nosocial_ghost_exploiter_traj_hist_JS.png'
+        if not os.path.exists(save_name_traj):
+            JS_mean_NSET_new,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                              base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='')
+            JS_mean_NSET_nopatch,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                              base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='no_patch')
+            JS_mean_NSET_patchonly,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                              base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='patch_only')
+            JS_mean_NSET_nearpatch,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                              base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='near_patch')
+
+        with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+            data_old = pickle.load(f)
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+            data = pickle.load(f)
+
+        de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER = data_old[name]
+        data[name] = de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET_new, JS_mean_NSER, JS_mean_ETER, JS_mean_NSET_nopatch, JS_mean_NSET_patchonly, JS_mean_NSET_nearpatch
+
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
+            pickle.dump(data, f)
+
+        print(f'JS_mean_NSET-og: {JS_mean_NSET}, JS_mean_NSET-new: {JS_mean_NSET_new}, -nopatch: {JS_mean_NSET_nopatch}, -patchonly: {JS_mean_NSET_patchonly}, -nearpatch: {JS_mean_NSET_nearpatch}')
+
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
 
 
 def analyze_gamut(group_type, plot_type):
@@ -2938,9 +4974,9 @@ def analyze_gamut(group_type, plot_type):
     # with open(fr'{data_dir}/traj_matrices/gamut_labeled.bin', 'rb') as f:
     #     data = pickle.load(f)
     # print(f'data dict len: {len(data)}')
-    with open(fr'{data_dir}/traj_matrices/gamut_visall_nodist_labeled.bin', 'rb') as f:
+    with open(fr'{data_dir}/traj_matrices/archive - ISBDDP/gamut_visall_nodist_labeled.bin', 'rb') as f:
         data1 = pickle.load(f)
-    with open(fr'{data_dir}/traj_matrices/gamut_vis8_dist_labeled.bin', 'rb') as f:
+    with open(fr'{data_dir}/traj_matrices/archive - ISBDDP/gamut_vis8_dist_labeled.bin', 'rb') as f:
         data2 = pickle.load(f)
     data = data1|data2
     print(f'data dict len: {len(data)}')
@@ -2966,7 +5002,7 @@ def analyze_gamut(group_type, plot_type):
 
     for name in data.keys():
 
-        with open(fr'{data_dir}/{name}/val_matrix_cen.bin','rb') as f:
+        with open(fr'{data_dir}/archive - ISBDDP/{name}/val_matrix_cen.bin','rb') as f:
             val_matrix = pickle.load(f)
         fitness = np.mean(val_matrix)
 
@@ -3132,7 +5168,7 @@ def analyze_gamut(group_type, plot_type):
 
 
     ### plot class fitness distributions ###
-    fig, ax1 = plt.subplots(figsize=(7,4)) 
+    fig, ax1 = plt.subplots(figsize=(6,4)) 
     cmap = plt.get_cmap('Spectral')
     cmap_points = plt.get_cmap('plasma')
     norm = plt.Normalize(0,500)
@@ -3180,28 +5216,28 @@ def analyze_gamut(group_type, plot_type):
 
             if data:
                 if len(data) < 5:
-                    continue
-                    l0 = ax1.violinplot(data, 
-                                positions=[pos],
-                                widths=width, 
-                                showmedians=False, 
-                                showextrema=False,
-                                )
-                    for part in l0["bodies"]:
-                        part.set_edgecolor(color)
-                        part.set_facecolor(color)
-                    # l0["cmedians"].set_edgecolor(color)
-                    # color = l0["bodies"][0].get_facecolor().flatten()
+                    # # continue
+                    # l0 = ax1.violinplot(data, 
+                    #             positions=[pos],
+                    #             widths=width, 
+                    #             showmedians=False, 
+                    #             showextrema=False,
+                    #             )
+                    # for part in l0["bodies"]:
+                    #     part.set_edgecolor(color)
+                    #     part.set_facecolor(color)
+                    # # l0["cmedians"].set_edgecolor(color)
+                    # # color = l0["bodies"][0].get_facecolor().flatten()
 
-                    if l_num not in labs_taken:
-                        vlabs.append((mpl.patches.Patch(color=color), label))
-                        labs_taken.append(l_num)
+                    # if l_num not in labs_taken:
+                    #     vlabs.append((mpl.patches.Patch(color=color), label))
+                    #     labs_taken.append(l_num)
                     
                     if len(data) > 1:
                         x = beeswarm(data)
                     else:
                         x = 0
-                    ax1.scatter(pos + x*width/2, data, c=color, s=.5, alpha=1)
+                    ax1.scatter(pos + x*width/2, data, c=color, s=1, alpha=1, clip_on=False, zorder=10)
 
                 else:
                     l0 = ax1.violinplot(data, 
@@ -3230,34 +5266,34 @@ def analyze_gamut(group_type, plot_type):
 
                     # ax1.scatter(pos + x[]*width/2, data, exs_vals[:-1], facecolors='none', edgecolors='k', s=5, alpha=1, clip_on=False, zorder=10)
 
-    # examples
+    # # examples
 
-    if plot_type == 'fitness':
-        exs_PT = np.array([
-            [256,-.5],
-            [394,0],
-            [184,.5],
-        ])
-    elif plot_type == 'basin_patch_dist':
-        exs_PT = np.array([
-            [161,0.91666667],
-            [40,0],
-            [28,0.06944444],
-        ])
+    # if plot_type == 'fitness':
+    #     exs_PT = np.array([
+    #         [256,-.5],
+    #         [394,0],
+    #         [184,.5],
+    #     ])
+    # elif plot_type == 'basin_patch_dist':
+    #     exs_PT = np.array([
+    #         [161,0.91666667],
+    #         [40,0],
+    #         [28,0.06944444],
+    #     ])
 
-    if group_type == 'vis':
-        exs_GT = np.array([
-            1+1/num_labels,
-            1+0/num_labels,
-        ])
-        ax1.scatter(exs_GT + exs_PT[:-1,1]*width/2, exs_PT[:-1,0], facecolors='none', edgecolors='k', s=5, alpha=1, clip_on=False, zorder=10)
-    elif group_type == 'dist':
-        exs_GT = np.array([
-            0+1/num_labels,
-            0+0/num_labels,
-            8+2/num_labels,
-        ])
-        ax1.scatter(exs_GT + exs_PT[:,1]*width/2, exs_PT[:,0], facecolors='none', edgecolors='k', s=5, alpha=1, clip_on=False, zorder=10)
+    # if group_type == 'vis':
+    #     exs_GT = np.array([
+    #         1+1/num_labels,
+    #         1+0/num_labels,
+    #     ])
+    #     ax1.scatter(exs_GT + exs_PT[:-1,1]*width/2, exs_PT[:-1,0], facecolors='none', edgecolors='k', s=5, alpha=1, clip_on=False, zorder=10)
+    # elif group_type == 'dist':
+    #     exs_GT = np.array([
+    #         0+1/num_labels,
+    #         0+0/num_labels,
+    #         8+2/num_labels,
+    #     ])
+    #     ax1.scatter(exs_GT + exs_PT[:,1]*width/2, exs_PT[:,0], facecolors='none', edgecolors='k', s=5, alpha=1, clip_on=False, zorder=10)
 
     ax1.axvline(x = g_num - width/2 + 1, color='k', linestyle='--', linewidth=0.5)
 
@@ -3294,19 +5330,27 @@ def analyze_gamut(group_type, plot_type):
         ax1.set_ylim(-25,850)
         plt.savefig(fr'{data_dir}/group_traj_dists_{group_type}_basinpatch_dist.png', dpi=100)
 
-    plt.close()
-    # plt.show()
+    # plt.close()
+    plt.show()
 
 
 
-def bpd_by_fit():
+def bpd_by_fit(plot_type='scatter'):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     with open(fr'{data_dir}/traj_matrices/gamut_visall_nodist_labeled.bin', 'rb') as f:
-        data = pickle.load(f)
+        data1 = pickle.load(f)
+    with open(fr'{data_dir}/traj_matrices/gamut_vis8_dist_labeled.bin', 'rb') as f:
+        data2 = pickle.load(f)
+    data = data1 | data2
 
     BD_bpds_fits = []
+    BDIS_bpds_fits = []
     IS_bpds_fits = []
+    ISDP_bpds_fits = []
+    DP_bpds_fits = []
+    DPBD_bpds_fits = []
+
     for name in data.keys():
 
         if len(data[name][0]) != 18:
@@ -3320,44 +5364,117 @@ def bpd_by_fit():
 
         data_tuple, label = data[name]
         if label == 'BD':
+            if bpd > 300:
+                print(name,bpd,fit)
             BD_bpds_fits.append([bpd,fit])
+        elif label == 'BD/IS':
+            BDIS_bpds_fits.append([bpd,fit])
         elif label == 'IS':
             IS_bpds_fits.append([bpd,fit])
-
-    ### plot class fitness distributions ###
-    fig, ax1 = plt.subplots(figsize=(7,4)) 
+        elif label == 'IS/DP':
+            ISDP_bpds_fits.append([bpd,fit])
+        elif label == 'DP':
+            DP_bpds_fits.append([bpd,fit])
+        elif label == 'DP/BD':
+            DPBD_bpds_fits.append([bpd,fit])
 
     BD_bpds_fits = np.array(BD_bpds_fits)
+    BDIS_bpds_fits = np.array(BDIS_bpds_fits)
     IS_bpds_fits = np.array(IS_bpds_fits)
+    ISDP_bpds_fits = np.array(ISDP_bpds_fits)
+    DP_bpds_fits = np.array(DP_bpds_fits)
+    DPBD_bpds_fits = np.array(DPBD_bpds_fits)
 
-    ax1.scatter(BD_bpds_fits[:,0], BD_bpds_fits[:,1], c='cornflowerblue', s=5, alpha=.7)
-    ax1.scatter(IS_bpds_fits[:,0], IS_bpds_fits[:,1], c='tomato', s=5, alpha=.7)
+    if plot_type.startswith('scatter'):
+        fig, ax1 = plt.subplots(figsize=(7,4)) 
 
-    # xseq = np.linspace(0, 600, num=100)
-    # b, a = np.polyfit(BD_bpds_fits[:,0], BD_bpds_fits[:,1], deg=1)
-    # ax1.plot(xseq, a + b * xseq, color='cornflowerblue', lw=1, alpha=.7)
-    # b, a = np.polyfit(IS_bpds_fits[:,0], IS_bpds_fits[:,1], deg=1)
-    # ax1.plot(xseq, a + b * xseq, color='tomato', lw=1, alpha=.7)
+        size = 10
+        alpha = 0.3
+        ax1.scatter(IS_bpds_fits[:,0], IS_bpds_fits[:,1], c='tomato', s=size, alpha=alpha, label='Indirect Sequential')
+        # ax1.scatter(BDIS_bpds_fits[:,0], BDIS_bpds_fits[:,1], c='cornflowerblue', s=size, alpha=alpha, marker=MarkerStyle('o', fillstyle='left'))
+        # ax1.scatter(BDIS_bpds_fits[:,0], BDIS_bpds_fits[:,1], c='tomato', s=size, alpha=alpha, marker=MarkerStyle('o', fillstyle='right'))
+        ax1.scatter(BD_bpds_fits[:,0], BD_bpds_fits[:,1], c='cornflowerblue', s=size, alpha=alpha, label='Biased Diffusive')
+        ax1.scatter(DP_bpds_fits[:,0], DP_bpds_fits[:,1], c='forestgreen', s=size, alpha=alpha, label='Direct Pathing')
 
-    # x_bins = np.linspace(0,650,25)
-    # y_bins = np.linspace(150,600,25)
-    # X,Y = np.meshgrid(x_bins, y_bins)
-    # H,_,_ = np.histogram2d(BD_bpds_fits[:,0], BD_bpds_fits[:,1], bins=[x_bins, y_bins])
-    # # H,_,_ = np.histogram2d(IS_bpds_fits[:,0], IS_bpds_fits[:,1], bins=[x_bins, y_bins])
-    # im = ax1.pcolormesh(X, Y, H.T, cmap='plasma')
+        if plot_type == 'scatter+line':
+            sns.regplot(x=IS_bpds_fits[:,0], y=IS_bpds_fits[:,1], color='tomato', ax=ax1, robust=True, line_kws=dict(alpha=.5), scatter_kws=dict(s=0))
+            # sns.regplot(x=BDIS_bpds_fits[:,0], y=BDIS_bpds_fits[:,1], color='grey', ax=ax1, scatter_kws=dict(s=0))
+            sns.regplot(x=BD_bpds_fits[:,0], y=BD_bpds_fits[:,1], color='cornflowerblue', ax=ax1, robust=True, line_kws=dict(alpha=.5), scatter_kws=dict(s=0))
+            sns.regplot(x=DP_bpds_fits[:,0], y=DP_bpds_fits[:,1], color='forestgreen', ax=ax1, robust=True, line_kws=dict(alpha=.5), scatter_kws=dict(s=0))
 
-    ax1.set_xlabel('Basin Patch Distance')
-    # ax1.set_xlim(0,850)
-    ax1.set_ylabel('Time Taken to Reach Patch')
-    # ax1.set_ylim(170,580)
+        ax1.set_xlabel('Basin Patch Distance')
+        ax1.set_ylabel('Time Taken to Reach Patch')
 
-    plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness.png', dpi=100)
-    # plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness_BDhm.png', dpi=100)
-    # plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness_IShm.png', dpi=100)
-    plt.close()
-    # plt.show()
+        from matplotlib.lines import Line2D
+        leg_ele = [
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='tomato', markersize=7.5, label='Indirect Sequential', alpha=.6),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='cornflowerblue', markersize=7.5, label='Biased Diffusive', alpha=.6),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='forestgreen', markersize=7.5, label='Direct Pathing', alpha=.6),
+            ]
+        ax1.legend(handles=leg_ele, loc='upper right')
 
+        if plot_type == 'scatter': plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness.png', dpi=100)
+        elif plot_type == 'scatter+line': plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness_w_lineartrends.png', dpi=100)
+        plt.close()
 
+    elif plot_type == 'heatmap':
+
+        fig, ax1 = plt.subplots(figsize=(7,4)) 
+        x_bins = np.linspace(0,650,25)
+        y_bins = np.linspace(150,600,25)
+        X,Y = np.meshgrid(x_bins, y_bins)
+        H,_,_ = np.histogram2d(BD_bpds_fits[:,0], BD_bpds_fits[:,1], bins=[x_bins, y_bins])
+        im = ax1.pcolormesh(X, Y, H.T, cmap='plasma')
+        ax1.set_xlabel('Basin Patch Distance')
+        ax1.set_ylabel('Time Taken to Reach Patch')
+        plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness_BDhm.png', dpi=100)
+
+        fig, ax1 = plt.subplots(figsize=(7,4)) 
+        x_bins = np.linspace(0,650,25)
+        y_bins = np.linspace(150,600,25)
+        X,Y = np.meshgrid(x_bins, y_bins)
+        H,_,_ = np.histogram2d(IS_bpds_fits[:,0], IS_bpds_fits[:,1], bins=[x_bins, y_bins])
+        im = ax1.pcolormesh(X, Y, H.T, cmap='plasma')
+        ax1.set_xlabel('Basin Patch Distance')
+        ax1.set_ylabel('Time Taken to Reach Patch')
+        plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness_IShm.png', dpi=100)
+    
+    elif plot_type == 'violin':
+
+        fig, ax1 = plt.subplots(figsize=(4,3)) 
+        # colors = ['tomato', 'grey', 'cornflowerblue']
+        # data = [IS_bpds_fits[:,0], BDIS_bpds_fits[:,0], BD_bpds_fits[:,0]]
+        # labels = ['IS', 'BD/IS', 'BD']
+        colors = ['tomato', 'cornflowerblue', 'forestgreen']
+        data = [IS_bpds_fits[:,0], BD_bpds_fits[:,0], DP_bpds_fits[:,0], ]
+        labels = ['IS', 'BD', 'DP']
+        # colors = ['tomato', 'grey', 'cornflowerblue', 'grey', 'forestgreen', 'grey']
+        # data = [IS_bpds_fits[:,0], BDIS_bpds_fits[:,0], BD_bpds_fits[:,0], DPBD_bpds_fits[:,0], DP_bpds_fits[:,0], ISDP_bpds_fits[:,0]]
+        # labels = ['IS', 'BD/IS', 'BD', 'DP/BD', 'DP', 'IS/DP']
+
+        for i,(c,d) in enumerate(zip(colors,data)):
+            l0 = ax1.violinplot(d, 
+                        positions=[i],
+                        widths=1, 
+                        showmedians=True,
+                        showextrema=False,
+                        )
+            for p in l0['bodies']:
+                p.set_facecolor(c)
+                p.set_edgecolor(c)
+            l0['cmedians'].set_edgecolor(c)
+
+        plt.xticks(np.arange(0, len(labels), 1))
+        ax1.xaxis.set_ticklabels(labels)
+        # ax1.set_xticks([])
+        # ax1.set_xticklabels(labels)
+        ax1.set_xlabel('Class Types')
+        ax1.set_ylabel('Basin Patch Distance')
+        # ax1.set_ylim(-20,1020)
+
+        plt.tight_layout()
+        plt.savefig(fr'{data_dir}/group_traj_dists_basinpatchdist_x_fitness_violin.png', dpi=100)
+        plt.close()
 
 
 
@@ -3649,9 +5766,9 @@ def gamut_2d(data_type_x, data_type_y, group, cluster=None, heatmap=None, sc_typ
 
     elif group == 'all' or group == 'main_fig':
 
-        with open(fr'{data_dir}/traj_matrices/gamut_visall_nodist_labeled.bin', 'rb') as f:
+        with open(fr'{data_dir}/traj_matrices/archive - ISBDDP/gamut_visall_nodist_labeled.bin', 'rb') as f:
             data1 = pickle.load(f)
-        with open(fr'{data_dir}/traj_matrices/gamut_vis8_dist_labeled.bin', 'rb') as f:
+        with open(fr'{data_dir}/traj_matrices/archive - ISBDDP/gamut_vis8_dist_labeled.bin', 'rb') as f:
             data2 = pickle.load(f)
         if group == 'all':
             with open(fr'{data_dir}/traj_matrices/gamut_vis16_dist_labeled.bin', 'rb') as f:
@@ -3893,7 +6010,10 @@ def gamut_2d(data_type_x, data_type_y, group, cluster=None, heatmap=None, sc_typ
         # print(x_bins, y_bins)
         X,Y = np.meshgrid(x_bins, y_bins)
         H,_,_ = np.histogram2d(full_data[:,0], full_data[:,1], bins=[x_bins, y_bins])
-        im = ax1.pcolormesh(X, Y, H.T, cmap='plasma')
+
+        norm = mpl.colors.Normalize(vmin=0, vmax=5)
+
+        im = ax1.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
         # plt.colorbar(im, label='Number Overlapping Runs')
 
     else:
@@ -5533,11 +7653,14 @@ def gamut_label(group):
 
 # -------------------------- misc -------------------------- #
 
-def find_top_val_gen(exp_name, rank='cen'):
+def find_top_val_gen(exp_name, rank='cen', archive=False):
+
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
+    else:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
 
     # parse val results text file
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-
     if rank == 'top': 
         with open(fr'{data_dir}/{exp_name}/val_results.txt') as f:
             lines = f.readlines()
@@ -5581,8 +7704,10 @@ if __name__ == '__main__':
 
     ## traj
     space_step = 25
+    # space_step = 50 # for log_ray_boundary
     orient_step = np.pi/8
     timesteps = 500
+    dpi = 100
 
     ## quick test
     # space_step = 500
@@ -5602,48 +7727,109 @@ if __name__ == '__main__':
     ### ------ final figure update ------- ###
 
     # for i in [1,3,4,9,15]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
+    for i in [3,15]:
+    # for i in [3]:
+    # for i in [1,3,4]:
+    # for i in [9,15]:
+    # # for i in [0,1,2,3,4,5,6,7,9,10,11,12,13,14,15,17,18]: # ['BD/IS','BD/IS','BD/IS','IS','IS','IS','IS','IS','BD','BD/IS','BD/IS','IS','IS','BD','BD','IS','IS']
+    # # for i in [3,4,5,6,7,12,13,17,18]: # ['IS','IS','IS','IS','IS','IS','IS','IS','IS']
+        names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep{str(i)}')
     # for i in [4]:
+    # # # # # for i in [0,1,2,3,4,5,6,7,9,11,13,14,16,17,18,19]: # ['IS','IS','IS','BD','BD','IS','IS','IS','BD','BD/IS','BD','IS','IS','IS','BD/IS','IS']
+    # # # # # for i in [0,1,2,5,6,7,14,16,17,19]: # ['IS','IS','IS','IS','IS','IS','IS','IS','IS','IS']
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep{str(i)}')
 
     # for i in [10,18]:
-    #     names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{str(i)}')
+    for i in [10]:
+        names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep{str(i)}')
     # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep12')
 
     # for i in [7,11]:
     #     names.append(f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep{str(i)}')
     # names.append('sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_maxWF_n0_rep2')
 
+    # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3')
+    # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15')
+    # names.append(f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10')
+
+    # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep4') # pure follower - exploit or explore
+    # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep6') # follower + nav - BD
+    # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep1') # follower + nav - IS
+    # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep14') # pure navigator - BD
+    # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep2') # pure navigator - IS
+
+    # names.append('sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep12')
+
+    # names = [
+    #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep0', # actually were trained with N=2, N_RAND=1 --> rerun
+    #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep1', 
+    #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep2',
+    # ]
+
 
     # for name in names:
     #     gen, valfit = find_top_val_gen(name, 'cen')
-    #     print(f'{name} @ {gen} w {valfit} fitness')
-
-        # dpi = 100
+    #     # gen, valfit = find_top_val_gen(name, 'cen', archive=True)
+    #     # print(f'{name} @ {gen} w {valfit} fitness')
 
     #     orient_step = np.pi/8
-    #     save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_otherzero.bin'
+    #     save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
     #     print(f'save as: {save_name_traj}')
     #     traj_exists = False
     #     if os.path.exists(save_name_traj):
     #         print('traj already built')
     #         traj_exists = True
     #     else:
-    #         build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps)
+    #         build_agent_trajs(name, gen, space_step, orient_step, timesteps, feat_out=True)
+    #         # build_agent_trajs(name, gen, space_step, orient_step, timesteps, archive=True, feat_out=True)
 
-        # save_name_trajmap = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ex_lines'
-        # # if os.path.exists(save_name_trajmap+'_100.png'):
-        # #     print('traj already plotted at dpi100')
-        # if os.path.exists(save_name_trajmap+'_50.png'):
-        #     print('traj already plotted at dpi50')
-        # # elif os.path.exists(save_name_trajmap+'.png'):
-        # #     print('traj already plotted')
-        # else:
-        #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50)
+    #     save_name_trajmap = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ex_lines'
+    #     # if os.path.exists(save_name_trajmap+'_100.png'):
+    #     #     print('traj already plotted at dpi100')
+    #     if os.path.exists(save_name_trajmap+'_50.png'):
+    #         print('traj already plotted at dpi50')
+    #     # elif os.path.exists(save_name_trajmap+'.png'):
+    #     #     print('traj already plotted')
+    #     else:
+    #         plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50)
+    #     # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, archive=True, dpi=50)
+    #     # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, archive=True, dpi=100)
     
         # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='3d', dpi=50)
 
-        # plot_agent_orient_corr(name, gen, space_step, orient_step=np.pi/8, timesteps=500, dpi=dpi)
+        # plot_agent_orient_corr(name, gen, space_step, orient_step, timesteps, archive=True, dpi=dpi)
+
+
+        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', archive=True, dpi=dpi)
+        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi, extra='nosocial')
+        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi, extra='ghost_exploiter')
+        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi, extra='ghost_explorer')
+
+        # plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='')
+        # plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='ghost_exploiter')
+        # plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='ghost_explorer')
+        # plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='ghost_exploiter', perturb_cond='ghost_explorer')
+
+        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_count', archive=True, dpi=dpi)
+        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgact', archive=True, dpi=dpi)
+
+        # # activs = 4
+        # # for a in range(activs):
+        # # for a in [0,1,2,3,5]:
+        # for a in [5]:
+        #     # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a}', archive=True, dpi=dpi)
+        #     plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_tuning{a}0', archive=True, dpi=dpi)
+        #     # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_tuning{a}1', archive=True, dpi=dpi)
+        #     # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_tuning{a}2', archive=True, dpi=dpi)
+        #     # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_tuning{a}3', archive=True, dpi=dpi)
+        #     # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_tuning{a}4', archive=True, dpi=dpi)
+        #     # oris = 8
+        #     # for o in range(oris):
+        #     #     plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv_by_ori{a}{o}', archive=True, dpi=dpi)
+        # # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgorilen', archive=True, dpi=dpi) # quiver only
+
+
+
 
         # orient_step = np.pi/32
         # save_name_act = fr'{data_dir}/action_maps/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_action.bin'
@@ -5655,22 +7841,180 @@ if __name__ == '__main__':
         #         act_matrix = pickle.load(f)
         #     min_action, max_action = act_matrix.min(), act_matrix.max()
         # else:
-        #     build_action_matrix(name, gen, space_step, orient_step)
+            # build_action_matrix(name, gen, space_step, orient_step)
+        # build_action_matrix(name, gen, space_step, orient_step=np.pi/32, archive=True, feat_out=True)
 
-        # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_avgact', dpi=dpi)
-        # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type='_avg', colored='ori', dpi=dpi)
-        # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type='_avg', colored='len', dpi=dpi)
+        # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type='_avg', colored='len', archive=True, dpi=dpi)
+        # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type='_avg', colored='ori', archive=True, dpi=dpi)
 
-        # save_name_noise = fr'{data_dir}/{name}_valnoise_{dpi}.png'
-        # if os.path.exists(save_name_noise):
-        #     print('noise plot already built')
-        # else:
-        #     # print('not', save_name_noise)
-        # plot_agent_valnoise_dists(name, noise_types, dpi=dpi)
+        # # activs = 6
+        # # for a in range(activs)
+        # for a in [0,1,2,3,5]:
+        # for a in [5]:
+            # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type=f'_tuning{a}0', archive=True, dpi=dpi) # CNN outputs - goal
+            # for i in [1,2,3,4]:
+            #     plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type=f'_tuning{a}{i}', archive=True, dpi=dpi) # CNN outputs
 
-        # orient_step = np.pi/8
-        # build_agent_trajs_parallel(name, gen, space_step, orient_step, timesteps, extra='angle_n10')
-        # plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, extra='angle_n10', dpi=50)
+
+        # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type='_avgact', archive=True, dpi=dpi)
+        # for ind in range(8):
+        #     plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type=f'_avgact_by_ori{ind}', archive=True, dpi=dpi)
+        # a = 5
+        # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type=f'_avgact{a}', archive=True, dpi=dpi)
+        # for ind in range(8):
+        #     plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type=f'_avgact_by_ori{a}{ind}', archive=True, dpi=dpi)
+        # plot_action_vecfield(name, gen, space_step, orient_step=np.pi/32, plot_type=f'_avg5', archive=True, dpi=dpi) # quiver only
+
+
+
+
+    names = []
+    # names.append('sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep1') # no perf + no spatial
+    # names.append('sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep18') # spatial only
+    # names.append('sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep14') # perf only (IS)
+    # names.append('sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep33') # perf + weak spatial (hybrid)
+    # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep18') # perf + strong spatial + no discernment
+    # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep31') # perf + strong spatial + discernment
+
+    # names.append('sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep35') # no perf + no spatial
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep5') # spatial only
+    # names.append('sc_N6_NRW1_ND4_CNN14_FNN16_vis8_nocoll_rep14') # perf only
+    # names.append('sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep33') # perf + weak spatial
+    # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_nocoll_rep26') # perf + strong spatial + no discernment
+    # names.append('sc_N6_NRW3_ND2_CNN14_FNN16_vis8_nocoll_rep25') # perf + strong spatial + discernment
+
+
+    # names.append('sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep35') # perf only (BD)
+    # names.append('sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep57') # perf only (BD)
+    # names.append('sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep46') # perf only (BD)
+
+    # names.append('sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep35') # weak perf + spatial (slow self-nav)
+    # names.append('sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep9') # weak perf + spatial (slow self-nav)
+    # names.append('sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep29') # perf + weak spatial (hybrid)
+    # names.append('sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep23') # perf + weak spatial (hybrid)
+
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep37') # no perf + no spatial
+    names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep29') # perf + weak spatial (hybrid)
+    # names.append('sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep15') # perf + strong spatial + no discernment
+    # names.append('sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep39')
+    # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep7') # perf only (BD)
+
+
+    # for name in names:
+    #     gen, valfit = find_top_val_gen(name, 'cen')
+    #     # build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, feat_out=True)
+    #     # build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='nosocial', feat_out=True)
+    #     # build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter', feat_out=True)
+    #     # build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer', feat_out=True)
+
+    #     for a in range(20):
+    #         # print(a)
+    #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a}', dpi=dpi)
+    #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a}', extra='nosocial', dpi=dpi)
+    #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a}', extra='ghost_exploiter', dpi=dpi)
+    #         # plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a}', extra='ghost_explorer', dpi=dpi)
+    #     # activs = 4
+    #     # for a in range(activs):
+    #     #     oris = 8
+    #     #     for o in range(oris):
+    #     #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv_by_ori{a}{o}', dpi=dpi)
+
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_nosocial.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_exploiter.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_explorer.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+
+
+
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep37') # no perf + no spatial
+    # names.append('sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep18') # spatial only
+    # names.append('sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep35') # perf only (BD)
+    # names.append('sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep33') # perf + weak spatial (hybrid)
+    # names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep29') # perf + weak spatial (hybrid)
+    # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep31') # perf + strong spatial + discernment
+
+
+    # for name in names:
+    #     gen, valfit = find_top_val_gen(name, 'cen')
+    #     # build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='nosocial', feat_out=True)
+    #     # build_agent_trajs_social(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter', feat_out=True)
+
+    #     JS_mean_NSET,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='ghost_exploiter')
+
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_nosocial.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_exploiter.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_explorer.bin'
+    #     # if os.path.exists(save_name_traj):
+    #     #     os.remove(save_name_traj)
+
+
+    # data = {}
+    # for name in names:
+    #     data[name] = {}
+    # with open(fr'{data_dir}/traj_matrices/activfield.bin', 'wb') as f:
+    #     pickle.dump(data, f)
+
+    # for exp_name, gen, plot_name in calls:
+    #     print(f'plotting {exp_name}_{gen} with plot type {plot_name}')
+    #     plot_traj_vecfield(exp_name, gen, space_step, orient_step, timesteps, plot_type=plot_name, archive=True, dpi=dpi)
+
+    # with open(fr'{data_dir}/traj_matrices/activfield.bin', 'rb') as f:
+    #     data = pickle.load(f)
+
+    # for name in data.keys():
+    #     # print(name)
+
+    #     for x in data[name].keys():
+    #         if '(8' in x:
+    #             print(x, data[name][x])
+
+        # if name == 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_seed10k_rep12':
+        #     # print(name)
+        #     for x in data[name].keys():
+        #         # print(x)
+
+        #         # if 'HD' in x:
+        #         #     print(x, data[name][x])
+
+        #         if '(8' in x:
+        #             print(x, data[name][x])
+
+
+        # if ori_index < 8:
+        #     data[name][str((ori_index,act_index-3))] = (
+        #         max_act, max_act_x, max_act_y, 
+        #         avg_act_p15, avg_x_p15, avg_y_p15, freq_below_p15, 
+        #         avg_act_p25, avg_x_p25, avg_y_p25, freq_below_p25,
+        #         avg_act_p50, avg_x_p50, avg_y_p50, freq_below_p50,
+        #         )
+        # elif ori_index == 8:
+        #     data[name][str((ori_index,act_index-3))] = (
+        #         max_act, max_act_x, max_act_y, 
+        #         freq_below_p15, freq_below_p25, freq_below_p50
+        #         )
+
+    # print_activfield_results()
+    # plot_activfield_results(plot_type='ori_x_goal', data_type='max')
+    # plot_activfield_results(plot_type='ori_x_goal', data_type='thresh_p15')
+    # plot_activfield_results(plot_type='ori_x_goal', data_type='thresh_p25')
+    # plot_activfield_results(plot_type='ori_x_goal', data_type='thresh_p50')
+    # plot_activfield_results(plot_type='histo_dist')
+    # plot_activfield_results(plot_type='histo_ori')
 
 
 
@@ -5678,7 +8022,7 @@ if __name__ == '__main__':
 
     # vfr = 8
     # num_views = []
-    # vis_res = [2,4,8,12,16,20,24,32,48,64,96,128,256,512]
+    # vis_res = [6,10,12,14,18,20,24,32]
     # for vfr in vis_res:
     #     views = build_agent_views(vis_field_res=vfr)
     #     num_views.append(len(views))
@@ -5783,7 +8127,7 @@ if __name__ == '__main__':
 
     # behavior = 'straight'
     # for rot_diff in [0.5, 0.1, 0.05, 0.01, 0.005, 0.001]:
-    #     build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff)
+    #     build_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff)
     #     plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100)
     #     # plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, dpi=100)
 
@@ -5804,7 +8148,7 @@ if __name__ == '__main__':
     #         print(save_name)
 
     #         if not os.path.exists(save_name+'_corr_auto_delayed.png'):
-    #             build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve)
+    #             build_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve)
     #             plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=None, dpi=100)
     #             # plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=None, dpi=100)
     #         else:
@@ -5825,7 +8169,7 @@ if __name__ == '__main__':
     #             print(save_name)
 
     #             if not os.path.exists(save_name+'_corr_auto_delayed.png'):
-    #                 build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve, limit)
+    #                 build_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve, limit)
     #                 plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=limit, dpi=100)
     #                 # plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=curve, limit=limit, dpi=100)
     #             else:
@@ -5847,7 +8191,7 @@ if __name__ == '__main__':
     #         if not os.path.exists(save_name+'_hist_dirent.png'):
     #         # if not os.path.exists(save_name+'_corr_auto_delayed.png'):
     #         # if not os.path.exists(save_name+'_50.png'):
-    #             build_agent_trajs_parallel_PRW(space_step, orient_step, timesteps, behavior, rot_diff, bias=b)
+    #             build_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, bias=b)
     #             plot_agent_corr_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=b, dpi=100)
     #             plot_agent_trajs_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=b)
     #             plot_agent_dirent_PRW(space_step, orient_step, timesteps, behavior, rot_diff, curve=None, limit=None, bias=b, dpi=100)
@@ -5989,26 +8333,6 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_bound500_rep{x}' for x in range(20)]:
     #     names.append(name)
 
-    # for name in [f'sc_CNN1148_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN24_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN17_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN27_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-    # for name in [f'sc_CNN24_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN27_FNN16_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
 
     # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
     #     names.append(name)
@@ -6095,11 +8419,6 @@ if __name__ == '__main__':
     # names.append('sc_CNN14_GRUparanoise64_p50e20_vis8_PGPE_ss20_mom8_proprio_rep0')
     # run_gamut('gamut_proprio', names, dpi=50)
 
-
-    # data = {}
-    # with open(fr'{data_dir}/traj_matrices/gamut_FNN64.bin', 'wb') as f:
-    #         pickle.dump(data, f)
-
     # n = 10
     # for name in [f'sc_CNN14_FNN64_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(n)]:
     #     names.append(name)
@@ -6128,6 +8447,343 @@ if __name__ == '__main__':
     # run_gamut('gamut_FNN64', names, dpi=50)
 
 
+    # data = {}
+    # with open(fr'{data_dir}/traj_matrices/gamut_social_N6.bin', 'wb') as f:
+    #     pickle.dump(data, f)
+
+    # n = 40
+    # names = []
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # run_gamut('gamut_social_N6', names, dpi=50)
+
+
+
+    # data = {}
+    # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'wb') as f:
+    #     pickle.dump(data, f)
+
+
+    # data_coll = [
+    #         'de_mean_OG', 'de_mean_NS', 'de_mean_ET', 'de_mean_ER',
+    #         'JS_mean_OGNS', 'JS_mean_NSET', 'JS_mean_NSER', 'JS_mean_ETER'
+    #         ]
+    # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+    #     data = pickle.load(f)
+    # for k,v in data.items():
+        # print(k, v)
+
+
+    n = 40
+    names = []
+
+    # # for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    #     names.append(name)
+
+    # # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(20)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitRes200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitRes200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N11_NRW10_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N16_NRW15_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N11_NRW10_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N16_NRW15_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocollpatch_rep{x+20}' for x in range(20)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN18_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis12_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+        names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_collinput_rep{x}' for x in range(n)]:
+        names.append(name)
+
+    size = 4
+    idx = int(sys.argv[1])-1
+    names = names[idx*size:(idx+1)*size]
+    print(f'running name indices {idx*size}:{(idx+1)*size}')
+    print(f'on {platform.node()}')
+
+    run_gamut_social('gamut_social', names, dpi=50)
+
+    # count = 0
+    # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+    #     data = pickle.load(f)
+    # for k,v in sorted(data.items()):
+    #     if k in names:
+    #         print(k)
+    #         count += 1
+    # print(f'count: {count} / {len(names)}')
+
+
+
+    # run_gamut_social_extra('gamut_social_extra', names, dpi=50)
+
+    # count = 0
+    # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'rb') as f:
+    #     data = pickle.load(f)
+    # run = []
+    # for k,v in sorted(data.items()):
+    #     if k in names:
+    #         # print(k)
+    #         count += 1
+    #         run.append(k)
+    # # for n in names:
+    # #     if n not in run:
+    # #         print(f'missing: {n}')
+    # print(f'count: {count} / {len(names)}')
+    # print(len(data.items()))
+
+
+    # data = {}
+    # with open(fr'{data_dir}/traj_matrices/gamut_social_slurm.bin', 'wb') as f:
+    #     pickle.dump(data, f)
+
+    # for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(9)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(13)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(12)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(5)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(11)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(11)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(12)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(13)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(11)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(11)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(11)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(7)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(12)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(5)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(12)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(12)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(10)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(10)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(9)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(10)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(14)]:
+    #     names.append(name)
+
+    # for name in names:
+    #     data[name] = 1
+    
+    # with open(fr'{data_dir}/traj_matrices/gamut_social_slurm.bin', 'wb') as f:
+    #     pickle.dump(data, f)
+
+
+
     # analyze_gamut --> input index for desired data type
     # 0-7: corr_peaks, decorr_time, histo_avg_init, histo_avg_patch, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch, 
     # 8-13: min_action, max_action, avglen_mean, avglen_med, avglen_min, avglen_max, 
@@ -6152,18 +8808,13 @@ if __name__ == '__main__':
     # gamut_label('gamut_vis32_dist')
     # gamut_label('gamut_other')
 
-    #for i in [0,1,4,5,6,7]: # corr_peaks, decorr_time, histo_peaks_init, histo_peaks_patch, dirent_init, dirent_patch
-    #for i in [10,14,18,22,26]: # avglen_mean, pkf_mean, pkt_mean, def_mean, det_mean
-    #for i in [30,33,36]: # act_mean, len_mean, de_mean
-    # #for i in [0,1,4,5,6,7,10,14,18,22,26,30,33,36]:
-    # for i in [1,36]:
-    #     analyze_gamut('vis', i)
-        # analyze_gamut('dist', i)
     # analyze_gamut('vis','fitness')
     # analyze_gamut('dist','fitness')
     # analyze_gamut('vis','basin_patch_dist')
     # analyze_gamut('dist','basin_patch_dist')
-    # bpd_by_fit()
+    # bpd_by_fit(plot_type='scatter')
+    # bpd_by_fit(plot_type='scatter+line')
+    # bpd_by_fit(plot_type='violin')
 
     # gamut_2d(1, 36, 'gamut', sc_type='group')
     # gamut_2d(1, 36, 'gamut', sc_type='label')

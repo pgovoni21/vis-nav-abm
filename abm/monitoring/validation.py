@@ -1,4 +1,6 @@
 from abm.start_sim import start
+from abm.start_sim_multi import start as start_multi
+from abm.monitoring.trajs import find_top_val_gen
 
 from pathlib import Path
 import pickle
@@ -8,37 +10,35 @@ import os
 import dotenv as de
 
 
-def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=None):
-
-    if noise_type is None:
-        print(f'running: {name}')
-    else:
-        print(f'running: {name} + {noise_type} noise')
+def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=None, time=False):
 
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     exp_path = fr'{data_dir}/{name}'
     env_path = fr'{exp_path}/.env'
     envconf = de.dotenv_values(env_path)
 
-    if Path(fr'{exp_path}/val_results_cen.txt').is_file():
-        return print(f'val_results_cen already exists')
-    
+    if noise_type is None and perturb_type is None:
+        print(f'running: {name}')
+        if Path(fr'{exp_path}/val_results_cen.txt').is_file():
+            return print(f'val_results_cen already exists')
+    elif noise_type is not None:
+        print(f'running: {name} + {noise_type} noise')
+        if Path(fr'{exp_path}/val_matrix_cen_{noise_type}_noise.bin').is_file():
+            return print(f'val_matrix_cen already exists')
+    elif perturb_type is not None:
+        print(f'running: {name} + {perturb_type} perturb')
+        if Path(fr'{exp_path}/val_matrix_cen_{perturb_type}_perturb.bin').is_file():
+            return print(f'val_matrix_cen already exists')
+
     with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
         data = pickle.load(f)
     data_genxpop = np.mean(data, axis=2) # average across episodes
-    avg_data = np.mean(data_genxpop, axis=1) # average across individuals in population --> different than rerun_topNNs()
+    avg_data = np.mean(data_genxpop, axis=1) # average across instances in population
+    # avg_data = avg_data[:num_gens]
 
-    # --> NN0 / top
-    # top_data = np.min(data_genxpop, axis=1) # min : top
-    # # top_data = np.max(data_genxpop, axis=1) # max : top
-    # top_ind = np.argsort(top_data)[:num_NNs] # min : top
-    # # top_ind = np.argsort(top_data)[-1:-num_NNs-1:-1] # max : top
-    # top_fit = [top_data[i] for i in top_ind]
-
-    # --> NNcen / dist center
-    if envconf['SIM_TYPE'] == 'walls':
+    if envconf['SIM_TYPE'].startswith('walls'):
         top_ind = np.argsort(avg_data)[:num_NNs] # min : top
-    elif envconf['SIM_TYPE'] == 'nowalls':
+    elif envconf['SIM_TYPE'].startswith('nowalls'):
         top_ind = np.argsort(avg_data)[-1:-num_NNs-1:-1] # max : top
     else:
         raise ValueError('SIM_TYPE not recognized')
@@ -46,11 +46,13 @@ def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=Non
 
     val_matrix = np.zeros((num_NNs,
                            num_seeds))
+    val_matrix_time = np.zeros((num_NNs,
+                           num_seeds))
     print(f'Validation matrix shape (num_NNs, num_seeds): {val_matrix.shape}')
 
     # pack inputs for multiprocessing map
     mp_inputs = []
-    for g,f in zip(top_ind, top_fit):
+    for g in top_ind:
 
         # with open(fr'{data_dir}/{name}/gen{g}_NN0_pickle.bin','rb') as f: # --> NN0 / top
         with open(fr'{data_dir}/{name}/gen{g}_NNcen_pickle.bin','rb') as f: # --> NNcen / dist center
@@ -67,14 +69,15 @@ def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=Non
     results_list = results.get()
 
     # skip to start of each seed series/chunk + allocate fitness to save matrix
-    if envconf['SIM_TYPE'] == 'walls':
+    if envconf['SIM_TYPE'].startswith('walls'):
         for i,c in enumerate(range(0, len(results_list), num_seeds)):
-            for s,(time_taken, dist_from_patch) in enumerate(results_list[c : c + num_seeds]):
+            for s,(time_taken, dist_from_patch, data) in enumerate(results_list[c : c + num_seeds]):
                 val_matrix[i,s] = int(time_taken)
-    elif envconf['SIM_TYPE'] == 'nowalls':
+    elif envconf['SIM_TYPE'].startswith('nowalls'):
         for i,c in enumerate(range(0, len(results_list), num_seeds)):
-            for s,(time_taken, total_res_collected) in enumerate(results_list[c : c + num_seeds]):
+            for s,(first_time_consume, total_res_collected) in enumerate(results_list[c : c + num_seeds]):
                 val_matrix[i,s] = int(total_res_collected)
+                val_matrix_time[i,s] = int(first_time_consume)
 
     # saving protocol for noise/perturb/regular
 
@@ -104,8 +107,21 @@ def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=Non
             val_matrix = pickle.load(f)
         avg_per_NN_prev = np.average(val_matrix, axis=1).round(1)
 
-        for i, ef, vfn, vfp in zip(top_ind, top_fit, avg_per_NN_new, avg_per_NN_prev):
-            print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vfp)} | val_fit + {perturb_type}: {int(vfn)}')
+        if time:
+            with open(fr'{exp_path}/val_matrix_cen_{perturb_type}_time_perturb.bin', 'wb') as f:
+                pickle.dump(val_matrix_time, f)
+            time_avg_per_NN_new = np.average(val_matrix_time, axis=1).round(1)
+
+            with open(fr'{exp_path}/val_matrix_cen_time.bin','rb') as f:
+                val_matrix = pickle.load(f)
+            time_avg_per_NN_prev = np.average(val_matrix, axis=1).round(1)
+
+            for i, ef, vfp, tp, vfn, tn in zip(top_ind, top_fit, avg_per_NN_prev, time_avg_per_NN_prev, avg_per_NN_new, time_avg_per_NN_new):
+                print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vfp)} @ {int(tp)} | val_fit + {perturb_type}: {int(vfn)} @ {int(tn)}')
+
+        else:
+            for i, ef, vfp, vfn in zip(top_ind, top_fit, avg_per_NN_prev, avg_per_NN_new):
+                print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vfp)} | val_fit + {perturb_type}: {int(vfn)}')
 
     else:
 
@@ -113,16 +129,355 @@ def rerun_NNs(name, num_NNs=20, num_seeds=100, noise_type=None, perturb_type=Non
             pickle.dump(val_matrix, f)
         avg_per_NN = np.average(val_matrix, axis=1).round(1)
 
+        if time:
+            with open(fr'{exp_path}/val_matrix_cen_time.bin', 'wb') as f:
+                pickle.dump(val_matrix_time, f)
+            time_avg_per_NN = np.average(val_matrix_time, axis=1).round(1)
+
         with open(fr'{exp_path}/val_results_cen.txt', 'w') as f:
             f.write(f'Validation matrix shape (num_NNs, num_seeds): {val_matrix.shape}\n')
             for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
                 f.write(str(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)}\n'))
 
+        if time:
+            for i, ef, vf, t in zip(top_ind, top_fit, avg_per_NN, time_avg_per_NN):
+                print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)} @ {int(t)}')
+        else:
+            for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
+                print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)}')
+
+
+
+def rerun_best_val_NN(name, num_seeds=1000, perturb_type=None):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    exp_path = fr'{data_dir}/{name}'
+    env_path = fr'{exp_path}/.env'
+
+    if perturb_type is not None:
+        print(f'running: {name} + {perturb_type} perturb')
+        if Path(fr'{exp_path}/val_matrix_best_{perturb_type}_perturb.bin').is_file():
+            return print(f'val_matrix_best_{perturb_type}_perturb already exists')
+    else:
+        print(f'running: {name}')
+        if Path(fr'{exp_path}/val_matrix_best.bin').is_file():
+            return print(f'val_results_best already exists')
+
+    with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+        data = pickle.load(f)
+    data_genxpop = np.mean(data, axis=2) # average across episodes
+    avg_data = np.mean(data_genxpop, axis=1)
+
+    avg_data = avg_data[:1000]
+    # print(avg_data.shape)
+
+    with open(fr'{exp_path}/val_matrix_cen.bin','rb') as f: # 20 top NNs
+        val_matrix_prev = pickle.load(f)
+    avg_per_NN_prev = np.average(val_matrix_prev, axis=1)
+    best_NN_ind = np.argmin(avg_per_NN_prev)
+
+    valmatrix_inds = np.argsort(avg_data)[:20] # min : top
+    best_NN_gen = valmatrix_inds[best_NN_ind]
+
+    with open(fr'{data_dir}/{name}/gen{best_NN_gen}_NNcen_pickle.bin','rb') as f:
+        pv = pickle.load(f)
+
+    # pack inputs for multiprocessing map
+    mp_inputs = []
+    for s in range(num_seeds):
+        mp_inputs.append( (None, pv, None, s, env_path) ) # model_tuple=None, load_dir=None
+
+    # run agent NNs in parallel
+    with mp.Pool() as pool:
+        results = pool.starmap_async(start, mp_inputs)
+        pool.close()
+        pool.join()
+    results_list = results.get()
+
+    # allocate fitnesses
+    val_matrix = np.zeros((num_seeds))
+    for s,(time_taken, dist_from_patch, data) in enumerate(results_list):
+        val_matrix[s] = int(time_taken)
+        # val_matrix[s] = int(dist_from_patch)
+
+    # saving protocol for perturb/regular
+    if perturb_type == 'ghostexplorer':
+
+        with open(fr'{exp_path}/val_matrix_best_{perturb_type}_perturb.bin', 'wb') as f:
+            pickle.dump(val_matrix, f)
+        avg_per_NN_new = np.average(val_matrix)
+
+        with open(fr'{exp_path}/val_matrix_best.bin', 'rb') as f:
+            val_matrix = pickle.load(f)
+        avg_per_NN_prevbest = np.average(val_matrix)
+
+        with open(fr'{exp_path}/val_matrix_best_ghostexploiter_perturb.bin', 'rb') as f:
+            val_matrix = pickle.load(f)
+        avg_per_NN_exploiter = np.average(val_matrix)
+
+        print(f'gen: {best_NN_gen} | val_fit_prevbest: {int(avg_per_NN_prevbest)} | val_fit_exploiter: {int(avg_per_NN_exploiter)} | val_fit_new: {int(avg_per_NN_new)}')
+
+    elif perturb_type is not None:
+
+        with open(fr'{exp_path}/val_matrix_best_{perturb_type}_perturb.bin', 'wb') as f:
+            pickle.dump(val_matrix, f)
+        avg_per_NN_new = np.average(val_matrix)
+
+        with open(fr'{exp_path}/val_matrix_best.bin', 'rb') as f:
+            val_matrix = pickle.load(f)
+        avg_per_NN_prevbest = np.average(val_matrix)
+
+        print(f'gen: {best_NN_gen} | val_fit_prevbest: {int(avg_per_NN_prevbest)} | val_fit_new: {int(avg_per_NN_new)}')
+
+    else:
+
+        with open(fr'{exp_path}/val_matrix_best.bin', 'wb') as f:
+            pickle.dump(val_matrix, f)
+        avg_per_NN_new = np.average(val_matrix)
+
+        print(f'gen: {best_NN_gen} | EA_fit: {int(avg_data[best_NN_gen])} | val_fit_prev: {int(avg_per_NN_prev[best_NN_ind])} | val_fit_new: {int(avg_per_NN_new)}')
+
+
+
+
+def rerun_NNs_multievo(name, num_NNs=20, num_seeds=100):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    exp_path = fr'{data_dir}/{name}'
+    env_path = fr'{exp_path}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    print(f'running: {name}')
+    if Path(fr'{exp_path}/val_results_cen.txt').is_file():
+        return print(f'val_results_cen already exists')
+
+    with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+        data = pickle.load(f)
+    num_steps,num_gen,num_eps,num_indivs = data.shape
+    data_genxpop = np.mean(data, axis=2) # average across episodes
+    avg_data = np.mean(data_genxpop, axis=1) # average across instances in population
+    avg_data_summed_across_indivs = np.sum(avg_data, axis=1) # sum bw each agent
+
+    # print(avg_data, avg_data.shape)
+
+    # --> NNcen / dist center
+    if envconf['SIM_TYPE'].startswith('walls'):
+        top_ind = np.argsort(avg_data_summed_across_indivs)[:num_NNs] # min : top
+    elif envconf['SIM_TYPE'].startswith('nowalls'):
+        top_ind = np.argsort(avg_data_summed_across_indivs)[-1:-num_NNs-1:-1] # max : top
+    else:
+        raise ValueError('SIM_TYPE not recognized')
+    top_fit = [avg_data[i,:].round(0) for i in top_ind]
+
+    val_matrix = np.zeros((num_NNs,
+                           num_seeds,
+                           num_indivs))
+    print(f'Validation matrix shape (num_NNs, num_seeds): {val_matrix.shape}')
+
+    # pack inputs for multiprocessing map
+    mp_inputs = []
+    for g in top_ind:
+        pvs = []
+        for indiv in range(num_indivs):
+            with open(fr'{data_dir}/{name}/gen{g}_NNcen_pickle_ag{indiv}.bin','rb') as f: 
+                pv = pickle.load(f)
+            pvs.append(pv)
+
+        for s in range(num_seeds):
+            mp_inputs.append( (None, pvs, None, s, env_path) ) # model_tuple=None, load_dir=None
+
+    # run agent NNs in parallel
+    with mp.Pool() as pool:
+        results = pool.starmap_async(start_multi, mp_inputs)
+        pool.close()
+        pool.join()
+    results_list = results.get()
+
+    # skip to start of each seed series/chunk + allocate fitness to save matrix
+    if envconf['SIM_TYPE'].startswith('walls'):
+        for i,c in enumerate(range(0, len(results_list), num_seeds)):
+            for s,(time_taken, dist_from_patch, data) in enumerate(results_list[c : c + num_seeds]):
+                for indiv in range(num_indivs):
+                    val_matrix[i,s,indiv] = int(time_taken[indiv])
+    elif envconf['SIM_TYPE'].startswith('nowalls'):
+        for i,c in enumerate(range(0, len(results_list), num_seeds)):
+            for s,(first_time_consume, total_res_collected) in enumerate(results_list[c : c + num_seeds]):
+                for indiv in range(num_indivs):
+                    val_matrix[i,s,indiv] = int(total_res_collected)
+                    # val_matrix_time[i,s,indiv] = int(first_time_consume)
+
+    # saving protocol for noise/perturb/regular
+    with open(fr'{exp_path}/val_matrix_cen.bin', 'wb') as f:
+        pickle.dump(val_matrix, f)
+    avg_per_NN = np.average(val_matrix, axis=1).round(0)
+
+    with open(fr'{exp_path}/val_results_cen.txt', 'w') as f:
+        f.write(f'Validation matrix shape (num_NNs, num_seeds): {val_matrix.shape}\n')
         for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
-            print(f'gen: {i} | EA_fit: {int(ef)} | val_fit: {int(vf)}')
+            f.write(str(f'gen: {i} | EA_fit: {*ef,} | val_fit: {*vf,}\n'))
+
+    for i, ef, vf in zip(top_ind, top_fit, avg_per_NN):
+        print(f'gen: {i} | EA_fit: {*ef,} | val_fit: {*vf,}')
 
 
-def run_randomwalk(name, num_RWs=20, num_seeds=100):
+def rerun_best_val_NN_multievo(name, num_seeds=1000, perturb_type=None):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    exp_path = fr'{data_dir}/{name}'
+    env_path = fr'{exp_path}/.env'
+
+    if perturb_type is not None:
+        print(f'running: {name} + {perturb_type} perturb')
+        if Path(fr'{exp_path}/val_matrix_best_{perturb_type}_perturb.bin').is_file():
+            return print(f'val_matrix_best_{perturb_type}_perturb already exists')
+    else:
+        print(f'running: {name}')
+        if Path(fr'{exp_path}/val_matrix_best.bin').is_file():
+            return print(f'val_results_best already exists')
+
+    with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+        data = pickle.load(f)
+    num_steps,num_gen,num_eps,num_indivs = data.shape
+    data_genxpop = np.mean(data, axis=2) # average across episodes
+    avg_data = np.mean(data_genxpop, axis=1) # average across individuals in population
+    avg_data_summed_across_indivs = np.sum(avg_data, axis=1) # sum bw each agent
+
+    with open(fr'{exp_path}/val_matrix_cen.bin','rb') as f: # 20 top NNs
+        val_matrix_prev = pickle.load(f)
+    avg_per_NN_prev = np.average(val_matrix_prev, axis=1)
+    avg_per_NN_prev_summed_across_indivs = np.sum(avg_per_NN_prev, axis=1)
+    best_NN_ind = np.argmin(avg_per_NN_prev_summed_across_indivs)
+
+    valmatrix_inds = np.argsort(avg_data_summed_across_indivs)[:20] # min : top
+    best_NN_gen = valmatrix_inds[best_NN_ind]
+
+    pvs = []
+    for indiv in range(num_indivs):
+        with open(fr'{data_dir}/{name}/gen{best_NN_gen}_NNcen_pickle_ag{indiv}.bin','rb') as f:
+            pv = pickle.load(f)
+        pvs.append(pv)
+
+    # pack inputs for multiprocessing map
+    mp_inputs = []
+    for s in range(num_seeds):
+        mp_inputs.append( (None, pvs, None, s, env_path) ) # model_tuple=None, load_dir=None
+
+    # run agent NNs in parallel
+    with mp.Pool() as pool:
+        results = pool.starmap_async(start_multi, mp_inputs)
+        pool.close()
+        pool.join()
+    results_list = results.get()
+
+    # allocate fitnesses
+    val_matrix = np.zeros((num_seeds, num_indivs))
+    for s,(time_taken, dist_from_patch, data) in enumerate(results_list):
+        for indiv in range(num_indivs):
+            val_matrix[s,indiv] = int(time_taken[indiv])
+
+    # saving protocol for perturb/regular
+    if perturb_type == 'ghostexplorer':
+
+        with open(fr'{exp_path}/val_matrix_best_{perturb_type}_perturb.bin', 'wb') as f:
+            pickle.dump(val_matrix, f)
+        avg_per_NN_new = np.average(val_matrix, axis=0).round(0)
+
+        with open(fr'{exp_path}/val_matrix_best.bin', 'rb') as f:
+            val_matrix = pickle.load(f)
+        avg_per_NN_prevbest = np.average(val_matrix, axis=0).round(0)
+
+        with open(fr'{exp_path}/val_matrix_best_ghostexploiter_perturb.bin', 'rb') as f:
+            val_matrix = pickle.load(f)
+        avg_per_NN_exploiter = np.average(val_matrix, axis=0).round(0)
+
+        print(f'gen: {best_NN_gen} | val_fit_prevbest: {avg_per_NN_prevbest} | val_fit_exploiter: {avg_per_NN_exploiter} | val_fit_new: {avg_per_NN_new}')
+
+    elif perturb_type is not None:
+
+        with open(fr'{exp_path}/val_matrix_best_{perturb_type}_perturb.bin', 'wb') as f:
+            pickle.dump(val_matrix, f)
+        avg_per_NN_new = np.average(val_matrix, axis=0).round(0)
+
+        with open(fr'{exp_path}/val_matrix_best.bin', 'rb') as f:
+            val_matrix = pickle.load(f)
+        avg_per_NN_prevbest = np.average(val_matrix, axis=0).round(0)
+
+        print(f'gen: {best_NN_gen} | val_fit_prevbest: {avg_per_NN_prevbest} | val_fit_new: {avg_per_NN_new}')
+
+    else:
+
+        with open(fr'{exp_path}/val_matrix_best.bin', 'wb') as f:
+            pickle.dump(val_matrix, f)
+        avg_per_NN_new = np.average(val_matrix, axis=0).round(0)
+
+        print(f'gen: {best_NN_gen} | EA_fit: {avg_data[best_NN_gen]} | val_fit_prev: {avg_per_NN_prev[best_NN_ind]} | val_fit_new: {avg_per_NN_new}')
+
+
+def rerun_best_val_NN_multievo_asindiv(name, num_seeds=1000, perturb_type=None):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    exp_path = fr'{data_dir}/{name}'
+    env_path = fr'{exp_path}/.env'
+
+    if perturb_type is not None:
+        print(f'running: {name} + {perturb_type} perturb')
+        if Path(fr'{exp_path}/val_matrix_best_{perturb_type}_ag0_perturb.bin').is_file():
+            return print(f'val_matrix_best_{perturb_type}_perturb already exists')
+    else:
+        print(f'running: {name}')
+        if Path(fr'{exp_path}/val_matrix_best_ag0.bin').is_file():
+            return print(f'val_results_best already exists')
+
+    with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+        data = pickle.load(f)
+    num_steps,num_gen,num_eps,num_indivs = data.shape
+    data_genxpop = np.mean(data, axis=2) # average across episodes
+    avg_data = np.mean(data_genxpop, axis=1) # average across individuals in population
+    avg_data_summed_across_indivs = np.sum(avg_data, axis=1) # sum bw each agent
+
+    with open(fr'{exp_path}/val_matrix_cen.bin','rb') as f: # 20 top NNs
+        val_matrix_prev = pickle.load(f)
+    avg_per_NN_prev = np.average(val_matrix_prev, axis=1)
+    avg_per_NN_prev_summed_across_indivs = np.sum(avg_per_NN_prev, axis=1)
+    best_NN_ind = np.argmin(avg_per_NN_prev_summed_across_indivs)
+
+    valmatrix_inds = np.argsort(avg_data_summed_across_indivs)[:20] # min : top
+    best_NN_gen = valmatrix_inds[best_NN_ind]
+
+    fits = []
+    for indiv in range(num_indivs):
+        with open(fr'{data_dir}/{name}/gen{best_NN_gen}_NNcen_pickle_ag{indiv}.bin','rb') as f:
+            pv = pickle.load(f)
+
+        # pack inputs for multiprocessing map
+        mp_inputs = []
+        for s in range(num_seeds):
+            mp_inputs.append( (None, pv, None, s, env_path) ) # model_tuple=None, load_dir=None
+
+        # run agent NNs in parallel
+        with mp.Pool() as pool:
+            results = pool.starmap_async(start, mp_inputs)
+            pool.close()
+            pool.join()
+        results_list = results.get()
+
+        # allocate fitnesses
+        val_matrix = np.zeros((num_seeds))
+        for s,(time_taken, dist_from_patch, data) in enumerate(results_list):
+            val_matrix[s] = int(time_taken)
+            # val_matrix[s] = int(dist_from_patch)
+
+        # saving protocol
+        with open(fr'{exp_path}/val_matrix_best_{perturb_type}_ag{indiv}_perturb.bin', 'wb') as f:
+            pickle.dump(val_matrix, f)
+        avg_per_NN_new = np.average(val_matrix)
+        fits.append(int(avg_per_NN_new))
+
+    print(f'gen: {best_NN_gen} | val_fit_prevbest: {avg_per_NN_prev[best_NN_ind]} | val_fit_new: {fits}')
+
+
+
+def run_randomwalk(name, num_RWs=1, num_seeds=100):
 
     print(f'running: random walk {name}')
 
@@ -152,7 +507,6 @@ def run_randomwalk(name, num_RWs=20, num_seeds=100):
             val_matrix[i,s] = round(fitnesses[0],0)
 
     # saving protocol 
-
     with open(fr'{exp_path}.bin', 'wb') as f:
         pickle.dump(val_matrix, f)
     avg_per_NN = np.average(val_matrix).round(1)
@@ -209,10 +563,7 @@ if __name__ == '__main__':
 
     names = []
 
-    # for name in names:
-    #     rerun_NNs(name)
-
-
+    # run_randomwalk('rotdiff_0p0005')
     # run_randomwalk('rotdiff_0p001')
     # run_randomwalk('rotdiff_0p005')
     # run_randomwalk('rotdiff_0p01')
@@ -220,6 +571,20 @@ if __name__ == '__main__':
     # run_randomwalk('rotdiff_0p10')
     # run_randomwalk('rotdiff_0p50')
     # run_perfect()
+
+    # run_randomwalk('rotdiff_0p0005_randbouncy')
+    # run_randomwalk('rotdiff_0p001_randbouncy')
+    # run_randomwalk('rotdiff_0p005_randbouncy')
+    # run_randomwalk('rotdiff_0p01_randbouncy')
+    # run_randomwalk('rotdiff_0p05_randbouncy')
+    # run_randomwalk('rotdiff_0p10_randbouncy')
+    # run_randomwalk('rotdiff_0p50_randbouncy')
+
+    # run_randomwalk('rotdiff_0p01_randbouncy_N2')
+    # run_randomwalk('rotdiff_0p01_randbouncy_N5')
+    # run_randomwalk('rotdiff_0p01_randbouncy_N10')
+    # run_randomwalk('rotdiff_0p01_randbouncy_N15')
+    # run_randomwalk('rotdiff_0p01_randbouncy_N20')
 
     # # vis
     # for name in [f'sc_CNN14_FNN2_p50e20_vis6_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
@@ -456,13 +821,23 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN17_FNN16_p50e20_vis16_2xpinball_rep{x}' for x in range(20)]:
     #     names.append(name)
 
-    n = 5
-    for name in [f'nowall_N5_CNN14_FNN2_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'nowall_N5_CNN14_FNN2_vis16_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'nowall_N5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
+    # n = 5
+    # for name in [f'nowall_N5_CNN14_FNN2_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'nowall_N5_CNN14_FNN2_vis16_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'nowall_N5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # n = 5
+    # for name in [f'nowall_N5_CNN14_FNN2_vis8_e40_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'nowall_N5_CNN14_FNN2_vis16_e40_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'nowall_N5_CNN14_FNN16_vis8_e40_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # n = 5
     # for name in [f'nowall_N10_CNN14_FNN2_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'nowall_N10_CNN14_FNN2_vis16_rep{x}' for x in range(n)]:
@@ -470,7 +845,342 @@ if __name__ == '__main__':
     # for name in [f'nowall_N10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-    for name in names:
-        rerun_NNs(name)
+    # n = 4
+    # for name in [f'nowall_N5_CNN14_FNN16_vis8_e40_ghost_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # n = 5
+    # for name in [f'nowall_N10_CNN14_FNN16_vis8_e20_ghost_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+
+    # n = 4
+    # for name in [f'nowall_N5_CNN14_FNN16_vis8_fov875_e40_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'nowall_N5_CNN14_FNN16_vis8_fov94_e40_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # n = 2
+    # for name in [f'nowall_N5_CNN14_GRU16_vis8_e40_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # n = 20
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_fov94_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_fov97_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN16_p50e20_vis16_PGPE_ss20_mom8_fov94_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN16_p50e20_vis32_PGPE_ss20_mom8_fov97_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # n = 5
+    # for name in [f'sc_CNN14_FNN2gaussian_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_CNN14_FNN2gaussian_vis8_proprio_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'nowall_N5_CNN14_FNN16_vis8_proprio_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'nowall_N5_CNN14_GRU16_vis8_g5k_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # n = 5
+    # for name in [f'sc_CNN14_FNN16gaussian_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+
+
+    # n = 40
+    # for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
+    # #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    # #     names.append(name)
+
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
+    # #     names.append(name)
+
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # n = 40
+    # # for name in [f'sc_N11_NRW0_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N11_NRW5_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N11_NRW10_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N16_NRW15_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N21_NRW0_ND20_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N21_NRW10_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # n = 20
+    # for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    n = 40
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitRes200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitRes200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes200_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+
+
+    # n = 40
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N11_NRW10_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N16_NRW15_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocollpatch_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN18_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN64_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16x2_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis12_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # for name in [f'sc_N6_NRW0_ND5_CNN18_FNN16x2_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # # for name in [f'sc_N6_NRW0_ND5_CNN18_FNN64x2_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+
+
+
+    # n = 20
+    # for name in [f'sc_N2_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_multi_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)]: ###
+    #     names.append(name)
+    # for name in [f'sc_N4_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)]: ###
+    #     names.append(name)
+    # for name in [f'sc_N5_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)]: ###
+    #     names.append(name)
+
+    # for name in [f'sc_N6_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+
+    # names = [
+    #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep0',
+    #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep1',
+    #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep2',
+    # ]
+
+    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_collinput_rep{x}' for x in range(n)]:
+        names.append(name)
+
+    for name in names:  
+        # rerun_NNs(name)
+        # rerun_NNs(name, perturb_type='nosocial')
+        # rerun_NNs(name, perturb_type='allRW')
+        # rerun_NNs(name, perturb_type='allD')
+        # rerun_NNs(name, perturb_type='selfsocial')
+        # rerun_NNs(name, perturb_type='ghostexploiter')
+        # rerun_NNs(name, perturb_type='ghostexplorer')
+        # rerun_NNs(name, perturb_type='N2-ghostexploiter')
+        # rerun_NNs(name, perturb_type='N2-ghostexplorer')
+        # rerun_NNs(name, perturb_type='nowalls-ghostexploiter')
+
+        # rerun_best_val_NN(name, num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='nosocial', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='ghostexploiter', num_seeds=5000)
+        rerun_best_val_NN(name, perturb_type='ghostexplorer', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='Nd+2', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='Nr+2', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='nosocial-dist', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='SinitAg100-1', num_seeds=5000)
+    
+        # rerun_NNs(name, time=True)
+        # rerun_NNs(name, perturb_type='ghostexploiter', time=True)
+        # rerun_NNs(name, perturb_type='ghostexplorer', time=True)
         # rerun_NNs(name, noise_type='angle_n10')
         # rerun_NNs(name, noise_type='dist_n025')
+
+        # rerun_NNs_multievo(name)
+        # rerun_best_val_NN_multievo(name, num_seeds=5000)
+        # rerun_best_val_NN_multievo_asindiv(name, perturb_type='nosocial', num_seeds=5000)
+        # rerun_best_val_NN_multievo_asindiv(name, perturb_type='ghostexploiter', num_seeds=5000)
+        # rerun_best_val_NN_multievo_asindiv(name, perturb_type='ghostexplorer', num_seeds=5000)
