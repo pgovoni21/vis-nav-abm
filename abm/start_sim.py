@@ -59,9 +59,10 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
 
             ## social_rand perturbs
             # envconf['N'] = 1 # nosocial
-            # envconf['SIM_TYPE'] = 'walls, social-ghostexploiter' # ghostexploiter
-            # envconf['SIM_TYPE'] = 'walls, social-ghostexplorer' # ghostexplorer
-            # envconf['SIM_TYPE'] = 'walls, social-ghostexplorers' # ghostexplorers
+            # envconf['SIM_TYPE'] = 'walls, social-ghostexploiter'
+            # envconf['SIM_TYPE'] = 'walls, social-ghostexplorer'
+            # envconf['SIM_TYPE'] = 'walls, social-ghostexploiters'
+            # envconf['SIM_TYPE'] = 'walls, social-ghostexplorers'
             # envconf['N'] = int(envconf['N']) + 2 # +2 direct agents
             # envconf['N_RAND'] = int(envconf['N_RAND']) + 2 # +2 random agents (needs above too)
             # envconf['SIM_TYPE'] = 'nowalls, social-ghostexploiter' # ghostexploiter in vacuum
@@ -96,8 +97,6 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
                             T                      =int(envconf["T"]),
                             with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
                             framerate              =int(envconf["INIT_FRAMERATE"]),
-                            print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
-                            plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
                             save_ext               =None,
                             agent_radius           =int(envconf["RADIUS_AGENT"]),
                             max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
@@ -111,7 +110,6 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
                             res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
                             res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
                             res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
-                            regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
                             NN                     =NN,
                             other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
                             vis_transform          =str(envconf["VIS_TRANSFORM"]),
@@ -120,10 +118,12 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
                             action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
                             boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
                             sim_type               =str(envconf["SIM_TYPE"]),
+                            init_info              =init_info,
+                            feat_out               =feat_out,
                             )
-            t, dist, elapsed_time = sim.start()
+            t, dist, elapsed_time, data_agent = sim.start()
             # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, dist}')
-        return t, dist, None
+        return t, dist, data_agent
 
     elif 'social' in envconf['SIM_TYPE']:
         from abm.simulation.sims_target_social import Simulation
@@ -135,8 +135,6 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
                             T                      =int(envconf["T"]),
                             with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
                             framerate              =int(envconf["INIT_FRAMERATE"]),
-                            print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
-                            plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
                             save_ext               =None,
                             agent_radius           =int(envconf["RADIUS_AGENT"]),
                             max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
@@ -167,8 +165,8 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
                             init_info              =init_info,
                             feat_out               =feat_out,
                             )
-            t, dist, elapsed_time, data_agent = sim.start()
-            # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, int(dist)}')
+        t, dist, elapsed_time, data_agent = sim.start()
+        # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, int(dist)}')
         return t, dist, data_agent
 
     # elif envconf['SIM_TYPE'] == 'walls, social-test':
@@ -222,45 +220,6 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
     #                         framerate              =int(envconf["INIT_FRAMERATE"]),
     #                         print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
     #                         plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
-    #                         save_ext               =None,
-    #                         agent_radius           =int(envconf["RADIUS_AGENT"]),
-    #                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
-    #                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
-    #                         vision_range           =int(envconf["VISION_RANGE"]),
-    #                         agent_fov              =float(envconf['AGENT_FOV']),
-    #                         show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
-    #                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
-    #                         N_res                  =int(envconf["N_RESOURCES"]),
-    #                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
-    #                         res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
-    #                         res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
-    #                         res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
-    #                         regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
-    #                         NN                     =NN,
-    #                         other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
-    #                         vis_transform          =str(envconf["VIS_TRANSFORM"]),
-    #                         percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
-    #                         percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
-    #                         action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
-    #                         boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
-    #                         sim_type               =str(envconf["SIM_TYPE"]),
-    #                         )
-    #         t, dist, elapsed_time = sim.start()
-    #         # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, dist}')
-    #     return t, dist
-
-    # elif envconf['SIM_TYPE'] == 'walls, markov':
-    #     from abm.simulation.sims_target_markov import Simulation
-    #     with ExitStack():
-    #         sim = Simulation(env_size              =tuple(eval(envconf["ENV_SIZE"])),
-    #                         window_pad             =int(envconf["WINDOW_PAD"]),
-    #                         N                      =int(envconf["N"]),
-    #                         T                      =int(envconf["T"]),
-    #                         with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
-    #                         framerate              =int(envconf["INIT_FRAMERATE"]),
-    #                         print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
-    #                         plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
-    #                         log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
     #                         save_ext               =None,
     #                         agent_radius           =int(envconf["RADIUS_AGENT"]),
     #                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),

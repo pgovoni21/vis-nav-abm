@@ -18,6 +18,7 @@ setup(
         'matplotlib',
         # 'cma',
         'opencv-python', # screenrecorder
+        # 'netgraph', # markov chain visualizer
 
         # 'pip install torch --index-url https://download.pytorch.org/whl/cpu' # doesn't work with setup
 

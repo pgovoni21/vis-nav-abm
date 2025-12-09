@@ -1,7 +1,4 @@
-import contextlib
-with contextlib.redirect_stdout(None): # blocks pygame initialization messages
-    import pygame
-
+import pygame
 import numpy as np
 import sys
 import time
@@ -17,7 +14,7 @@ from abm.sprites.wall import Wall
 class Simulation:
     # @timer
     def __init__(self, env_size, window_pad,
-                 N, N_rand, T, with_visualization, framerate, print_enabled, plot_trajectory, save_ext,
+                 N, N_rand, T, with_visualization, framerate, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, agent_collide, agent_patch_collide,
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
                  NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
@@ -33,9 +30,6 @@ class Simulation:
         :param with_visualization: turns visualization on or off. For large batch autmatic simulation should be off so
             that we can use a higher/maximal framerate
         :param framerate: framerate of simulation
-        :param print_enabled:
-        :param plot_trajectory:
-        :param log_zarr_file:
         :param save_ext:
         :param agent_radius: radius of the agents
         :param max_vel:
@@ -88,8 +82,6 @@ class Simulation:
             self.framerate_orig = 2000
         self.framerate = self.framerate_orig # distinguished for varying in-game framerate
         self.is_paused = False
-        self.print_enabled = print_enabled
-        self.plot_trajectory = plot_trajectory
         self.sim_type = sim_type
 
         # Agent parameters
@@ -107,7 +99,7 @@ class Simulation:
         self.social_init_range = social_init_range
         self.social_init_type = social_init_type
 
-        # params from trajs call
+        # Params from build_agent_trajs()
         if init_info is not None:
             x,y,orient,timesteps,perturb = init_info
             self.T = timesteps # override envconf
@@ -122,15 +114,18 @@ class Simulation:
             elif perturb == 'ghost_explorer': 
                 self.N = 1
                 self.sim_type = 'walls, social-ghostexplorer'
+            elif perturb == 'ghost_explorers': 
+                self.N = 1
+                self.sim_type = 'walls, social-ghostexplorers'
+            elif perturb == 'ghost_exploiters':
+                self.N = 1
+                self.sim_type = 'walls, social-ghostexploiters'
             else:
-                # print(self.N, int(perturb))
                 self.N = int(perturb) # override potential validation perturb
                 self.sim_type = 'walls, social'
         else:
             self.agent_init = None
         self.feat_out = feat_out
-
-        # print(self.sim_type, self.N, self.N_rand)
 
         # Tracking parameters
         if self.feat_out:
@@ -230,8 +225,6 @@ class Simulation:
         font = pygame.font.Font(None, font_size)
         for agent in self.agents:
             status = [ 
-                # f'ID: {agent.id}',
-                # f'res: {agent.collected_r}',
                 f'ori: {int(agent.orientation*180/np.pi)} deg',
                 f'NNout: {agent.action:.2f}',
                 f'turn: {agent.action*180/np.pi:.2f} deg',
@@ -415,8 +408,6 @@ class Simulation:
 
             start = self.data_agent[t_step-1, :2]
             end = self.data_agent[t_step, :2]
-            start = np.array([start[0], start[1]])
-            end = np.array([end[0], end[1]])
 
             pygame.draw.line(self.screen, colors.BLACK, start + self.window_pad, end + self.window_pad, 1)
 
@@ -625,45 +616,14 @@ class Simulation:
                 if 'ghost' in self.sim_type:
                     self.viewable_agents.add(agent)
 
-
         # ghost agent
-
         if 'ghost' in self.sim_type:
             x,y = self.res_pos
             orient = 0
-            agent = Agent(
-                    id=self.N+1,
-                    position=(x, y),
-                    orientation=0,
-                    max_vel=self.max_vel,
-                    FOV=self.agent_fov,
-                    vision_range=self.vision_range,
-                    num_class_elements=self.num_class_elements,
-                    vis_field_res=self.vis_field_res,
-                    consumption=self.agent_consumption,
-                    model=self.model,
-                    boundary_endpts=self.boundary_endpts,
-                    window_pad=self.window_pad,
-                    radius=self.agent_radii,
-                    color=colors.BLUE,
-                    vis_transform=self.vis_transform,
-                    percep_angle_noise_std=self.percep_angle_noise_std,
-                    sim_type=self.sim_type,
-                )
-            if self.sim_type == 'walls, social-ghostexploiter':
-                agent.mode = 'exploit'
-            elif self.sim_type == 'walls, social-ghostexplorer':
-                agent.mode = 'explore'
-            elif self.sim_type == 'walls, social-ghostexplorers':
-                agent.mode = 'explore'
-            self.ghost.add(agent)
-            self.viewable_agents.add(agent)
-
-
-            if self.sim_type == 'walls, social-ghostexplorers':
+            if self.sim_type == 'walls, social-ghostexploiter' or self.sim_type == 'walls, social-ghostexplorer':
                 agent = Agent(
                         id=self.N+1,
-                        position=(x+1.5*self.agent_radii, y+1.5*self.agent_radii),
+                        position=(x, y),
                         orientation=0,
                         max_vel=self.max_vel,
                         FOV=self.agent_fov,
@@ -680,9 +640,48 @@ class Simulation:
                         percep_angle_noise_std=self.percep_angle_noise_std,
                         sim_type=self.sim_type,
                     )
-                agent.mode = 'explore'
+                if self.sim_type == 'walls, social-ghostexploiter':
+                    agent.mode = 'exploit'
+                elif self.sim_type == 'walls, social-ghostexplorer':
+                    agent.mode = 'explore'
                 self.ghost.add(agent)
                 self.viewable_agents.add(agent)
+
+            else:  # multiple ghost explorers
+                offsets = []
+                # 5 equally spaced offsets (72 degree spacings), 1.5*agent_radius away from center as minimum needed to avoid collision
+                for i in range(5):
+                    angle = i * 2*np.pi/5
+                    offset_x = x + 1.5*self.agent_radii*np.cos(angle)
+                    offset_y = y + 1.5*self.agent_radii*np.sin(angle)
+                    offsets.append((offset_x, offset_y))
+
+                for i,j in offsets:
+                    agent = Agent(
+                            id=self.N+1,
+                            position=(i,j),
+                            orientation=0,
+                            max_vel=self.max_vel,
+                            FOV=self.agent_fov,
+                            vision_range=self.vision_range,
+                            num_class_elements=self.num_class_elements,
+                            vis_field_res=self.vis_field_res,
+                            consumption=self.agent_consumption,
+                            model=self.model,
+                            boundary_endpts=self.boundary_endpts,
+                            window_pad=self.window_pad,
+                            radius=self.agent_radii,
+                            color=colors.BLUE,
+                            vis_transform=self.vis_transform,
+                            percep_angle_noise_std=self.percep_angle_noise_std,
+                            sim_type=self.sim_type,
+                        )
+                    if self.sim_type == 'walls, social-ghostexplorers':
+                        agent.mode = 'explore'
+                    elif self.sim_type == 'walls, social-ghostexploiters':
+                        agent.mode = 'exploit'
+                    self.ghost.add(agent)
+                    self.viewable_agents.add(agent)
 
     # @timer
     def save_data_agent(self):
@@ -765,9 +764,6 @@ class Simulation:
 
             if dist_to_res <= self.res_radius:
                 agent.mode = 'exploit'
-                # agent.on_res = 1
-                # agent.res_to_be_consumed = resource
-                # break
 
 
     def collide_agent_wall(self):
@@ -923,7 +919,6 @@ class Simulation:
                         # Food present --> terminate simulation
                         if agent.mode == 'exploit':
 
-
                             # self.recorder.end_recording()
                             pygame.quit()
                             elapsed_time = round( (time.time() - start_time) , 2)
@@ -961,16 +956,13 @@ class Simulation:
 
                                 vis_input *= agent.dist_input
 
-                            if self.feat_out: # reporting for build_agent_trajs
-                                agent.action, agent.hidden, self.vis_feat, self.RNN_out = agent.model.forward(vis_input, np.array([0]), agent.hidden, feat_out=True)
-                            elif self.other_input == 0:
-                                agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
-                            elif self.other_input == 1:
-                                # agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.acceleration / self.max_vel]), agent.hidden)
+                            if self.other_input == 0:
+                                agent.action, agent.hidden, self.vis_feat, self.RNN_out = agent.model.forward(vis_input, np.array([0]), agent.hidden, feat_out=self.feat_out)
+                            elif self.other_input == 1: # collinput
                                 if agent.mode == 'collide':
-                                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([1]), agent.hidden)
+                                    agent.action, agent.hidden, self.vis_feat, self.RNN_out = agent.model.forward(vis_input, np.array([1]), agent.hidden, feat_out=self.feat_out)
                                 else:
-                                    agent.action, agent.hidden = agent.model.forward(vis_input, np.array([0]), agent.hidden)
+                                    agent.action, agent.hidden, self.vis_feat, self.RNN_out = agent.model.forward(vis_input, np.array([0]), agent.hidden, feat_out=self.feat_out)
                             else:
                                 raise ValueError('Other input not recognized')
 
@@ -983,7 +975,6 @@ class Simulation:
                         # Food present --> consume
                         if agent.mode == 'exploit':
                             # self.consume(agent) # does not do anything important + makes trajs.py tricky, thus taken out, change for patch depletion
-                            # print(self.t, agent.id)
                             pass
 
                         else: # No food --> move
@@ -1005,8 +996,6 @@ class Simulation:
                                         agent.move(angle_diff)
                                     else: # or move fwd
                                         agent.move(0)
-                                    
-                                    # print(angle_diff, supcalc.distance(self.agents.sprites()[0].position, self.res_pos)
                                 
 
             ### ---- BACKGROUND PROCESSES ---- ###
@@ -1017,8 +1006,7 @@ class Simulation:
                 # Step clock time to calculate fps
                 if self.with_visualization:
                     self.clock.tick(self.framerate)
-                    if self.print_enabled and (self.t % 500 == 0):
-                        print(f"t={self.t} \t| FPS: {round(self.clock.get_fps(),1)}")
+                    # print(f"t={self.t} \t| FPS: {round(self.clock.get_fps(),1)}")
 
             # Carry out user interactions even when not paused
             if self.with_visualization:

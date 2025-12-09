@@ -723,57 +723,6 @@ if __name__ == '__main__':
     # for name in [f'sc_lm_CNN14_FNN2_p50e20_vis32_lm100_rep{x}' for x in range(20)]:
     #     names.append(name)
 
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_rep{x}' for x in range(20)]:
-    #    names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacehalf_seed10k_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_actspacenarrow_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2x16_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_GRUpara16_p50e20_vis8_PGPE_ss20_mom8_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-
-    # # boundary_scale
-
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound500_rep{x}' for x in range(20)]:
-    #    names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound500_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_bound500_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_mlWF_n0_bound500_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-    # for name in [f'sc_CNN24_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN17_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN27_FNN16_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-    # for name in [f'sc_CNN24_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN17_FNN2_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN16_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN27_FNN16_p50e20_vis8_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN1148_FNN2_p50e20_vis32_PGPE_ss20_mom8_bound1000_rep{x}' for x in range(20)]:
-    #     names.append(name)
 
 
     # for name in [f'sc_CNN14_FNN2_p50e20_vis32_PGPE_ss20_mom8_dist_maxWF_n0_rep{x}' for x in range(20)]:
@@ -811,7 +760,6 @@ if __name__ == '__main__':
     #     names.append(name)
 
 
-
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_2xpinball_rep{x}' for x in range(20)]:
     #     names.append(name)
     # for name in [f'sc_CNN14_FNN2_p50e20_vis16_2xpinball_rep{x}' for x in range(20)]:
@@ -819,47 +767,6 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN14_FNN2_p50e20_vis8_maxWF_2xpinball_rep{x}' for x in range(20)]:
     #     names.append(name)
     # for name in [f'sc_CNN17_FNN16_p50e20_vis16_2xpinball_rep{x}' for x in range(20)]:
-    #     names.append(name)
-
-    # n = 5
-    # for name in [f'nowall_N5_CNN14_FNN2_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N5_CNN14_FNN2_vis16_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
-
-    # n = 5
-    # for name in [f'nowall_N5_CNN14_FNN2_vis8_e40_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N5_CNN14_FNN2_vis16_e40_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N5_CNN14_FNN16_vis8_e40_rep{x}' for x in range(n)]:
-    #     names.append(name)
-
-    # n = 5
-    # for name in [f'nowall_N10_CNN14_FNN2_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N10_CNN14_FNN2_vis16_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
-
-    # n = 4
-    # for name in [f'nowall_N5_CNN14_FNN16_vis8_e40_ghost_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # n = 5
-    # for name in [f'nowall_N10_CNN14_FNN16_vis8_e20_ghost_rep{x}' for x in range(n)]:
-    #     names.append(name)
-
-
-    # n = 4
-    # for name in [f'nowall_N5_CNN14_FNN16_vis8_fov875_e40_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N5_CNN14_FNN16_vis8_fov94_e40_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # n = 2
-    # for name in [f'nowall_N5_CNN14_GRU16_vis8_e40_rep{x}' for x in range(n)]:
     #     names.append(name)
 
     # n = 20
@@ -872,22 +779,8 @@ if __name__ == '__main__':
     # for name in [f'sc_CNN14_FNN16_p50e20_vis32_PGPE_ss20_mom8_fov97_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-    # n = 5
-    # for name in [f'sc_CNN14_FNN2gaussian_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_CNN14_FNN2gaussian_vis8_proprio_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N5_CNN14_FNN16_vis8_proprio_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'nowall_N5_CNN14_GRU16_vis8_g5k_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # n = 5
-    # for name in [f'sc_CNN14_FNN16gaussian_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
 
-
-
-    # n = 40
+    n = 40
     # for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
@@ -904,8 +797,8 @@ if __name__ == '__main__':
     #     names.append(name)
     # # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     # #     names.append(name)
-    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
-    #     names.append(name)
+    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+        names.append(name)
 
     # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
@@ -917,8 +810,8 @@ if __name__ == '__main__':
     # #     names.append(name)
     # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
+    for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
 
     # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
@@ -928,29 +821,28 @@ if __name__ == '__main__':
     #     names.append(name)
     # # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
     # #     names.append(name)
-    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
     #     names.append(name)
-    # # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
-    # #     names.append(name)
 
     # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
     #     names.append(name)
-    # # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
-    # #     names.append(name)
 
     # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
+    for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
 
-    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
+    for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
 
-    # n = 40
     # # for name in [f'sc_N11_NRW0_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     # #     names.append(name)
     # # for name in [f'sc_N11_NRW5_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
@@ -974,7 +866,6 @@ if __name__ == '__main__':
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-    n = 40
     # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg200_rep{x}' for x in range(n)]:
@@ -996,8 +887,6 @@ if __name__ == '__main__':
     # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg200_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg300_rep{x}' for x in range(n)]:
@@ -1009,6 +898,8 @@ if __name__ == '__main__':
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes300_rep{x}' for x in range(n)]:
     #     names.append(name)
 
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
     # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
@@ -1138,22 +1029,65 @@ if __name__ == '__main__':
     # for name in [f'sc_N6_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-
     # names = [
     #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep0',
     #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep1',
     #     'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep2',
     # ]
 
-    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_collinput_rep{x}' for x in range(n)]:
-        names.append(name)
+
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # n = 40
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
+    #     names.append(name)
+
 
     for name in names:  
-        # rerun_NNs(name)
+        rerun_NNs(name)
         # rerun_NNs(name, perturb_type='nosocial')
         # rerun_NNs(name, perturb_type='allRW')
         # rerun_NNs(name, perturb_type='allD')
@@ -1164,14 +1098,16 @@ if __name__ == '__main__':
         # rerun_NNs(name, perturb_type='N2-ghostexplorer')
         # rerun_NNs(name, perturb_type='nowalls-ghostexploiter')
 
-        # rerun_best_val_NN(name, num_seeds=5000)
+        rerun_best_val_NN(name, num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='nosocial', num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='ghostexploiter', num_seeds=5000)
-        rerun_best_val_NN(name, perturb_type='ghostexplorer', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='ghostexplorer', num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='Nd+2', num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='Nr+2', num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='nosocial-dist', num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='SinitAg100-1', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='ghostexploiters', num_seeds=5000)
+        # rerun_best_val_NN(name, perturb_type='ghostexplorers', num_seeds=5000)
     
         # rerun_NNs(name, time=True)
         # rerun_NNs(name, perturb_type='ghostexploiter', time=True)

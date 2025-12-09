@@ -89,9 +89,6 @@ class Agent(pygame.sprite.Sprite):
         # Environment related parameters
         TL,TR,BL,BR = boundary_endpts
         self.window_pad = window_pad
-        # define names for each endpoint (top/bottom + left/right)
-        # TL = np.array([ 100, 0 ])
-        # TL = np.array([ 0, 100 ])
         self.boundary_endpts = [
             ('TL', TL),
             ('TR', TR),
@@ -104,9 +101,6 @@ class Agent(pygame.sprite.Sprite):
         # Visualization / human interaction parameters
         self.radius = radius
         self.color = color
-        # self.selected_color = colors.BLACK
-        # self.show_stats = False
-        # self.is_moved_with_cursor = 0
 
         # Initializing body + position
         self.image = pygame.Surface([radius * 2, radius * 2])
@@ -136,10 +130,6 @@ class Agent(pygame.sprite.Sprite):
         """
         create dictionary storing visually relevant information for each boundary endpoint
         """
-        # print()
-        # print(f'self \t {np.round(self.vec_self_dir/self.radius,2)} \t {np.round(self.orientation*90/np.pi,0)}')
-        # print(np.round(self.phis*90/np.pi,0))
-
         self.boundary_endpt_dict = {}
         for endpt_name, endpt_coord in self.boundary_endpts:
 
@@ -277,7 +267,6 @@ class Agent(pygame.sprite.Sprite):
         Mark projection field according to each wall
         """
         # for each discretized perception angle within FOV range
-        # for i in range(self.vis_field_res):
         for i,phi in enumerate(self.phis):
 
             # look for intersections
@@ -523,25 +512,6 @@ class Agent(pygame.sprite.Sprite):
             # print(field_onehot)
 
         return field_onehot
-    
-    def encode_labels(self, field):
-        """
-        one hot encode the visual field according to class indices:
-            single-agent: (wall_east, wall_north, wall_west, wall_south)
-            multi-agent: (wall_east, wall_north, wall_west, wall_south, agent_expl, agent_nonexpl)
-        """
-        field_onehot = np.zeros(len(field))
-
-        for i,x in enumerate(field):
-            if x == 'wall_north': field_onehot[i] = -.75
-            elif x == 'wall_south': field_onehot[i] = .25
-            elif x == 'wall_east': field_onehot[i] = .25
-            elif x == 'wall_west': field_onehot[i] = .75
-            # elif x == 'agent_exploit': field_onehot[4,i] = 1
-            # else: # x == 'agent_explore
-            #     field_onehot[5,i] = 1
-        return field_onehot
-
 
 ### -------------------------- VISUALIZATION / HUMAN INTERACTION FUNCTIONS -------------------------- ###
 

@@ -162,7 +162,7 @@ class WorldModel(nn.Module):
         if feat_out:
             return action, hidden, vis_features.detach().numpy(), RNN_out.detach().numpy()
         else:
-            return action, hidden
+            return action, hidden, None, None
 
 
 # ----------------------------------------------------------------------------------------------

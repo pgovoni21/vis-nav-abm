@@ -1,7 +1,4 @@
-import contextlib
-with contextlib.redirect_stdout(None): # blocks pygame initialization messages
-    import pygame
-
+import pygame
 import numpy as np
 import sys
 import time
@@ -12,18 +9,18 @@ from abm.sprites.agent import Agent
 from abm.sprites.resource import Resource
 from abm.sprites.wall import Wall
 from abm.sprites.landmark import Landmark
-from abm.monitoring import tracking, plot_funcs
+from abm.monitoring import plot_funcs
 # from abm.monitoring.screen_recorder import ScreenRecorder
 # from abm.helpers import timer
 
 class Simulation:
     # @timer
     def __init__(self, env_size, window_pad,
-                 N, T, with_visualization, framerate, print_enabled, plot_trajectory, save_ext,
+                 N, T, with_visualization, framerate, save_ext,
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
-                 N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
+                 N_res, patch_radius, res_pos, res_units, res_quality, 
                  NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
-                 boundary_scale, sim_type
+                 boundary_scale, sim_type, init_info=None, feat_out=False,
                  ):
         # Arena parameters
         self.WIDTH, self.HEIGHT = env_size
@@ -55,20 +52,9 @@ class Simulation:
             self.framerate_orig = 2000
         self.framerate = self.framerate_orig # distinguished for varying in-game framerate
         self.is_paused = False
-        self.print_enabled = print_enabled
-        self.plot_trajectory = plot_trajectory
         self.sim_type = sim_type
 
-        # Tracking parameters
-        self.data_agent = np.zeros( (self.T, 4) ) # (pos_x, pos_y, mode, coll_res)
-        self.data_res = []
-
-        self.elapsed_time = 0
-        # self.fitnesses = []
-        self.save_ext = save_ext
-
         # Agent parameters
-        self.respawn_counter = 0
         self.agent_radii = agent_radius
         self.max_vel = max_vel
         self.vis_field_res = vis_field_res
@@ -76,6 +62,29 @@ class Simulation:
         self.agent_fov = agent_fov
         self.show_vision_range = show_vision_range
         self.agent_consumption = agent_consumption
+
+        # Multi-init parameters
+        self.respawn_counter = 0
+        self.death_times = []
+
+        # Params from build_agent_trajs()
+        if init_info is not None:
+            x,y,orient,timesteps,_ = init_info
+            self.T = timesteps # override envconf
+            self.agent_init = x,y,orient # pass to create_agent
+        else:
+            self.agent_init = None
+        self.feat_out = feat_out
+
+        # Tracking parameters
+        if self.feat_out:
+            self.data_agent = np.zeros( (self.T, 10) ) # (pos_x, pos_y, ori, action, vis_feat, RNN_out)
+        else:
+            self.data_agent = np.zeros( (self.T, 4) ) # (pos_x, pos_y, ori, action)
+        self.data_res = []
+        self.vis_feat = np.zeros(4)
+        self.RNN_out = np.zeros(2)
+        self.save_ext = save_ext
 
         # Boundary-Ray Collision parameters
         phis = np.linspace(-agent_fov*np.pi, agent_fov*np.pi, vis_field_res)
@@ -98,7 +107,6 @@ class Simulation:
             self.max_res_units = self.min_res_units + 1 # randint is exclusive
         if self.max_res_quality < self.min_res_quality:
             self.max_res_quality = self.min_res_quality # uniform is inclusive
-        self.regenerate_resources = regenerate_patches
 
         # Neural Network parameters
         self.model = NN
@@ -147,6 +155,7 @@ class Simulation:
 
     def draw_status(self):
         """Showing framerate, sim time and pause status on simulation windows"""
+        font = pygame.font.Font(None, 30)
         status = [
             # f"FPS: {self.framerate}  |  t = {self.t}/{self.T}",
             f"t = {self.t}/{self.T}",
@@ -154,8 +163,8 @@ class Simulation:
         if self.is_paused:
             status.append("-Paused-")
         for i, stat_i in enumerate(status):
-            text = self.font.render(stat_i, True, colors.BLACK)
-            self.screen.blit(text, (self.window_pad, self.window_pad - self.agent_radii))
+            text = font.render(stat_i, True, colors.BLACK)
+            self.screen.blit(text, (self.window_pad, self.window_pad - self.agent_radii - 10))
 
     def draw_agent_stats(self, font_size=15, spacing=0):
         """Showing agent information"""
@@ -280,22 +289,12 @@ class Simulation:
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
                             radius = vis_project_IDbubble_size)
-                    # elif vis_name == 'agent_exploit':
-                    #     pygame.draw.circle(
-                    #         self.screen, colors.VIOLET, 
-                    #         (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
-                    #         start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
-                    #         radius = vis_project_IDbubble_size)
                     elif vis_name.startswith('obj'):
                         pygame.draw.circle(
                             self.screen, colors.BLACK, 
                             (start_pos[0] + np.cos(agent.orientation - phi) * vis_proj_distance,
                             start_pos[1] - np.sin(agent.orientation - phi) * vis_proj_distance),
                             radius = vis_project_IDbubble_size)
-
-            # # draw line to patch
-            # end_pos = np.array(self.res_pos)
-            # length = 100
 
             # # line from agent to corner
             # end_pos = np.array([0,0])
@@ -310,36 +309,13 @@ class Simulation:
             #            start_pos[1] - np.sin(angle_to_patch)*len)
             # pygame.draw.line(self.screen, colors.BLACK, start_pos, end_pos, 1)
 
-            # # line from agent to corner
-            # end_pos = np.array([0,1000])
-            # len = 500
-            # # res_pos[1] = self.y_max - res_pos[1]
-            # disp_from_patch = end_pos - agent.position
-            # angle_to_patch = np.arctan2(-disp_from_patch[1], disp_from_patch[0])
-            # angle_diff = angle_to_patch - agent.orientation
-            # angle_diff = (angle_diff - np.pi) % (2*np.pi) - np.pi
-            # # print(angle_to_patch, angle_diff)
-            # end_pos = (start_pos[0] + np.cos(angle_to_patch)*len,
-            #            start_pos[1] - np.sin(angle_to_patch)*len)
-            # pygame.draw.line(self.screen, colors.BLACK, start_pos, end_pos, 1)
-
-            # # agent(s) traveled traj
-            # for i in range(self.N):
-            #     for t_step in range(1,self.t):
-
-            #         start = self.data_agent[i, t_step-1, :2]
-            #         end = self.data_agent[i, t_step, :2]
-            #         start = np.array([start[0], self.y_max - start[1]])
-            #         end = np.array([end[0], self.y_max - end[1]])
-
-            #         pygame.draw.line(self.screen, colors.BLACK, start + self.window_pad, end + self.window_pad, 1)
-
             for t_step in range(1,self.t):
+                
+                if t_step-1 in self.death_times:
+                    continue
 
                 start = self.data_agent[t_step-1, :2]
                 end = self.data_agent[t_step, :2]
-                start = np.array([start[0], self.y_max - start[1]])
-                end = np.array([end[0], self.y_max - end[1]])
 
                 pygame.draw.line(self.screen, colors.BLACK, start + self.window_pad, end + self.window_pad, 1)
 
@@ -435,17 +411,14 @@ class Simulation:
             retries = 0 
             while len(colliding_resources) > 0:
 
-                x = np.random.randint(x_min, x_max)
-                y = np.random.randint(y_min, y_max)
-                # x,y = x_min, y_min
-                
-                orient = np.random.uniform(0, 2 * np.pi)
+                if self.agent_init is None:
+                    x = np.random.randint(x_min, x_max)
+                    y = np.random.randint(y_min, y_max)            
+                    orient = np.random.uniform(0, 2 * np.pi)
+                else: # no-res traj sim
+                    x,y,orient = self.agent_init
 
-                # x,y,orient = 684.5945945945946+5, 1000-175.67567567567562, np.pi
-
-                # x,y = 700,800
-                # orient = 3
-
+                # for multi-init video
                 # inits = [
                 #     [700, 1000-200, np.pi], #BR-W
                 #     [100, 1000-900, 3*np.pi/2], #TL-S
@@ -453,16 +426,19 @@ class Simulation:
                 #     [100, 1000-200, np.pi/2], #BL-N
                 #     [700, 1000-400, np.pi/2], #TR-N
                 #     [600, 1000-900, np.pi], #BR-W
+                #     [100, 1000-600, np.pi], #L-W
+                #     [900, 1000-600, 0], #R-E
+                #     [300, 1000-200, 3*np.pi/2], #B-S
+                #     [300, 1000-900, np.pi/2], #T-N
+                #     [450, 1000-200, 3*np.pi/2], #B-S
                 # ]
-
-                # # plotted + backtracked from pt_eye
-                # inits = [
-                #     [684.5945945945946+5, 1000-175.67567567567562, np.pi],
-                #     [802.2052127020294, 1000-866.9774208911033-5, 3*np.pi/2],
-                #     [97.83783783783784, 1000-185.67567567567562-5, 3*np.pi/2],
-                #     [97.83783783783784+5, 1000-866.2162162162163, np.pi],
-                # ]
-
+                # # # exact 4 inits plotted for manuscript figure, backtracked from pt_eye
+                # # inits = [
+                # #     [684.5945945945946+5, 1000-175.67567567567562, np.pi],
+                # #     [802.2052127020294, 1000-866.9774208911033-5, 3*np.pi/2],
+                # #     [97.83783783783784, 1000-185.67567567567562-5, 3*np.pi/2],
+                # #     [97.83783783783784+5, 1000-866.2162162162163, np.pi],
+                # # ]
                 # if self.respawn_counter < len(inits): 
                 #    x,y,orient = inits[self.respawn_counter]
                 # else:
@@ -575,9 +551,13 @@ class Simulation:
     # @timer
     def save_data_agent(self):
         agent = self.agents.sprites()[0] # only track 1st agent
-        self.data_agent[self.t,:2] = agent.pt_eye
+        self.data_agent[self.t,:2] = agent.pt_eye # for perception-grounded tracking (analysis)
+        # self.data_agent[self.t,:2] = agent.position # for smoother visualization (video recorder)
         self.data_agent[self.t,2] = agent.orientation
         self.data_agent[self.t,3] = agent.action * np.pi / 2
+        if self.feat_out:
+            self.data_agent[self.t,4:8] = self.vis_feat.flatten()
+            self.data_agent[self.t,8:10] = self.RNN_out.flatten()
 
 
     def log_ray_boundary_collision(self, agent, action):
@@ -721,28 +701,6 @@ class Simulation:
         pos_y = self.y_max - y
         self.data_res.append([pos_x, pos_y, self.res_radius])
 
-    # def consume(self, agent):
-    #     """Carry out agent-resource interactions (depletion, destroying, notifying)"""
-    #     # Call resource agent is on
-    #     resource = agent.res_to_be_consumed
-
-    #     # Increment remaining resource quantity
-    #     depl_units, destroy_res = resource.deplete(agent.consumption)
-
-    #     # Update agent info
-    #     if depl_units > 0:
-    #         agent.collected_r += depl_units
-    #         agent.mode = 'exploit'
-    #     else:
-    #         agent.mode = 'explore'
-
-    #     # Kill + regenerate patch when fully depleted
-    #     if destroy_res:
-    #         resource.kill()
-    #         if self.regenerate_resources:
-    #             # self.add_new_resource_patch_random()
-    #             self.add_new_resource_patch_stationary_single()
-
 ### -------------------------- COLLISION FUNCTIONS -------------------------- ###
 
     # @timer
@@ -758,9 +716,20 @@ class Simulation:
                 if supcalc.distance(agent.position, resource.position) <= resource.radius:
                     agent.mode = 'exploit'
                     agent.on_res = 1
-                    agent.on_res_last_step = 1
                     agent.res_to_be_consumed = resource
                     break
+
+
+    def collide_agent_resarea(self): # for trajs.py where there is no self.resources
+
+        for i in range(1, self.N): # other agents only
+
+            agent = self.agents.sprites()[i]
+            dist_to_res = supcalc.distance(agent.position, self.res_pos)
+
+            if dist_to_res <= self.res_radius:
+                agent.mode = 'exploit'
+
 
     def collide_agent_wall(self):
         
@@ -859,7 +828,8 @@ class Simulation:
         start_time = time.time()
         self.create_walls()
         self.create_objs()
-        self.create_resources()
+        if self.agent_init is None:
+            self.create_resources()
         self.create_agents()
 
         # obs_times = np.zeros(self.T)
@@ -884,17 +854,15 @@ class Simulation:
                     
                     agent.collided_points = []
                     agent.mode = 'explore'
-                    # if agent.on_res_last_step > 0: # 1 timestep memory
-                    #     agent.on_res_last_step = 0
-                    # elif agent.on_res > 0:
-                    #     agent.on_res = 0
 
                 # Evaluate sprite interactions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
                 self.collide_agent_wall()
                 self.collide_agent_objs()
                 self.collide_agent_agent()
-                self.collide_agent_res()
-                # respawn_counter = 0
+                if self.agent_init is None:
+                    self.collide_agent_res()
+                else:
+                    self.collide_agent_resarea()
 
                 # Update visual projections
                 for agent in self.agents:
@@ -928,17 +896,7 @@ class Simulation:
                     agent.dist_input = np.array(agent.dist_field)
 
                     if self.vis_transform != '':
-                        if self.vis_transform == 'minmax':
-                            agent.dist_input = (agent.dist_input - self.min_dist)/(self.max_dist - self.min_dist) # flipped --> todo: switch + scale
-                        elif self.vis_transform == 'far':
-                            agent.dist_input = self.min_dist*2 / agent.dist_input # holdover ---> change if using
-                        # elif self.vis_transform == 'far':
-                        #     dist_input = ( self.min_dist / dist_input + .25 ) / 1.25
-                        # elif self.vis_transform == 'mfar':
-                        #     dist_input = ( np.power(self.min_dist / dist_input, 1.2) + .25 ) / 1.25
-                        # elif self.vis_transform == 'vfar':
-                        #     dist_input = ( np.power(self.min_dist / dist_input, 2) + .25 ) / 1.25
-                        elif self.vis_transform == 'maxWF':
+                        if self.vis_transform == 'maxWF':
                             agent.dist_input = 1.465 - np.log(agent.dist_input) / 5 # bounds [min, max] within [0, 1]
                         elif self.vis_transform == 'p9WF':
                             agent.dist_input = 1.29 - np.log(agent.dist_input) / 6.1 # bounds [min, max] within [0.1, 0.9]
@@ -956,18 +914,6 @@ class Simulation:
                             agent.dist_input = .7 - np.log(agent.dist_input) / 24 # bounds [min, max] within [0.4, 0.6]
                         elif self.vis_transform == 'ssWF':
                             agent.dist_input = .6 - np.log(agent.dist_input) / 48 # bounds [min, max] within [0.45, 0.55]
-                        # elif self.vis_transform == 'minmax_buffer':
-                        #     dist_input = (dist_input - self.min_dist + 100)/(self.max_dist - self.min_dist + 200)
-                        #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
-                        #     vis_input *= dist_input
-                        # elif self.vis_transform == 'minmax_scalp1':
-                        #     dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
-                        #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
-                        #     vis_input -= dist_input*.1
-                        # elif self.vis_transform == 'minmax_scalp5':
-                        #     dist_input = (dist_input - self.min_dist)/(self.max_dist - self.min_dist)
-                        #     dist_input *= np.abs(np.random.randn(dist_input.shape[0]) * self.sensory_noise_std + 1)
-                        #     vis_input -= dist_input*.5
 
                         # add noise + perturbation + clip
                         agent.dist_input += np.random.randn(agent.dist_input.shape[0]) * self.percep_dist_noise_std
@@ -979,66 +925,31 @@ class Simulation:
 
                         vis_input *= agent.dist_input
 
-                    # print(np.round(np.sum(vis_input,axis=0),4))
-
-                    # if agent.mode == 'collide': other_input = np.array([agent.on_res, 1])
-                    # else:                       other_input = np.array([agent.on_res, 0])
-
                     # Calculate action
-                    if self.other_input == 2:
-                        agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res, agent.acceleration / self.max_vel]), agent.hidden)
-                    if self.other_input == 1:
-                        agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.action]), agent.hidden)
+                    if self.other_input == 1: # last step proprio runs
+                        agent.action, agent.hidden, self.vis_feat, self.RNN_out = agent.model.forward(vis_input, np.array([agent.action]), agent.hidden, feat_out=self.feat_out)
                     else:
-                        agent.action, agent.hidden = agent.model.forward(vis_input, np.array([agent.on_res]), agent.hidden)
+                        agent.action, agent.hidden, self.vis_feat, self.RNN_out = agent.model.forward(vis_input, np.array([0]), agent.hidden, feat_out=self.feat_out)
 
                     # Food present --> consume (if food is still available)
                     if agent.mode == 'exploit':
+                        # for multi-init + comment out pygame.quit() below
                         # agent.kill()
                         # self.create_agents()
+                        # self.death_times.append(self.t)
 
                         ### ---- END OF SIMULATION (found food - premature termination) ---- ###
 
                         pygame.quit()
-                        # # compute simulation time in seconds
-                        self.elapsed_time = round( (time.time() - start_time) , 2)
-                        # if self.print_enabled:
-                        #     print(f"Elapsed_time: {self.elapsed_time}")
-
-                        data_res_array = np.zeros( (len(self.data_res), 1, 3 ))
-                        for id, (pos_x, pos_y, radius) in enumerate(self.data_res):
-                            data_res_array[id, 0, 0] = pos_x
-                            data_res_array[id, 0, 1] = pos_y
-                            data_res_array[id, 0, 2] = radius
-
-                        #     # assign plot data as numpy arrays
-                        #     plot_data = self.data_agent, data_res_array
-                        # # display static map of simulation
-                        # if self.plot_trajectory:
-                        #     plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
-
-                        # # extract total fitnesses of each agent + save into sim instance (pulled for EA)
-                        # # self.fitnesses = np.array([self.t]) # --> use time taken to find food instead
-
-                        return self.t, 0, self.elapsed_time
+                        elapsed_time = round( (time.time() - start_time) , 2)
+                        return self.t, 0, elapsed_time, self.data_agent
 
                     else: # No food --> move (stay stationary if collided object in front)
                         action = agent.action + np.random.randn()*self.action_noise_std
 
-                        # res_pos = np.array(self.res_pos)
-                        # # res_pos[1] = self.y_max - res_pos[1]
-                        # disp_from_patch = res_pos - agent.position
-                        # angle_to_patch = np.arctan2(-disp_from_patch[1], disp_from_patch[0])
-                        # angle_diff = angle_to_patch - agent.orientation
-                        # # angle_diff = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
-                        # angle_diff = (angle_diff + np.pi) % (2*np.pi) - np.pi
-                        # print(agent.orientation, angle_to_patch, angle_diff)
-                        # angle_diff_scaled = angle_diff / np.pi
-                        # action = (2*0.005)**.5 * np.random.uniform(-1,1) + angle_diff_scaled
-
-                        if self.with_visualization: 
-                            self.log_ray_boundary_collision(agent, action)
-                            self.draw_ray_boundary_collision()
+                        # if self.with_visualization: 
+                        #     self.log_ray_boundary_collision(agent, action)
+                        #     self.draw_ray_boundary_collision()
 
                         agent.move(action)
                         # agent.move(0.1)
@@ -1056,8 +967,7 @@ class Simulation:
                 # Step clock time to calculate fps
                 if self.with_visualization:
                     self.clock.tick(self.framerate)
-                    if self.print_enabled and (self.t % 500 == 0):
-                        print(f"t={self.t} \t| FPS: {round(self.clock.get_fps(),1)}")
+                    # print(f"t={self.t} \t| FPS: {round(self.clock.get_fps(),1)}")
                 
                 # ful_times[self.t-1] = time.time() - obs_start
 
@@ -1070,27 +980,7 @@ class Simulation:
 
         # self.recorder.end_recording()
         pygame.quit()
+        elapsed_time = round( (time.time() - start_time) , 2)
+        dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.res_pos)
 
-        # compute simulation time in seconds
-        self.elapsed_time = round( (time.time() - start_time) , 2)
-        if self.print_enabled:
-            print(f"Elapsed_time: {self.elapsed_time}")
-
-        data_res_array = np.zeros( (len(self.data_res), 1, 3 ))
-        for id, (pos_x, pos_y, radius) in enumerate(self.data_res):
-            data_res_array[id, 0, 0] = pos_x
-            data_res_array[id, 0, 1] = pos_y
-            data_res_array[id, 0, 2] = radius
-
-            # assign plot data as numpy arrays
-            plot_data = self.data_agent, data_res_array
-        # display static map of simulation
-        if self.plot_trajectory:
-            plot_funcs.plot_map(plot_data, self.WIDTH, self.HEIGHT, self.coll_boundary_thickness, save_name=self.save_ext)
-
-        # extract total fitnesses + save into sim instance (pulled for EA)
-        dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.resources.sprites()[0].position)
-        # self.fitnesses = np.array([self.T + dist_to_res]) # --> max time + proximity as extra error signal
-        # self.fitnesses = np.array([self.T]) # --> max time + proximity as extra error signal
-
-        return self.T, dist_to_res, self.elapsed_time
+        return self.T, dist_to_res, elapsed_time, self.data_agent

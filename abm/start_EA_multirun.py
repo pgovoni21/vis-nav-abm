@@ -132,7 +132,6 @@ def EA_runner():
     #     start_EA(EA_type='multi_leader')
 
 
-
     # for x in range(3):
     #     set_env_var('VISUAL_FIELD_RESOLUTION', '32')
     #     set_env_var('AGENT_FOV', '0.97')
@@ -150,43 +149,6 @@ def EA_runner():
     #     set_env_var('N','1')
     #     set_env_var('EA_SAVE_NAME', f'sc_CNN18_FNN2x64_p50e20_vis32_fov97_rep{x}')
     #     start_EA()
-
-
-
-    # for x in range(20):
-    #     set_env_var('N','4')
-    #     set_env_var('N_RAND', '3')
-    #     set_env_var('SOCIAL_INIT_TYPE', 'ag')
-    #     set_env_var('SOCIAL_INIT_RANGE', '100')
-    #     set_env_var('RNN_OTHER_INPUT_SIZE','0')
-    #     set_env_var('EA_SAVE_NAME', f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}')
-    #     start_EA()
-    # for x in range(20):
-    #     set_env_var('N','4')
-    #     set_env_var('N_RAND', '3')
-    #     set_env_var('SOCIAL_INIT_TYPE', 'ag')
-    #     set_env_var('SOCIAL_INIT_RANGE', '100')
-    #     set_env_var('RNN_OTHER_INPUT_SIZE','0')
-    #     set_env_var('EA_SAVE_NAME', f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x+20}')
-    #     start_EA()
-
-    for x in range(20):
-        set_env_var('N','4')
-        set_env_var('N_RAND', '0')
-        set_env_var('SOCIAL_INIT_TYPE', 'ag')
-        set_env_var('SOCIAL_INIT_RANGE', '100')
-        set_env_var('RNN_OTHER_INPUT_SIZE','0')
-        set_env_var('EA_SAVE_NAME', f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}')
-        start_EA()
-    for x in range(20):
-        set_env_var('N','4')
-        set_env_var('N_RAND', '0')
-        set_env_var('SOCIAL_INIT_TYPE', 'ag')
-        set_env_var('SOCIAL_INIT_RANGE', '100')
-        set_env_var('RNN_OTHER_INPUT_SIZE','0')
-        set_env_var('EA_SAVE_NAME', f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x+20}')
-        start_EA()
-        
 
 
 if __name__ == '__main__':
