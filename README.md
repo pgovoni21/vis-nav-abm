@@ -1,4 +1,4 @@
-# Visuospatial navigation without distance, prediction, or maps
+# Visuospatial navigation from the bottom-up: without vestibular integration, distance prediction, or maps
 
 <img src="./site_media/flow.png" width="800"/>
 
@@ -9,21 +9,7 @@
 **Timespan:** 2023-Present
 
 **Abstract:** <br>
-Navigation is controlled by at least two partially dissociable, concurrently developed systems in the brain. 
-The cognitive map informs an organism of its location, bearing, and distances between environmental features, enabling shortcuts. 
-Response-based navigation, on the other hand, the process of composing percept-action pairs into routes, 
-is regarded as inaccurate and inflexible, ultimately subserving map-based representation. 
-As such, navigation models tend to assume the primacy of maps, 
-top-down constructed via predictive control and distance perception, while neglecting response-based strategies. 
-Here we show the sufficiency of a minimal feedforward framework in a classic visual navigation task. 
-Our agents, directly translating visual perception to movement, navigate to a hidden goal in an open field, 
-an environment often assumed to require map-based representation. 
-While visual distance enables direct trajectories to the goal, 
-two distinct algorithms develop to robustly navigate using visual angles alone. 
-Each of the three confers unique contextual tradeoffs as well as aligns with behavior observed with rodents, 
-insects, fish, and sperm cells, suggesting the widespread significance of response-based strategies. 
-We advocate further study of navigation from the bottom-up without assuming online access to computationally expensive top-down representations, 
-which may better explain behavior under energetic or attentional constraints.
+Navigation is believed to be controlled by at least two partially dissociable systems in the brain. The cognitive map informs an organism of its location and bearing, updated by integrating vestibular self-motion or predicting distances to landmarks. Route-based navigation, on the other hand, directly evaluate sequential movement decisions from immediate percepts. Here we demonstrate the sufficiency of visual route-based decision-making in a classic open field navigation task often assumed to require a cognitive map. Three distinct strategies emerge to robustly navigate to a hidden goal, each conferring contextual tradeoffs analyzed at both neural and behavioral scales, as well as qualitatively aligning with behavior observed across the biological spectrum. We propose reframing navigation from the bottom-up, through an egocentric episodic perspective without assuming online access to computationally expensive top-down representations, to better explain behavior under energetic or attentional constraints.
 
 <p float="left">
   <img src="./site_media/sim_IS.gif" width="250" />
@@ -47,7 +33,7 @@ which may better explain behavior under energetic or attentional constraints.
 [Preprint](https://arxiv.org/abs/2407.13535v2) <br>
 
 **Citation:** <br>
-Govoni, P., Romanczuk, P. Visuospatial navigation without distance, prediction, or maps. (2024). 
+Govoni, P., Romanczuk, P. Visuospatial navigation from the bottom-up: without vestibular integration, distance prediction, or maps. (2025). 
 
 **License:** <br>
 Copyright © 2023 [Patrick Govoni](https://github.com/pgovoni21). <br>
