@@ -618,45 +618,20 @@ class Simulation:
 
         # ghost agent
         if 'ghost' in self.sim_type:
-            x,y = self.res_pos
-            orient = 0
-            if self.sim_type == 'walls, social-ghostexploiter' or self.sim_type == 'walls, social-ghostexplorer':
-                agent = Agent(
-                        id=self.N+1,
-                        position=(x, y),
-                        orientation=0,
-                        max_vel=self.max_vel,
-                        FOV=self.agent_fov,
-                        vision_range=self.vision_range,
-                        num_class_elements=self.num_class_elements,
-                        vis_field_res=self.vis_field_res,
-                        consumption=self.agent_consumption,
-                        model=self.model,
-                        boundary_endpts=self.boundary_endpts,
-                        window_pad=self.window_pad,
-                        radius=self.agent_radii,
-                        color=colors.BLUE,
-                        vis_transform=self.vis_transform,
-                        percep_angle_noise_std=self.percep_angle_noise_std,
-                        sim_type=self.sim_type,
-                    )
-                if self.sim_type == 'walls, social-ghostexploiter':
-                    agent.mode = 'exploit'
-                elif self.sim_type == 'walls, social-ghostexplorer':
-                    agent.mode = 'explore'
-                self.ghost.add(agent)
-                self.viewable_agents.add(agent)
 
-            else:  # multiple ghost explorers
-                offsets = []
-                # 5 equally spaced offsets (72 degree spacings), 1.5*agent_radius away from center as minimum needed to avoid collision
+            if 'offset' in self.sim_type:
+                x,y = 600,600
+            else:
+                x,y = self.res_pos
+
+            if 'exploiters' in self.sim_type or 'explorers' in self.sim_type: # multiple ghosts
+                spacings = [] # 5*72 degree spacings, 1.5*agent_radius away from center as minimum needed to avoid collision
                 for i in range(5):
                     angle = i * 2*np.pi/5
                     offset_x = x + 1.5*self.agent_radii*np.cos(angle)
                     offset_y = y + 1.5*self.agent_radii*np.sin(angle)
-                    offsets.append((offset_x, offset_y))
-
-                for i,j in offsets:
+                    spacings.append((offset_x, offset_y))
+                for i,j in spacings:
                     agent = Agent(
                             id=self.N+1,
                             position=(i,j),
@@ -676,12 +651,39 @@ class Simulation:
                             percep_angle_noise_std=self.percep_angle_noise_std,
                             sim_type=self.sim_type,
                         )
-                    if self.sim_type == 'walls, social-ghostexplorers':
-                        agent.mode = 'explore'
-                    elif self.sim_type == 'walls, social-ghostexploiters':
+                    if 'exploiter' in self.sim_type:
                         agent.mode = 'exploit'
+                    elif 'explorer' in self.sim_type:
+                        agent.mode = 'explore'
                     self.ghost.add(agent)
                     self.viewable_agents.add(agent)
+
+            else: # single ghost
+                agent = Agent(
+                        id=self.N+1,
+                        position=(x, y),
+                        orientation=0,
+                        max_vel=self.max_vel,
+                        FOV=self.agent_fov,
+                        vision_range=self.vision_range,
+                        num_class_elements=self.num_class_elements,
+                        vis_field_res=self.vis_field_res,
+                        consumption=self.agent_consumption,
+                        model=self.model,
+                        boundary_endpts=self.boundary_endpts,
+                        window_pad=self.window_pad,
+                        radius=self.agent_radii,
+                        color=colors.BLUE,
+                        vis_transform=self.vis_transform,
+                        percep_angle_noise_std=self.percep_angle_noise_std,
+                        sim_type=self.sim_type,
+                    )
+                if 'exploiter' in self.sim_type:
+                    agent.mode = 'exploit'
+                elif 'explorer' in self.sim_type:
+                    agent.mode = 'explore'
+                self.ghost.add(agent)
+                self.viewable_agents.add(agent)
 
     # @timer
     def save_data_agent(self):
@@ -815,6 +817,22 @@ class Simulation:
                 # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
 
                 agent1.collided_points.append(np.array(clip.center) - self.window_pad)
+
+        if 'offset' in self.sim_type: # ghost outside patch --> acknowledge collisions, same code as above
+            collision_group_aa = pygame.sprite.groupcollide(self.agents, self.ghost, False, False, supcalc.within_group_collision)
+            for agent1, other_agents in collision_group_aa.items():
+                if not self.agent_patch_collide:
+                    if agent1.mode == 'exploit':
+                        continue
+                agent1.mode = 'collide'
+                for agentX in other_agents:
+                    if not self.agent_patch_collide:
+                        if agentX.mode == 'exploit':
+                            continue
+                    clip = agent1.rect.clip(agentX.rect)
+                    if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+                    agent1.collided_points.append(np.array(clip.center) - self.window_pad)
+
 
 ### -------------------------- HUMAN INTERACTION FUNCTIONS -------------------------- ###
 
