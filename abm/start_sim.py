@@ -416,48 +416,27 @@ if __name__ == '__main__':
     import pickle
     from abm.monitoring.trajs import find_top_val_gen
 
-    # load param_vec + env_path
-    data_dir = Path(__file__).parent / r'data/simulation_data/'
+    data_dir = Path(__file__).parent / r'data/example_data/' # for running below files, downloaded from github
+    # data_dir = Path(__file__).parent / r'data/simulation_data/' # for running locally trained files
 
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep1'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep4'
+    # individual sims
+    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3' # indirect sequential
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15' # biased diffusive
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10' # direct
 
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep9'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_seed10k_rep4'
+    # social sims
+    # exp_name = 'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep37' # no perf + no spatial
+    # exp_name = 'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep18' # spatial only
+    # exp_name = 'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep35' # perf only (hybrid - biased diffusive)
+    # exp_name = 'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep33' # perf + weak spatial (hybrid - indirect sequential)
+    # exp_name = 'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep18' # perf + strong spatial (follower)
 
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10'
-
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep7'
-    # exp_name = 'sc_CNN14_FNN2_p50e20_vis16_PGPE_ss20_mom8_rep11'
-
-
-    # exp_name = 'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep9' # vids - indiv nav
-    # exp_name = 'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep4' # vids - follower
-    # exp_name = 'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep37' # indiv nav
-
-    # near-direct followers
-    # exp_name = 'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep18' # vids - distracted
-    # exp_name = 'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep11'
-    # exp_name = 'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep31'
-    # exp_name = 'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep15'
-
-    # exp_name = 'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep22'
-    # exp_name = 'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes100_rep33'
-
-    exp_name = 'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep0'
-    # exp_name = 'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep4'
-
-
-
+    # find model/env params
     gen_ext, valfit = find_top_val_gen(exp_name, 'cen')
-    # NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NN0_pickle.bin'
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
     env_path = fr'{data_dir}/{exp_name}/.env'
 
     with open(NN_pv_path,'rb') as f:
         pv = pickle.load(f)
 
-    start(pv=pv, env_path=env_path, seed=300)
-    # start()
+    start(pv=pv, env_path=env_path, seed=1)

@@ -1,0 +1,21 @@
+Validation matrix shape (num_NNs, num_seeds): (20, 100)
+gen: 816 | EA_fit: 335 | val_fit: 355
+gen: 947 | EA_fit: 335 | val_fit: 340
+gen: 874 | EA_fit: 335 | val_fit: 335
+gen: 889 | EA_fit: 341 | val_fit: 345
+gen: 807 | EA_fit: 346 | val_fit: 359
+gen: 825 | EA_fit: 348 | val_fit: 352
+gen: 934 | EA_fit: 352 | val_fit: 343
+gen: 977 | EA_fit: 353 | val_fit: 335
+gen: 666 | EA_fit: 355 | val_fit: 359
+gen: 758 | EA_fit: 358 | val_fit: 362
+gen: 999 | EA_fit: 358 | val_fit: 333
+gen: 793 | EA_fit: 358 | val_fit: 339
+gen: 959 | EA_fit: 360 | val_fit: 363
+gen: 781 | EA_fit: 362 | val_fit: 361
+gen: 906 | EA_fit: 362 | val_fit: 355
+gen: 878 | EA_fit: 362 | val_fit: 341
+gen: 789 | EA_fit: 364 | val_fit: 350
+gen: 963 | EA_fit: 367 | val_fit: 346
+gen: 976 | EA_fit: 367 | val_fit: 325
+gen: 948 | EA_fit: 368 | val_fit: 349
