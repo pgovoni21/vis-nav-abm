@@ -418,13 +418,14 @@ if __name__ == '__main__':
 
     data_dir = Path(__file__).parent / r'data/example_data/' # for running below files, downloaded from github
     # data_dir = Path(__file__).parent / r'data/simulation_data/' # for running locally trained files
+    # data_dir = Path(__file__).parent / r'data/simulation_data/archive - ISBDDP/' # for archived 'indiv nav' files
 
-    # individual sims
+    # EXAMPLES -->> uncomment single lines to run
+    # >> individual sims
     exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3' # indirect sequential
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15' # biased diffusive
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10' # direct
-
-    # social sims
+    # >> social sims
     # exp_name = 'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep37' # no perf + no spatial
     # exp_name = 'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep18' # spatial only
     # exp_name = 'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep35' # perf only (hybrid - biased diffusive)
@@ -432,7 +433,7 @@ if __name__ == '__main__':
     # exp_name = 'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep18' # perf + strong spatial (follower)
 
     # find model/env params
-    gen_ext, valfit = find_top_val_gen(exp_name, 'cen')
+    gen_ext, valfit = find_top_val_gen(data_dir, exp_name, 'cen')
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
     env_path = fr'{data_dir}/{exp_name}/.env'
 

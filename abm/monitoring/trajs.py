@@ -873,6 +873,9 @@ def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, ran
     if extra == '': 
         extra = envconf['N']
         save_extra = ''
+    elif extra == 'Nd+2':
+        extra = int(envconf['N'])+2
+        save_extra = 'Nd+2'
     else:
         save_extra = extra
 
@@ -933,7 +936,7 @@ def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, ran
     if save_extra == '':
         save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
     else:
-        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin'
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{save_extra}.bin'
     with open(save_name, 'wb') as f:
         pickle.dump(traj_matrix, f)
 
@@ -4539,26 +4542,26 @@ def run_gamut_social(group_name, names, dpi):
         gen, valfit = find_top_val_gen(name, rank)
         print(f'{name} @ {gen} w {valfit} fitness')
 
-        # with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
-        #     data = pickle.load(f)
-        # if name in data:
-        #     print('already there')
-        #     print('')
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+            data = pickle.load(f)
+        if name in data:
+            print('already there')
+            print('')
 
-        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
-        #     # if os.path.exists(save_name_traj):
-        #     #     os.remove(save_name_traj)
-        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
-        #     # if os.path.exists(save_name_traj):
-        #     #     os.remove(save_name_traj)
-        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
-        #     # if os.path.exists(save_name_traj):
-        #     #     os.remove(save_name_traj)
-        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
-        #     # if os.path.exists(save_name_traj):
-        #     #     os.remove(save_name_traj)
+            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+            # if os.path.exists(save_name_traj):
+            #     os.remove(save_name_traj)
+            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+            # if os.path.exists(save_name_traj):
+            #     os.remove(save_name_traj)
+            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+            # if os.path.exists(save_name_traj):
+            #     os.remove(save_name_traj)
+            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
+            # if os.path.exists(save_name_traj):
+            #     os.remove(save_name_traj)
 
-        #     continue
+            continue
 
         save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
         if not os.path.exists(save_name_traj):
@@ -4647,59 +4650,83 @@ def run_gamut_social_extra(group_name, names, dpi):
     for name in names:
 
         gen, valfit = find_top_val_gen(name, rank)
-        # print(f'{name} @ {gen} w {valfit} fitness')
+        print(f'{name} @ {gen} w {valfit} fitness')
 
-        # if len(data[name]) == 8:
-        #     # print(f'{name} @ {gen} w {valfit} fitness')
-        #     continue
-        # elif len(data[name]) == 11:
-        #     print(f'skip {name}, already done')
-        #     continue
-        # else:
-        #     print(f'remove {name}, do again')
-        #     # del data[name]
-        #     # with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
-        #     #     pickle.dump(data, f)
-        #     continue
         if name in data:
             print('already there')
             continue
+        else:
+            with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+                old_data = pickle.load(f)
 
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='')
         save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
         if not os.path.exists(save_name_traj):
             build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial')
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiters.bin'
         if not os.path.exists(save_name_traj):
-            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter')
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiters')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorers.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorers')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_Nd+2.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='Nd+2')
 
-        de_mean_NS_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='', dpi=dpi)
-        de_mean_NS_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='patch_only', dpi=dpi)
-        de_mean_ET_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='', dpi=dpi)
-        de_mean_ET_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='patch_only', dpi=dpi)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiters_ex_lines_50.png'
+        if not os.path.exists(save_name_traj):
+            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_exploiters')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorers_ex_lines_50.png'
+        if not os.path.exists(save_name_traj):
+            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_explorers')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_Nd+2_ex_lines_50.png'
+        if not os.path.exists(save_name_traj):
+            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='Nd+2')
 
-        JS_mean_NSET_new,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
-                                                            base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='')
-        JS_mean_NSET_patchonly,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
-                                                            base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='patch_only')
+        # de_mean_NS_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='', dpi=dpi)
+        # de_mean_NS_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='patch_only', dpi=dpi)
+        # de_mean_ET_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='', dpi=dpi)
+        # de_mean_ET_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='patch_only', dpi=dpi)
 
-        # with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
-        with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+        JS_mean_NSETs,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                            base_cond='nosocial', perturb_cond='ghost_exploiters', mask_cond='')
+        JS_mean_ETERs,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                            base_cond='ghost_exploiters', perturb_cond='ghost_explorers', mask_cond='')
+        JS_mean_Nd2,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                            base_cond='', perturb_cond='Nd+2', mask_cond='')
+
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+        # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'rb') as f:
             data = pickle.load(f)
 
-        de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER = data[name]
-        data[name] = de_mean_OG, de_mean_NS_new, de_mean_ET_new, de_mean_ER, JS_mean_OGNS, JS_mean_NSET_new, JS_mean_NSER, JS_mean_ETER, de_mean_NS_patchonly, de_mean_ET_patchonly, JS_mean_NSET_patchonly
+        # de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER, de_mean_NS_patchonly, de_mean_ET_patchonly, JS_mean_NSET_patchonly = data[name]
+        de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER = old_data[name]
+        data[name] = de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER, JS_mean_NSETs, JS_mean_ETERs, JS_mean_Nd2
 
         with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
+        # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'wb') as f:
             pickle.dump(data, f)
 
-        print(f'de_mean_NS-og: {de_mean_NS}, de_mean_NS-new: {de_mean_NS_new}, -patchonly: {de_mean_NS_patchonly}')
-        print(f'de_mean_ET-og: {de_mean_ET}, de_mean_ET-new: {de_mean_ET_new}, -patchonly: {de_mean_ET_patchonly}')
-        print(f'JS_mean_NSET-og: {JS_mean_NSET}, JS_mean_NSET-new: {JS_mean_NSET_new}, -patchonly: {JS_mean_NSET_patchonly}')
+        # print(f'de_mean_NS-og: {de_mean_NS}, de_mean_NS-new: {de_mean_NS_new}, -patchonly: {de_mean_NS_patchonly}')
+        # print(f'de_mean_ET-og: {de_mean_ET}, de_mean_ET-new: {de_mean_ET_new}, -patchonly: {de_mean_ET_patchonly}')
+        # print(f'JS_mean_NSET-og: {JS_mean_NSET}, JS_mean_NSET-new: {JS_mean_NSET_new}, -patchonly: {JS_mean_NSET_patchonly}')
+        print(f'JS_NSET: {JS_mean_NSET}, JS_NSETs: {JS_mean_NSETs}, JS_ETER: {JS_mean_ETER}, JS_ETERs: {JS_mean_ETERs}, JS_Nd2: {JS_mean_Nd2}')
 
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
         save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
         if os.path.exists(save_name_traj):
             os.remove(save_name_traj)
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiters.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorers.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_Nd+2.bin'
         if os.path.exists(save_name_traj):
             os.remove(save_name_traj)
 
@@ -7389,12 +7416,7 @@ def gamut_label(group):
 
 # -------------------------- misc -------------------------- #
 
-def find_top_val_gen(exp_name, rank='cen', archive=False):
-
-    if archive:
-        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
-    else:
-        data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+def find_top_val_gen(data_dir, exp_name, rank='cen'):
 
     # parse val results text file
     if rank == 'top': 
@@ -7615,46 +7637,55 @@ if __name__ == '__main__':
     # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep16') # perf + med spatial
     # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep31') # perf + strong spatial
 
+    # names.append('sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep2')
+    # names.append('sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep10')
+    # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep10')
+    # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep15')
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep1')
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep20')
+    # names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep11')
+
     # for name in names:
     #     gen, valfit = find_top_val_gen(name, 'cen')
 
-    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
-    #     # if not os.path.exists(save_name_traj):
-    #     #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps)
-    #     #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, feat_out=True)
-    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_nosocial.bin'
-    #     # if not os.path.exists(save_name_traj):
-    #     #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial')
-    #     #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial', feat_out=True)
-    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_exploiter.bin'
-    #     # if not os.path.exists(save_name_traj):
-    #     #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter')
-    #     #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter', feat_out=True)
-    #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_explorer.bin'
-    #     # if not os.path.exists(save_name_traj):
-    #     #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer')
-    #     #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer', feat_out=True)
-    #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, feat_out=True)
-    #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial', feat_out=True)
-    #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter', feat_out=True)
-    #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer', feat_out=True)
+        # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
+        # if not os.path.exists(save_name_traj):
+        #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps)
+        #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, feat_out=True)
+        # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_nosocial.bin'
+        # if not os.path.exists(save_name_traj):
+        #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial')
+        #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial', feat_out=True)
+        # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_exploiter.bin'
+        # if not os.path.exists(save_name_traj):
+        #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter')
+        #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter', feat_out=True)
+        # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_ghost_explorer.bin'
+        # if not os.path.exists(save_name_traj):
+        #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer')
+        #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer', feat_out=True)
+        # build_agent_trajs(name, gen, space_step, orient_step, timesteps, feat_out=True)
+        # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial', feat_out=True)
+        # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter', feat_out=True)
+        # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer', feat_out=True)
 
-    #     for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
-    #         plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50, extra=test)
-    #         for a in range(16):
-    #             plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a+4}', dpi=50, extra=test)
+        # for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
+        #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50, extra=test)
+        #     for a in range(16):
+        #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a+4}', dpi=50, extra=test)
 
     #     JS_mean_OGNS,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='nosocial', perturb_cond='')
     #     JS_mean_NSET,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='')
     #     JS_mean_NSER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='nosocial', perturb_cond='ghost_explorer')
     #     JS_mean_ETER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='ghost_exploiter', perturb_cond='ghost_explorer')
 
-    #     # for plot in ['_interfaces']: # _avgorilen
-    #     # # for plot in ['_finalheat']: 
-    #     # # for plot in ['_interfaces','_finalheat']:
-    #     for plot in ['_dirent','_interfaces','_finalheat']:
-    #         for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
-    #             plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=plot, dpi=50, extra=test)
+        # # for plot in ['_interfaces']: # _avgorilen
+        # # # for plot in ['_finalheat']: 
+        # # # for plot in ['_interfaces','_finalheat']:
+        # for plot in ['_dirent','_interfaces','_finalheat']:
+        #     for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
+        #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=plot, dpi=50, extra=test)
 
         # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
         # if os.path.exists(save_name_traj):
@@ -8247,46 +8278,49 @@ if __name__ == '__main__':
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis12_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-    #     names.append(name)
+    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+        names.append(name)
+
+    for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
 
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_collinput_rep{x}' for x in range(n)]:
     #     names.append(name)
@@ -8340,10 +8374,12 @@ if __name__ == '__main__':
 
     # run_gamut_social('gamut_social', names, dpi=50)
     # run_gamut_social('gamut_social_extra', names, dpi=50)
-    # # run_gamut_social_extra('gamut_social_extra', names, dpi=50)
+    # run_gamut_social_extra('gamut_social_extra', names, dpi=50)
+    # run_gamut_social_extra('gamut_social_mults', names, dpi=50)
 
-    # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+    # # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
     # # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'rb') as f:
+    # with open(fr'{data_dir}/traj_matrices/gamut_social_mults.bin', 'rb') as f:
     #     data = pickle.load(f)
     # count = 0
     # run = []
@@ -8373,15 +8409,17 @@ if __name__ == '__main__':
     #     if k in data2:
     #         v1 = data1[k]
     #         v2 = data2[k]
-    #         if v1 != v2:
-    #             print(k, 'diff')
-    #             print(v1)
-    #             print(v2)
-    #             # # pass
-    #         # else:
-    #         #     print(f'match in {k}')
+    #         if v1 != v2[:8]:
+    #             # print(k, 'diff')
+    #             # # print(len(v1),len(v2[:8]))
+    #             # print(v1)
+    #             # print(v2)
+    #             pass
+    #         else:
+    #             print(f'match in {k}')
     #     else:
-    #         print(f'missing')
+    #         # print(f'missing')
+    #         pass
     #     # print('')
 
     # for k,v in sorted(data2.items()):

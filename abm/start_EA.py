@@ -1,7 +1,7 @@
 # from abm.metarunner.EA import EvolAlgo
 from abm.metarunner.EA_PGPE import EvolAlgo
-from abm.metarunner.EA_PGPE_ext import EvolAlgo as EvolAlgo_ext
-from abm.metarunner.EA_PGPE_pred import EvolAlgo as EvolAlgo_pred
+# from abm.metarunner.EA_PGPE_ext import EvolAlgo as EvolAlgo_ext
+# from abm.metarunner.EA_PGPE_pred import EvolAlgo as EvolAlgo_pred
 
 from pathlib import Path
 from dotenv import dotenv_values

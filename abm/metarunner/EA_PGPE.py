@@ -60,7 +60,8 @@ class EvolAlgo():
         self.fitness_evol = np.zeros([generations, population_size, episodes])
         self.EA_save_name = EA_save_name
         self.root_dir = Path(__file__).parent.parent.parent
-        self.EA_save_dir = Path(self.root_dir, 'abm/data/simulation_data', EA_save_name)
+        self.sim_dir = Path(self.root_dir, 'abm/data/simulation_data')
+        self.EA_save_dir = Path(self.sim_dir, EA_save_name)
         
         # self.mean_param_vec = np.zeros([generations, param_vec_size])
         # self.std_param_vec = np.zeros([generations, param_vec_size])
@@ -71,6 +72,8 @@ class EvolAlgo():
         if os.path.isdir(self.EA_save_dir):
             warnings.warn("Temporary directory for env files is not empty and will be overwritten")
             shutil.rmtree(self.EA_save_dir)
+        else:
+            Path(self.sim_dir).mkdir()
         Path(self.EA_save_dir).mkdir()
         shutil.copy(
             Path(self.root_dir, '.env'), 

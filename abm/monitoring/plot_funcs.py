@@ -4,7 +4,6 @@ from matplotlib import pyplot as plt
 from matplotlib import collections as mc
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 import matplotlib.patches as mpatches
-import cmasher as cmr
 import colorcet as cc
 from matplotlib.colors import LinearSegmentedColormap as lsc
 import numpy as np
@@ -1908,8 +1907,8 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
     # with open(fr'{data_dir}/traj_matrices/gamut_social_mults.bin', 'rb') as f:
         data_dict = pickle.load(f)
 
-    fig, ax1 = plt.subplots(figsize=(6,6)) # full fig
-    # fig, ax1 = plt.subplots(figsize=(4,4)) # perturb figs
+    # fig, ax1 = plt.subplots(figsize=(6,6)) # full fig
+    fig, ax1 = plt.subplots(figsize=(4,4)) # perturb figs
 
     labs_all = []
 
@@ -1990,9 +1989,9 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
                 # if dist1 > 625 and dist2 > 0.18 and dist2 < 0.225:
                 #     print(name, int(dist1), dist2.round(3), int(name_to_metric(name, 'dist_og')))
 
-                if 'sc_N6' in name:
-                    # print(name, int(name_to_metric(name, 'dist_shift_Nd+2')), int(dist1), dist2.round(3))
-                    print(name, int(name_to_metric(name, 'dist_og')), int(name_to_metric(name, 'dist_Nd2')), int(name_to_metric(name, 'dist_shift_Nd+2')))
+                # if 'sc_N6' in name:
+                #     # print(name, int(name_to_metric(name, 'dist_shift_Nd+2')), int(dist1), dist2.round(3))
+                #     print(name, int(name_to_metric(name, 'dist_og')), int(name_to_metric(name, 'dist_Nd2')), int(name_to_metric(name, 'dist_shift_Nd+2')))
 
                 dist1_group.append(dist1)
                 dist2_group.append(dist2)
@@ -3750,7 +3749,7 @@ if __name__ == '__main__':
     groups = []
     names = []
     n = 40
-    # save_name='groups_sc_Nall_CNN14_FNN16_vis8'
+    save_name='groups_sc_Nall_CNN14_FNN16_vis8'
     # save_name='groups_sc_ratio_CNN14_FNN16_vis8'
     # save_name='groups_sc_ag_CNN14_FNN16_vis8'
     # save_name='groups_sc_agNd5_CNN14_FNN16_vis8'
@@ -3763,7 +3762,7 @@ if __name__ == '__main__':
     # save_name='groups_sc_Nd0_nocoll_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nall_collinput_CNN14_FNN16_vis8'
     # save_name='groups_sc_ratio_collinput_CNN14_FNN16_vis8'
-    save_name='groups_sc_Nall_SinitAg100_CNN14_FNN16_vis8'
+    # save_name='groups_sc_Nall_SinitAg100_CNN14_FNN16_vis8'
     # save_name='groups_sc_ratio_SinitAg100_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nd5_varycoll_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nd5_varycog_CNN14_FNN16_vis8'
@@ -4049,12 +4048,12 @@ if __name__ == '__main__':
     color_types = [
         # '',
         # 'COM',
-        'num_X_COM',
+        # 'num_X_COM',
         # 'num_direct',
         # 'num_rand',
         # 'num_total',
         # 'num_direct_split',
-        # 'heatmap',
+        'heatmap',
         # 'heatmap_taskdep',
         # 'learning_time',
         # 'dirent_OG',
