@@ -9,7 +9,6 @@ from abm.sprites.agent import Agent
 from abm.sprites.resource import Resource
 from abm.sprites.wall import Wall
 from abm.sprites.landmark import Landmark
-from abm.monitoring import plot_funcs
 # from abm.monitoring.screen_recorder import ScreenRecorder
 # from abm.helpers import timer
 
@@ -74,13 +73,14 @@ class Simulation:
             self.agent_init = x,y,orient # pass to create_agent
         else:
             self.agent_init = None
-        self.feat_out = feat_out
 
         # Tracking parameters
+        self.feat_out = feat_out
         if self.feat_out:
             self.data_agent = np.zeros( (self.T, 10) ) # (pos_x, pos_y, ori, action, vis_feat, RNN_out)
         else:
-            self.data_agent = np.zeros( (self.T, 4) ) # (pos_x, pos_y, ori, action)
+            # self.data_agent = np.zeros( (self.T, 4) ) # (pos_x, pos_y, ori, action)
+            self.data_agent = np.zeros( (self.T, 3) ) # (pos_x, pos_y, ori)
         self.data_res = []
         self.vis_feat = np.zeros(4)
         self.RNN_out = np.zeros(2)
@@ -554,7 +554,7 @@ class Simulation:
         self.data_agent[self.t,:2] = agent.pt_eye # for perception-grounded tracking (analysis)
         # self.data_agent[self.t,:2] = agent.position # for smoother visualization (video recorder)
         self.data_agent[self.t,2] = agent.orientation
-        self.data_agent[self.t,3] = agent.action * np.pi / 2
+        # self.data_agent[self.t,3] = agent.action * np.pi / 2
         if self.feat_out:
             self.data_agent[self.t,4:8] = self.vis_feat.flatten()
             self.data_agent[self.t,8:10] = self.RNN_out.flatten()

@@ -18,7 +18,7 @@ class Simulation:
                  agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, agent_collide, agent_patch_collide,
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
                  NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
-                 boundary_scale, sim_type, RW_rot_diff, social_init_range, social_init_type, init_info=None, feat_out=False,
+                 boundary_scale, sim_type, RW_rot_diff, social_init_range, social_init_type, init_info=None, feat_out=False, views=False,
                  ):
         """
         Initializing the main simulation instance
@@ -101,10 +101,11 @@ class Simulation:
 
         # Params from build_agent_trajs()
         if init_info is not None:
-            x,y,orient,timesteps,perturb = init_info
+            x,y,orient,timesteps,perturb,data_type = init_info
             self.T = timesteps # override envconf
             self.agent_init = x,y,orient # pass to create_agent
             # self.social_init_type == '' # override initialization bounds ## not doing this, OG = as-trained
+            self.data_type = data_type
             if perturb == 'nosocial': 
                 self.N = 1
                 self.sim_type = 'walls, social'
@@ -124,14 +125,22 @@ class Simulation:
                 self.N = int(perturb) # override potential validation perturb
                 self.sim_type = 'walls, social'
         else:
+            self.data_type = None
             self.agent_init = None
-        self.feat_out = feat_out
 
         # Tracking parameters
-        if self.feat_out:
-            self.data_agent = np.zeros( (self.T, 24) ) # (pos_x, pos_y, ori, action, vis_feat, RNN_out)
+        self.feat_out = feat_out
+        if self.data_type == 'views':
+            self.data_agent = set()
+        elif self.data_type == 'dists':
+            self.data_agent = np.zeros(self.T) # dist
+            self.agent_init = None # terminate on res-contact
         else:
-            self.data_agent = np.zeros( (self.T, 4) ) # (pos_x, pos_y, ori, action)
+            if self.feat_out:
+                self.data_agent = np.zeros( (self.T, 24) ) # (pos_x, pos_y, ori, action, vis_feat, RNN_out)
+            else:
+                # self.data_agent = np.zeros( (self.T, 6) ) # (pos_x, pos_y, ori, action, COM_pos_x, COM_pos_y)
+                self.data_agent = np.zeros( (self.T, 3) ) # (pos_x, pos_y, ori)
         self.data_res = []
         self.vis_feat = np.zeros(4)
         self.RNN_out = np.zeros(16)
@@ -516,12 +525,11 @@ class Simulation:
 
                 colliding_resources = [0]
                 colliding_agents = [0]
-
                 retries = 0
                 while len(colliding_resources) > 0 or len(colliding_agents) > 0:
 
                     x = np.random.randint(x_min, x_max)
-                    y = np.random.randint(y_min, y_max)                
+                    y = np.random.randint(y_min, y_max)
                     orient = np.random.uniform(0, 2 * np.pi)
 
                     agent = Agent(
@@ -573,15 +581,12 @@ class Simulation:
 
                 colliding_resources = [0]
                 colliding_agents = [0]
-
                 retries = 0
                 while len(colliding_resources) > 0 or len(colliding_agents) > 0 or dist_to_target > self.social_init_range:
 
                     x = np.random.randint(spawn_x_min, spawn_x_max)
                     y = np.random.randint(spawn_y_min, spawn_y_max)                
                     orient = np.random.uniform(0, 2 * np.pi)
-
-                    # print(x,y,i)
 
                     agent = Agent(
                             id=i,
@@ -642,7 +647,7 @@ class Simulation:
                             num_class_elements=self.num_class_elements,
                             vis_field_res=self.vis_field_res,
                             consumption=self.agent_consumption,
-                            model=self.model,
+                            model=None,
                             boundary_endpts=self.boundary_endpts,
                             window_pad=self.window_pad,
                             radius=self.agent_radii,
@@ -669,7 +674,7 @@ class Simulation:
                         num_class_elements=self.num_class_elements,
                         vis_field_res=self.vis_field_res,
                         consumption=self.agent_consumption,
-                        model=self.model,
+                        model=None,
                         boundary_endpts=self.boundary_endpts,
                         window_pad=self.window_pad,
                         radius=self.agent_radii,
@@ -688,15 +693,20 @@ class Simulation:
     # @timer
     def save_data_agent(self):
         agent = self.agents.sprites()[0] # only track 1st agent
-        self.data_agent[self.t,:2] = agent.pt_eye
-        self.data_agent[self.t,2] = agent.orientation
-        self.data_agent[self.t,3] = agent.action * np.pi / 2
-        if self.feat_out:
-            self.data_agent[self.t,4:8] = self.vis_feat.flatten()
-            self.data_agent[self.t,8:24] = self.RNN_out.flatten()
-        # print(self.vis_feat.flatten(),self.RNN_out.flatten())
-
-        # print(self.data_agent[self.t,:])
+        if self.data_type == 'views':
+            self.data_agent.add(tuple(agent.vis_field))
+        elif self.data_type == 'dists':
+            self.data_agent[self.t] = supcalc.distance(self.agents.sprites()[0].position, self.res_pos) - self.res_radius
+        else:
+            self.data_agent[self.t,:2] = agent.pt_eye
+            self.data_agent[self.t,2] = agent.orientation
+            # self.data_agent[self.t,3] = agent.action * np.pi / 2
+            # if self.feat_out:
+            #     self.data_agent[self.t,4:8] = self.vis_feat.flatten()
+            #     self.data_agent[self.t,8:24] = self.RNN_out.flatten()
+            # else:
+            #     other_pos = np.array([agent.position for agent in self.agents.sprites()[1:]])
+            #     self.data_agent[self.t,4:] = np.mean(other_pos, axis=0) # COM
 
 ### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
 
@@ -760,7 +770,6 @@ class Simulation:
     def collide_agent_resarea(self): # for trajs.py where there is no self.resources
 
         for i in range(1, self.N): # other agents only
-
             agent = self.agents.sprites()[i]
             dist_to_res = supcalc.distance(agent.position, self.res_pos)
 

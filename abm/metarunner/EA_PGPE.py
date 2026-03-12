@@ -72,8 +72,6 @@ class EvolAlgo():
         if os.path.isdir(self.EA_save_dir):
             warnings.warn("Temporary directory for env files is not empty and will be overwritten")
             shutil.rmtree(self.EA_save_dir)
-        else:
-            Path(self.sim_dir).mkdir()
         Path(self.EA_save_dir).mkdir()
         shutil.copy(
             Path(self.root_dir, '.env'), 

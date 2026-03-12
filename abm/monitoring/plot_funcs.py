@@ -1,164 +1,15 @@
+
+from abm.monitoring.util import sliding_window_ori, color_gradient, beeswarm
+from abm.monitoring.util import name_to_metric, names_to_metric, find_top_val_gen
+
 import matplotlib as mpl
 mpl.use('Agg')
 from matplotlib import pyplot as plt
-from matplotlib import collections as mc
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 import matplotlib.patches as mpatches
-import colorcet as cc
-from matplotlib.colors import LinearSegmentedColormap as lsc
 import numpy as np
 from pathlib import Path
 import pickle
-from collections import deque
-from itertools import islice
-
-# ------------------------------- tools ---------------------------------------- #
-
-def sliding_window(iterable, n):
-  """
-  sliding_window('ABCDEFG', 4) -> ABCD BCDE CDEF DEFG
-  https://docs.python.org/3/library/itertools.html
-  """
-  it = iter(iterable)
-  window = deque(islice(it, n-1), maxlen=n)
-  for x in it:
-      window.append(x)
-      yield tuple(window)
-
-def sliding_window_ori(iterable, n):
-  """
-  + polar (cyclic) boundary conditions on third element (orientation)
-  """
-  it = iter(iterable)
-  window = deque(islice(it, n-1), maxlen=n)
-  last = ''
-
-  for x in it:
-      window.append(x)
-  
-      ptA,ptB = tuple(window)
-
-      if ptB[2] - ptA[2] < -3:
-        last = 'topout'
-        yield (ptA, (ptA[0], ptA[1], 2*np.pi))
-        
-      elif ptB[2] - ptA[2] > 3:
-        last = 'bottomout'
-        yield (ptA, (ptA[0], ptA[1], 0))
-
-      else:
-
-        if last == 'topout':
-          last = ''
-          yield ((ptA[0], ptA[1], 0), ptA)
-          yield tuple(window)
-
-        elif last == 'bottomout':
-          last = ''
-          yield ((ptA[0], ptA[1], 2*np.pi), ptA)
-          yield tuple(window)
-
-        else:
-          yield tuple(window)
-
-
-def color_gradient(x, y, lw=.1, alp=.3):
-    """
-    Creates a line collection with a gradient from colors c1 to c2
-    https://stackoverflow.com/questions/8500700/how-to-plot-a-gradient-color-line [nog642]
-    """
-    n = len(x)
-    if len(y) != n:
-        raise ValueError('x and y data lengths differ')
-    
-    # cm = plt.get_cmap('plasma')
-    # cm = cmr.chroma
-    cm = lsc.from_list('bgy', cc.bgy)
-    cm = cm.reversed()
-
-    cm_disc = cm(np.linspace(0, 1, n-1, endpoint=False))
-    cm_disc = cm(np.linspace(1, 0, n-1, endpoint=False)) # flipped for some cmaps
-    cm_disc[:,-1] = np.linspace(0.2, 1, n-1, endpoint=False) # start with lower alpha
-
-    return mc.LineCollection(sliding_window(zip(x, y), 2),
-                            colors=cm_disc,
-                            linewidth=lw, alpha=alp, zorder=0)
-
-
-def beeswarm(y, nbins=None, scaling=2.25):
-    """
-    Returns x coordinates for the points in ``y``, so that plotting ``x`` and
-    ``y`` results in a bee swarm plot.
-    https://stackoverflow.com/questions/36153410/how-to-create-a-swarm-plot-with-matplotlib
-    """
-    y = np.asarray(y)
-    if nbins is None:
-        nbins = len(y) // 2
-        if nbins == 0:
-            nbins = 1
-
-    # Get upper bounds of bins
-    x = np.zeros(len(y))
-    ylo = np.min(y)
-    yhi = np.max(y)
-    dy = (yhi - ylo) / nbins
-    ybins = np.linspace(ylo + dy, yhi - dy, nbins - 1)
-    # print(int(ylo),int(np.median(y)),int(yhi),len(ybins))
-
-    # Divide indices into bins
-    i = np.arange(len(y))
-    ibs = [0] * nbins
-    ybs = [0] * nbins
-    nmax = 0
-    for j, ybin in enumerate(ybins):
-        f = y <= ybin
-        ibs[j], ybs[j] = i[f], y[f]
-        nmax = max(nmax, len(ibs[j]))
-        f = ~f
-        i, y = i[f], y[f]
-    ibs[-1], ybs[-1] = i, y
-    nmax = max(nmax, len(ibs[-1]))
-
-    # Assign x indices
-    if nmax == 1:
-        nmax = 2
-    dx = 1 / (nmax // 2)
-    for i, y in zip(ibs, ybs):
-        if len(i) > 1:
-            j = len(i) % 2
-            i = i[np.argsort(y)]
-            a = i[j::2]
-            b = i[j+1::2]
-            x[a] = (0.5 + j / 3 + np.arange(len(b))) * dx / scaling
-            x[b] = (0.5 + j / 3 + np.arange(len(b))) * -dx / scaling
-
-    return x
-
-# ------------------------------- calcs ---------------------------------------- #
-
-def calc_entropy(h):
-    h_norm = h / np.sum(h)
-    e = np.sum( h_norm*np.log(1/h_norm) )
-    return e
-
-def calc_KLdiv(x,y):
-    x = x + 1/10000
-    y = y + 1/10000
-    x_norm = x / np.sum(x)
-    y_norm = y / np.sum(y)
-    KL = np.sum( x_norm*np.log(x_norm/y_norm) )
-    return KL
-
-def calc_JSdiv(x,y):
-    x = x + 1/10000
-    y = y + 1/10000
-    x_norm = x / np.sum(x)
-    y_norm = y / np.sum(y)
-    mix = (x_norm + y_norm)/2
-    KL_x_mix = np.sum( x_norm*np.log(x_norm/mix) )
-    KL_y_mix = np.sum( y_norm*np.log(y_norm/mix) )
-    JS = KL_x_mix/2 + KL_y_mix/2
-    return JS
 
 
 # ------------------------------- iterative trajectory maps ---------------------------------------- #
@@ -1322,146 +1173,146 @@ def plot_mult_EA_trends_groups_endonly(groups, val=None, scoring='dist', num_age
 
 
 
-def plot_mult_EA_trends_groups_endonly_split(groups, val=None, scoring='dist', num_agents=1, max=None, bees=False, trunc=False, title=None, save_name=None):
+# def plot_mult_EA_trends_groups_endonly_split(groups, val=None, scoring='dist', num_agents=1, max=None, bees=False, trunc=False, title=None, save_name=None):
 
-    # establish load directory
-    root_dir = Path(__file__).parent.parent
-    data_dir = Path(root_dir, r'data/simulation_data')
+#     # establish load directory
+#     root_dir = Path(__file__).parent.parent
+#     data_dir = Path(root_dir, r'data/simulation_data')
 
-    # # init plot details
-    # fig, ax1 = plt.subplots(figsize=(15,10)) 
-    fig, ax1 = plt.subplots(figsize=(6,4)) 
-    cmap = plt.get_cmap('plasma')
-    cmap_range = len(groups)
-    violin_labs = []
-    ratio_missed = []
+#     # # init plot details
+#     # fig, ax1 = plt.subplots(figsize=(15,10)) 
+#     fig, ax1 = plt.subplots(figsize=(6,4)) 
+#     cmap = plt.get_cmap('plasma')
+#     cmap_range = len(groups)
+#     violin_labs = []
+#     ratio_missed = []
     
-    # iterate over each file
-    for g_num, (group_name, run_names) in enumerate(groups):
+#     # iterate over each file
+#     for g_num, (group_name, run_names) in enumerate(groups):
 
-        data_group = []        
-        for r_num, name in enumerate(run_names):
+#         data_group = []        
+#         for r_num, name in enumerate(run_names):
 
-            if val == 'top': filename = 'val_matrix'
-            elif val == 'cen': filename = 'val_matrix_cen'
-            if 'ghost' in name: filename = 'val_matrix_cen_ghostexploiter_perturb' # override for these guys
+#             if val == 'top': filename = 'val_matrix'
+#             elif val == 'cen': filename = 'val_matrix_cen'
+#             if 'ghost' in name: filename = 'val_matrix_cen_ghostexploiter_perturb' # override for these guys
 
-            with open(fr'{data_dir}/{name}/{filename}.bin','rb') as f:
-                data = pickle.load(f)
-            data /= num_agents
+#             with open(fr'{data_dir}/{name}/{filename}.bin','rb') as f:
+#                 data = pickle.load(f)
+#             data /= num_agents
             
-            data_group.append(data.flatten())
+#             data_group.append(data.flatten())
     
-        data = np.array(data_group).flatten()
-        median = np.median(data)
-        ratio = np.round( np.count_nonzero(data==1000)/np.size(data), 2)
-        # ratio_missed.append(ratio)
-        ax1.text(g_num-.27, 1005, 1-ratio, size=10)
+#         data = np.array(data_group).flatten()
+#         median = np.median(data)
+#         ratio = np.round( np.count_nonzero(data==1000)/np.size(data), 2)
+#         # ratio_missed.append(ratio)
+#         ax1.text(g_num-.27, 1005, 1-ratio, size=10)
 
-        if bees:
-            data_bees = data.flatten()
-            # randomly strip
-            strip_count = len(data_bees)*.8
-            data_bees = np.delete(data_bees, np.random.choice(len(data_bees), int(strip_count), replace=False))
+#         if bees:
+#             data_bees = data.flatten()
+#             # randomly strip
+#             strip_count = len(data_bees)*.8
+#             data_bees = np.delete(data_bees, np.random.choice(len(data_bees), int(strip_count), replace=False))
 
-            data_below = np.delete(data_bees, np.argwhere(data_bees == 1000))
-            x = beeswarm(data_below, scaling=2)
-            ax1.scatter(g_num + x, data_below, color=cmap(g_num/cmap_range), alpha=1/255)
+#             data_below = np.delete(data_bees, np.argwhere(data_bees == 1000))
+#             x = beeswarm(data_below, scaling=2)
+#             ax1.scatter(g_num + x, data_below, color=cmap(g_num/cmap_range), alpha=1/255)
 
-            data_edge = np.delete(data_bees, np.argwhere(data_bees < 1000))
-            from scipy.stats import truncnorm # jitter
-            a_trunc, b_trunc, loc, scale = 0, 1000, 1000, 250*ratio
-            a, b = (a_trunc - loc) / scale, (b_trunc - loc) / scale
-            rv = truncnorm(a,b,loc,scale)
-            data_edge = rv.rvs(len(data_edge))
-            x = beeswarm(data_edge, scaling=2)
-            ax1.scatter(g_num + x, data_edge, color=cmap(g_num/cmap_range), alpha=1/255)
+#             data_edge = np.delete(data_bees, np.argwhere(data_bees < 1000))
+#             from scipy.stats import truncnorm # jitter
+#             a_trunc, b_trunc, loc, scale = 0, 1000, 1000, 250*ratio
+#             a, b = (a_trunc - loc) / scale, (b_trunc - loc) / scale
+#             rv = truncnorm(a,b,loc,scale)
+#             data_edge = rv.rvs(len(data_edge))
+#             x = beeswarm(data_edge, scaling=2)
+#             ax1.scatter(g_num + x, data_edge, color=cmap(g_num/cmap_range), alpha=1/255)
 
-            print(len(data.flatten()), len(data_bees), len(data_below), len(data_edge))
+#             print(len(data.flatten()), len(data_bees), len(data_below), len(data_edge))
 
-        if trunc:
-            data = np.delete(data, np.argwhere(data == 1000))
+#         if trunc:
+#             data = np.delete(data, np.argwhere(data == 1000))
 
-            # circle represents proportion missed
-            # r = np.sqrt(ratio*2 / np.pi) # area (2 x KDE) to radius
-            # ell = mpatches.Ellipse((g_num, 1150), width=r, height=r*200, angle=0, color=cmap(g_num/cmap_range), alpha=.3)
-            # ax1.add_patch(ell)
+#             # circle represents proportion missed
+#             # r = np.sqrt(ratio*2 / np.pi) # area (2 x KDE) to radius
+#             # ell = mpatches.Ellipse((g_num, 1150), width=r, height=r*200, angle=0, color=cmap(g_num/cmap_range), alpha=.3)
+#             # ax1.add_patch(ell)
 
-        # fit area to proportion found by iterating width
-        # from shapely.geometry import Polygon
-        # target_area = 400 * (1-ratio)
-        # width = 1-ratio # init guess
-        # error = 51 # init above
-        # l0 = None
-        # while error > 25:
-        #     # print(width, error)
+#         # fit area to proportion found by iterating width
+#         # from shapely.geometry import Polygon
+#         # target_area = 400 * (1-ratio)
+#         # width = 1-ratio # init guess
+#         # error = 51 # init above
+#         # l0 = None
+#         # while error > 25:
+#         #     # print(width, error)
 
-        #     if l0 is not None:
-        #         # overwrite by fading out previous
-        #         for part in l0["bodies"]:
-        #             part.set_alpha(0)
-        #         l0["cmedians"].set_alpha(0)
+#         #     if l0 is not None:
+#         #         # overwrite by fading out previous
+#         #         for part in l0["bodies"]:
+#         #             part.set_alpha(0)
+#         #         l0["cmedians"].set_alpha(0)
 
-        #     l0 = ax1.violinplot(data, 
-        #                 positions=[g_num],
-        #                 widths=width, # KDE plot area proportional to navigator ratio 
-        #                 showmedians=True, 
-        #                 showextrema=False,
-        #                 # bw_method='silverman',
-        #                 # bw_method=.25,
-        #                 )
+#         #     l0 = ax1.violinplot(data, 
+#         #                 positions=[g_num],
+#         #                 widths=width, # KDE plot area proportional to navigator ratio 
+#         #                 showmedians=True, 
+#         #                 showextrema=False,
+#         #                 # bw_method='silverman',
+#         #                 # bw_method=.25,
+#         #                 )
 
-        #     paths = l0["bodies"][0].get_paths()
-        #     area = Polygon(paths[0].vertices[:-1]).area
-        #     error = target_area - area
-        #     if error > 0: width += .025
-        #     else: width -= .025
-        #     error = abs(error)
-        # print(width, error, int(area), 1-ratio, r)
+#         #     paths = l0["bodies"][0].get_paths()
+#         #     area = Polygon(paths[0].vertices[:-1]).area
+#         #     error = target_area - area
+#         #     if error > 0: width += .025
+#         #     else: width -= .025
+#         #     error = abs(error)
+#         # print(width, error, int(area), 1-ratio, r)
 
-        l0 = ax1.violinplot(data, 
-                    positions=[g_num],
-                    widths=1-ratio, # KDE width proportional to navigator ratio 
-                    showmedians=True, 
-                    showextrema=False,
-                    # bw_method='silverman',
-                    # bw_method=.25,
-                    )
+#         l0 = ax1.violinplot(data, 
+#                     positions=[g_num],
+#                     widths=1-ratio, # KDE width proportional to navigator ratio 
+#                     showmedians=True, 
+#                     showextrema=False,
+#                     # bw_method='silverman',
+#                     # bw_method=.25,
+#                     )
 
-        for part in l0["bodies"]:
-            part.set_edgecolor(cmap(g_num/cmap_range))
-            part.set_facecolor(cmap(g_num/cmap_range))
-        l0["cmedians"].set_edgecolor(cmap(g_num/cmap_range))
+#         for part in l0["bodies"]:
+#             part.set_edgecolor(cmap(g_num/cmap_range))
+#             part.set_facecolor(cmap(g_num/cmap_range))
+#         l0["cmedians"].set_edgecolor(cmap(g_num/cmap_range))
 
-        # shift median line to account for those that did not make it to patch (deleted data)
-        median_segment = l0["cmedians"].get_segments()[0]
-        median_segment[:,0] = g_num - .5/2, g_num + .5/2
-        median_segment[:,-1] = median,median
-        l0["cmedians"].set_segments([median_segment])
+#         # shift median line to account for those that did not make it to patch (deleted data)
+#         median_segment = l0["cmedians"].get_segments()[0]
+#         median_segment[:,0] = g_num - .5/2, g_num + .5/2
+#         median_segment[:,-1] = median,median
+#         l0["cmedians"].set_segments([median_segment])
 
-        print(f'{group_name}: {int(np.mean(data))}')
+#         print(f'{group_name}: {int(np.mean(data))}')
 
-    labs = [group_name for group_name,_ in groups]
-    ax1.set_xticks(np.linspace(0,len(groups)-1,len(groups)))
-    ax1.set_xticklabels(labs)
-    # ax1.set_yticks([0,200,400,600,800,1000,1150])
-    # ax1.set_yticklabels([0,200,400,600,800,1000,'Prop Found'])
-    ax1.set_yticks([0,200,400,600,800,1000])
-    ax1.set_yticklabels([0,200,400,600,800,1000])
-    if scoring == 'dist':
-        ax1.set_ylabel('Time to Find Patch')
-    elif scoring == 'res':
-        ax1.set_ylabel('Resources Collected per Agent')
+#     labs = [group_name for group_name,_ in groups]
+#     ax1.set_xticks(np.linspace(0,len(groups)-1,len(groups)))
+#     ax1.set_xticklabels(labs)
+#     # ax1.set_yticks([0,200,400,600,800,1000,1150])
+#     # ax1.set_yticklabels([0,200,400,600,800,1000,'Prop Found'])
+#     ax1.set_yticks([0,200,400,600,800,1000])
+#     ax1.set_yticklabels([0,200,400,600,800,1000])
+#     if scoring == 'dist':
+#         ax1.set_ylabel('Time to Find Patch')
+#     elif scoring == 'res':
+#         ax1.set_ylabel('Resources Collected per Agent')
     
-    if max is not None:
-        ax1.set_ylim(-20,max)
+#     if max is not None:
+#         ax1.set_ylim(-20,max)
     
-    if title is not None:
-        ax1.set_title(title)
+#     if title is not None:
+#         ax1.set_title(title)
 
-    if save_name: 
-        plt.savefig(fr'{data_dir}/{save_name}.png', dpi=100)
-    plt.show()
+#     if save_name: 
+#         plt.savefig(fr'{data_dir}/{save_name}.png', dpi=100)
+#     plt.show()
 
 
 def plot_mult_EA_trends_groups_endonly_perfect(groups, val=None, save_name=None):
@@ -1696,7 +1547,7 @@ def plot_mult_EA_trends_randomwalk(run_names, social=False, bees=False, norm_out
 # ------------------------------- social specific ---------------------------------------- #
 
 
-def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, metric_thresh=None, cmap='berlin', save_name=None):
+def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, cmap='berlin', save_name=None):
 
     root_dir = Path(__file__).parent.parent
     data_dir = Path(root_dir, r'data/simulation_data')
@@ -1733,7 +1584,7 @@ def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, metric_th
 
 
         labs_all.append(group_name)
-        dists = np.array(names_to_metric(run_names, metric_type, metric_thresh))
+        dists = np.array(names_to_metric(run_names, metric_type))
         dist_all.append(dists)
 
         x = beeswarm(dists)
@@ -1751,22 +1602,23 @@ def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, metric_th
         # elif 'dirent' in metric_type:
         #     ax1.scatter(g_num*2+x, dists, c=dists, cmap='plasma', vmin=.2, vmax=.8, alpha=.3)
         elif cmap == 'fit_og':
-            data = np.array(names_to_metric(run_names, 'dist_og', None))
+            data = np.array(names_to_metric(run_names, 'dist_og'))
             im = ax1.scatter(g_num*2+x, dists, c=data, cmap='viridis', vmin=300, vmax=450, alpha=.3)
         # elif cmap == 'fit_ET':
         #     data = np.array(names_to_metric(run_names, 'dist_exploiter', None))
         #     im = ax1.scatter(g_num*2+x, dists, c=data, cmap='plasma', vmin=200, vmax=500, alpha=.3)
         elif cmap == 'dist_shift_NSET':
-            data = np.array(names_to_metric(run_names, cmap, None))
+            data = np.array(names_to_metric(run_names, cmap))
             im = ax1.scatter(g_num*2+x, dists, c=data, cmap='viridis', vmin=0, vmax=400, alpha=.3)
+            # im = ax1.scatter(g_num*2+x, dists, c=data, cmap='viridis', vmin=0, vmax=700, alpha=.3) # dist_distance
         elif cmap == 'dist_shift_OGNS':
-            data = np.array(names_to_metric(run_names, cmap, None))
+            data = np.array(names_to_metric(run_names, cmap))
             im = ax1.scatter(g_num*2+x, dists, c=data, cmap='viridis', vmin=0, vmax=400, alpha=.3)
         elif cmap == 'dist_shift_ETER':
-            data = np.array(names_to_metric(run_names, cmap, None))
+            data = np.array(names_to_metric(run_names, cmap))
             im = ax1.scatter(g_num*2+x, dists, c=data, cmap='viridis', vmin=0, vmax=400, alpha=.3)
         elif cmap == 'dist_JSspatial_NSET':
-            data = np.array(names_to_metric(run_names, cmap, None))
+            data = np.array(names_to_metric(run_names, cmap))
             im = ax1.scatter(g_num*2+x, dists, c=data, cmap='viridis', vmin=0, vmax=.2, alpha=.3)
 
         l0 = ax1.violinplot(dists, 
@@ -1794,7 +1646,7 @@ def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, metric_th
     elif cmap == 'berlin':
         cbar = ax1.figure.colorbar(im, label='Berlin', extend='both')
     elif cmap == 'fit_og':
-        cbar = ax1.figure.colorbar(im, label='Performance (Trained Env)', extend='both')
+        cbar = ax1.figure.colorbar(im, label='Performance (OG)', extend='both')
     elif cmap == 'dist_shift_NSET':
         cbar = ax1.figure.colorbar(im, extend='both')
         cbar.set_label(label='Performance Difference', color='forestgreen')
@@ -1851,7 +1703,8 @@ def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, metric_th
         elif 'ETER' in metric_type:
             ax1.set_ylabel('Performance Difference (BEr - BEt)')
         dist_all = np.array(dist_all)
-        ax1.set_ylim(-450,800)
+        ax1.set_ylim(-200,800)
+        # ax1.set_ylim(-450,800)
         # ax1.set_ylim(-600,300)
         # ax1.hlines(50,-1,20*2+1, linestyles='dotted', colors='black', alpha=.3)
         # ax1.hlines(100,-1,20*2+1, linestyles='dotted', colors='black', alpha=.5)
@@ -1866,7 +1719,7 @@ def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, metric_th
             ax1.set_ylabel('Directional Divergence (BEr - BEt)')
         ax1.set_ylim(-.01,0.43)
     elif 'dist_dirent' in metric_type:
-        ax1.set_ylabel('Directedness (No-Social)')
+        ax1.set_ylabel('Directedness (NS)')
         ax1.set_ylim(0,0.85)
     elif 'dist_norm' in metric_type:
         ax1.set_ylabel('Normalized Performance Difference')
@@ -1877,8 +1730,10 @@ def plot_mult_EA_trends_groups_endonly_means(groups, metric_type=None, metric_th
         ax1.set_ylabel('Time to 500 Performance')
         ax1.set_ylim(0,1000)
     elif 'dist_distance' in metric_type:
-        ax1.set_ylabel('Mean Distance from Patch')
-        ax1.set_ylim(0,200) # mean
+        ax1.set_ylabel('Remaining Distance from Patch')
+        ax1.set_ylim(-10,410)
+        # ax1.set_ylabel('Mean Distance from Patch')
+        # ax1.set_ylim(0,200) # mean
         # ax1.set_ylabel('Standard Distance from Patch')
         # ax1.set_ylim(0,225) # std
         # # print(f'min distance: {np.min(dist_all)} | max distance: {np.max(dist_all)}')
@@ -1907,8 +1762,8 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
     # with open(fr'{data_dir}/traj_matrices/gamut_social_mults.bin', 'rb') as f:
         data_dict = pickle.load(f)
 
-    # fig, ax1 = plt.subplots(figsize=(6,6)) # full fig
-    fig, ax1 = plt.subplots(figsize=(4,4)) # perturb figs
+    fig, ax1 = plt.subplots(figsize=(6,6)) # full fig
+    # fig, ax1 = plt.subplots(figsize=(4,4)) # perturb figs
 
     labs_all = []
 
@@ -1989,6 +1844,15 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
                 # if dist1 > 625 and dist2 > 0.18 and dist2 < 0.225:
                 #     print(name, int(dist1), dist2.round(3), int(name_to_metric(name, 'dist_og')))
 
+                # dist = int(name_to_metric(name, 'distance'))
+                # fitog = int(name_to_metric(name, 'dist_og'))
+                # # if dist > 350:
+                # # if dist > 300 and dist < 360 and dist1 < 400:
+                # # if dist > 300 and dist < 360 and dist2 < .15:
+                # # if dist < 15 and dist1 > 200:
+                # if dist > 0 and dist1 < 100 and fitog < 500:
+                #     print(f'{name}, {int(dist1)}, {dist2.round(3)}, {dist} / {fitog}')
+
                 # if 'sc_N6' in name:
                 #     # print(name, int(name_to_metric(name, 'dist_shift_Nd+2')), int(dist1), dist2.round(3))
                 #     print(name, int(name_to_metric(name, 'dist_og')), int(name_to_metric(name, 'dist_Nd2')), int(name_to_metric(name, 'dist_shift_Nd+2')))
@@ -2003,18 +1867,18 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
                 # fitog_group.append(None)
 
         # key_pts = [ # OG
-        #     # ('i',   -37,    0.029), # NSET
-        #     # ('ii',   -1,    0.131),
-        #     # ('iii', 475,    0.039),
-        #     # ('iv',  669,    0.148),
-        #     # # ('v',   757,    0.387), # some discern
-        #     # ('v',   768,    0.399), # all discern
-        #     ('i',   -61,    0.057), # OGNS
-        #     ('ii',  -66,    0.116),
-        #     ('iii', 418,    0.071),
-        #     ('iv',  578,    0.135),
-        #     # ('v',   672,    0.261),
-        #     ('v',   597,    0.172),
+        #     ('i',   -37,    0.029), # NSET
+        #     ('ii',   -1,    0.131),
+        #     ('iii', 475,    0.039),
+        #     ('iv',  669,    0.148),
+        #     # ('v',   757,    0.387), # some discern
+        #     ('v',   768,    0.399), # all discern
+        #     # ('i',   -61,    0.057), # OGNS
+        #     # ('ii',  -66,    0.116),
+        #     # ('iii', 418,    0.071),
+        #     # ('iv',  578,    0.135),
+        #     # # ('v',   672,    0.261),
+        #     # ('v',   597,    0.172),
         # ]
         # key_pts = [ # nocoll
         #     ('x',  614,   0.058), # NSET
@@ -2152,23 +2016,23 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
                 norm = mpl.colors.TwoSlopeNorm(vmin=1, vcenter=1.5, vmax=2)
                 im = ax1.scatter(dists1, dists2, c=[int(group_name[0])]*len(run_names), cmap='bwr', norm=norm, alpha=.3, s=10)
             elif color_type == 'learning_time':
-                data = np.array(names_to_metric(run_names, 'dist_learning_time', 500))
+                data = np.array(names_to_metric(run_names, 'dist_learning_time'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=500, alpha=.3, s=10)
             elif color_type == 'dirent_OG':
-                data = np.array(names_to_metric(run_names, 'dist_dirent_OG', None))
+                data = np.array(names_to_metric(run_names, 'dist_dirent_OG'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=.2, vmax=.8, alpha=.3, s=10)
             elif color_type == 'dirent_NS':
-                data = np.array(names_to_metric(run_names, 'dist_dirent_NS', None))
+                data = np.array(names_to_metric(run_names, 'dist_dirent_NS'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=.2, vmax=.8, alpha=.3, s=10)
-                label = 'Directedness (No-Social)'
+                label = 'Directedness (NS)'
             elif color_type == 'dirent_ET':
-                data = np.array(names_to_metric(run_names, 'dist_dirent_ET', None))
+                data = np.array(names_to_metric(run_names, 'dist_dirent_ET'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=.2, vmax=.8, alpha=.3, s=10)
             elif color_type == 'dirent_ER':
-                data = np.array(names_to_metric(run_names, 'dist_dirent_ER', None))
+                data = np.array(names_to_metric(run_names, 'dist_dirent_ER'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=.2, vmax=.8, alpha=.3, s=10)
             elif color_type == 'fit_OG':
-                data = np.array(names_to_metric(run_names, 'dist_og', None))
+                data = np.array(names_to_metric(run_names, 'dist_og'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=300, vmax=450, alpha=.3, s=10) # coll
                 # im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=225, vmax=275, alpha=.3, s=10) # nocoll
                 # im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=300, vmax=450, alpha=.7, s=20) # for indiv plots
@@ -2176,13 +2040,13 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
                 # im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=260, vmax=330, alpha=.7, s=20) # for indiv plots + collinput
                 label = 'Performance (Trained Env)'
             elif color_type == 'fit_NS':
-                data = np.array(names_to_metric(run_names, 'dist_nosoc', None))
+                data = np.array(names_to_metric(run_names, 'dist_nosoc'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=200, vmax=500, alpha=.3, s=10)
             elif color_type == 'fit_ET':
-                data = np.array(names_to_metric(run_names, 'dist_exploiter', None))
+                data = np.array(names_to_metric(run_names, 'dist_exploiter'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=200, vmax=500, alpha=.3, s=10)
             elif color_type == 'fit_ER':
-                data = np.array(names_to_metric(run_names, 'dist_explorer', None))
+                data = np.array(names_to_metric(run_names, 'dist_explorer'))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=200, vmax=500, alpha=.3, s=10)
             elif color_type == 'Sinit_dist':
                 if 'Ag' in group_name:
@@ -2190,58 +2054,74 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
                 elif 'Res' in group_name:
                     im = ax1.scatter(dists1, dists2, c=[int(group_name[7])]*len(run_names), cmap='viridis', vmin=1, vmax=4, alpha=.3, s=10)
             elif color_type == 'dist_shift_OGNS':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 norm = mpl.colors.TwoSlopeNorm(vmin=-50, vcenter=0, vmax=50)
                 im = ax1.scatter(dists1, dists2, c=data, cmap='berlin_r', norm=norm, alpha=.3, s=10)
                 label = 'Performance Difference (NS - OG)'
             elif color_type == 'dist_shift_NSER':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=400, alpha=.3, s=10)
                 label = 'Performance Difference (NS - BEr)'
             elif color_type == 'dist_shift_ETER':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=400, alpha=.3, s=10)
                 label = 'Performance Difference (BEr - BEt)'
             elif color_type == 'dist_JSspatial_ETER':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=0.45, alpha=.3, s=10)
                 label = 'Spatial Divergence (BEr - BEt)'
             elif color_type == 'dist_shift_Nd+2':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=150, alpha=.3, s=10)
                 label = 'Performance Difference (ND+2 - OG)'
             elif color_type == 'dist_shift_Nr+2':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=150, alpha=.3, s=10)
                 label = 'Performance Difference (NR+2 - OG)'
             elif color_type == 'dist_shift_NSETs':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 # norm = mpl.colors.TwoSlopeNorm(vmin=-100, vcenter=0, vmax=200)
                 # im = ax1.scatter(dists1, dists2, c=data, cmap='berlin_r', norm=norm, alpha=.3, s=10)
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=750, alpha=.3, s=10)
                 label = 'Performance Difference (NS - BEtx5)'
             elif color_type == 'dist_shift_ETERs':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 # norm = mpl.colors.TwoSlopeNorm(vmin=-100, vcenter=0, vmax=200)
                 # im = ax1.scatter(dists1, dists2, c=data, cmap='berlin_r', norm=norm, alpha=.3, s=10)
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=750, alpha=.3, s=10)
                 label = 'Performance Difference (BEr - BEt)x5'
             elif color_type == 'dist_JSspatial_NSETs':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=0.45, alpha=.3, s=10)
                 label = 'Directional Divergence (NS - BEtx5)'
             elif color_type == 'dist_JSspatial_ETERs':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=0.45, alpha=.3, s=10)
                 label = 'Directional Divergence (BEr - BEt)x5'
             elif color_type == 'dist_JSspatial_Nd+2':
-                data = np.array(names_to_metric(run_names, color_type, None))
+                data = np.array(names_to_metric(run_names, color_type))
                 im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=0.15, alpha=.3, s=10)
                 label = 'Directional Divergence (ND+2 - OG)'
             elif color_type == 'distance':
-                data = np.array(names_to_metric(run_names, color_type, None))
-                im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=100, alpha=.3, s=10)
-                label = 'Distance from Patch'
+                data = np.array(names_to_metric(run_names, color_type))
+                lo = 5
+                hi = 350
+                im = ax1.scatter(dists1[data<=lo], dists2[data<=lo], c='cornflowerblue', alpha=.5, s=10)
+                im = ax1.scatter(dists1[(data>lo) & (data<=hi)], dists2[(data>lo) & (data<=hi)], c='mediumorchid', alpha=.5, s=10)
+                im = ax1.scatter(dists1[data>hi], dists2[data>hi], c='orange', alpha=.5, s=10)
+                label = 'Remaining Distance from Patch'
+            elif color_type == 'distance-scaled':
+                data = np.array(names_to_metric(run_names, color_type))
+                lo = 0
+                hi = 350
+                im = ax1.scatter(dists1[data<=lo], dists2[data<=lo], c='cornflowerblue', alpha=.5, s=10)
+                im = ax1.scatter(dists1[(data>lo) & (data<=hi)], dists2[(data>lo) & (data<=hi)], c='mediumorchid', alpha=.5, s=10)
+                im = ax1.scatter(dists1[data>hi], dists2[data>hi], c='orange', alpha=.5, s=10)
+                label = 'Remaining Distance from Patch'
+            elif color_type == 'distance-vir':
+                data = np.array(names_to_metric(run_names, color_type))
+                im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=400, alpha=.3, s=10)
+                label = 'Remaining Distance from Patch'
                 # im = ax1.scatter(dists1, dists2, c=data, cmap='viridis', vmin=0, vmax=150, alpha=.3, s=10)
                 # label = 'Standard Distance from Patch'
                 # data = data > 1
@@ -2282,6 +2162,7 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
 
         X,Y = np.meshgrid(x_bins, y_bins)
         im = ax1.pcolormesh(X, Y, H.T, cmap='viridis')
+        # im = ax1.pcolormesh(X, Y, H.T + 1, cmap='viridis', norm=mpl.colors.LogNorm())
 
         # cbar = ax1.figure.colorbar(im, label='Count')
         # cbar.solids.set(alpha=1)
@@ -2307,288 +2188,252 @@ def plot_mult_EA_trends_groups_2D(groups, metric_type1=None, metric_type2=None, 
 
 
 
+def plot_disthist(groups, save_name=None):
 
-
-def name_to_metric(name, metric_type):
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-
-    if Path(fr'{data_dir}/{name}/val_matrix_best_nosocial_perturb.bin').is_file():
-        with open(fr'{data_dir}/{name}/val_matrix_best.bin','rb') as f:
-            data_og = pickle.load(f)
-        with open(fr'{data_dir}/{name}/val_matrix_best_nosocial_perturb.bin','rb') as f:
-            data_nosoc = pickle.load(f)
-    else:
-        with open(fr'{data_dir}/{name}/val_matrix_best.bin','rb') as f:
-            data_og = pickle.load(f)
-        with open(fr'{data_dir}/{name}/val_matrix_best.bin','rb') as f:
-            data_nosoc = pickle.load(f)
-    with open(fr'{data_dir}/{name}/val_matrix_best_ghostexploiter_perturb.bin','rb') as f:
-        data_exploiter = pickle.load(f)
-    with open(fr'{data_dir}/{name}/val_matrix_best_ghostexplorer_perturb.bin','rb') as f:
-        data_explorer = pickle.load(f)
-
-    if 'og' in metric_type:
-        metric = np.mean(data_og)
-    elif 'nosoc' in metric_type:
-        metric = np.mean(data_nosoc)
-    elif 'exploiter' in metric_type:
-        metric = np.mean(data_exploiter)
-    elif 'explorer' in metric_type:
-        metric = np.mean(data_explorer)
-    elif 'Nd2' in metric_type:
-        with open(fr'{data_dir}/{name}/val_matrix_best_Nd+2_perturb.bin','rb') as f:
-            data_Nd2 = pickle.load(f)
-        metric = np.mean(data_Nd2)
-
-    elif 'shift_OGNS' in metric_type:
-        metric = np.mean(data_nosoc) - np.mean(data_og)
-    elif 'shift_NSETs' in metric_type: # check if multiple first
-        with open(fr'{data_dir}/{name}/val_matrix_best_ghostexploiters_perturb.bin','rb') as f:
-            data_exploiters = pickle.load(f)
-        metric = np.mean(data_nosoc) - np.mean(data_exploiters)
-    elif 'shift_NSET' in metric_type:
-        metric = np.mean(data_nosoc) - np.mean(data_exploiter)
-    elif 'shift_NSER' in metric_type:
-        metric = np.mean(data_nosoc) - np.mean(data_explorer)
-    elif 'shift_ETERs' in metric_type: # check if multiple first
-        with open(fr'{data_dir}/{name}/val_matrix_best_ghostexploiters_perturb.bin','rb') as f:
-            data_exploiters = pickle.load(f)
-        with open(fr'{data_dir}/{name}/val_matrix_best_ghostexplorers_perturb.bin','rb') as f:
-            data_explorers = pickle.load(f)
-        metric = np.mean(data_explorers) - np.mean(data_exploiters)
-    elif 'shift_ETER' in metric_type:
-        metric = np.mean(data_explorer) - np.mean(data_exploiter)
-    elif 'shift_Nd+2' in metric_type:
-        with open(fr'{data_dir}/{name}/val_matrix_best_Nd+2_perturb.bin','rb') as f:
-            data_Nd2 = pickle.load(f)
-        metric = np.mean(data_Nd2) - np.mean(data_og)
-    elif 'shift_Nr+2' in metric_type:
-        with open(fr'{data_dir}/{name}/val_matrix_best_Nr+2_perturb.bin','rb') as f:
-            data_Nr2 = pickle.load(f)
-        metric = np.mean(data_Nr2) - np.mean(data_og)
-
-    # elif 'JS_soc' in metric_type:
-    #     h_og = np.histogram(data_og, bins=np.arange(0,1001,10))[0]
-    #     h_nosoc = np.histogram(data_nosoc, bins=np.arange(0,1001,10))[0]
-    #     metric = calc_JSdiv(h_og, h_nosoc)
-    # elif 'JS_exp' in metric_type:
-    #     h_explorer = np.histogram(data_explorer, bins=np.arange(0,1001,10))[0]
-    #     h_exploiter = np.histogram(data_exploiter, bins=np.arange(0,1001,10))[0]
-    #     metric = calc_JSdiv(h_explorer, h_exploiter)
-
-    elif 'JSspatial' in metric_type or 'dirent' in metric_type:
-        # spatial_metric_list = [
-        #         'de_mean_OG', 'de_mean_NS', 'de_mean_ET', 'de_mean_ER',
-        #         'JS_mean_OGNS', 'JS_mean_NSET', 'JS_mean_NSER', 'JS_mean_ETER'
-        #         ]
-        if 'OGNS' in metric_type:
-            index = 4
-        elif 'NSET' in metric_type:
-            index = 5
-            # index = 10 # for social_extra + patch_only + JS
-        elif 'NSER' in metric_type:
-            index = 6
-        elif 'ETER' in metric_type:
-            index = 7
-        elif 'OG' in metric_type:
-            index = 0
-        elif 'NS' in metric_type:
-            index = 1
-            # index = 8 # for social_extra + patch_only + dirent_NS
-        elif 'ET' in metric_type:
-            index = 2
-        elif 'ER' in metric_type:
-            index = 3
-
-        with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
-            data_dict = pickle.load(f)
-        # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'rb') as f:
-        #     data_dict = pickle.load(f)
-
-        metric = data_dict[name][index]
-
-    elif 'learning_time' in metric_type:
-        with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
-            data = pickle.load(f)
-
-        data_genxpop = np.mean(data, axis=2)
-        top_data = np.min(data_genxpop, axis=1)
-
-        thresh = 500
-        if np.min(top_data) <= thresh:
-            metric = int(np.argwhere(top_data <= thresh)[0][0])
-        else:
-            metric = 1000
-
-    elif 'distance' in metric_type:
-        with open(fr'{data_dir}/{name}/val_matrix_best_nosocial-dist_perturb.bin','rb') as f:
-            data = pickle.load(f)
-        # if np.max(data) > 677:
-        #     print(name, np.min(data), np.mean(data), np.std(data), np.max(data))
-        # metric = np.mean(data)
-        # metric = np.std(data)
-        metric = data # by_run
-
-    elif 'time' in metric_type: # by_run
-        # metric = data_og
-        # metric = data_nosoc
-        # metric = data_exploiter
-        metric = data_explorer
-
-    else:
-        print(f'{metric_type} not valid metric type')
-    
-    return metric
-
-
-
-def plot_mult_EA_trends_multievo(names, val=None, save_name=None):
-
-    # establish load directory
     root_dir = Path(__file__).parent.parent
     data_dir = Path(root_dir, r'data/simulation_data')
 
-    # init plot details
-    fig, ax1 = plt.subplots(figsize=(15,10)) 
-    cmap = plt.get_cmap('hsv')
-    cmap_range = len(names)
-    lns = []
-    val_avgs = []
-    val_diffs = []
-    top_vals_overall = np.zeros((3,0))
-    group_top = []
-    
-    # iterate over each file
-    for i, name in enumerate(names):
-        print(name)
+    fig, ax = plt.subplots(figsize=(4,4))
 
-        with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
-            data = pickle.load(f)
-        num_steps,num_gen,num_eps,num_indivs = data.shape
-        data_genxpop = np.mean(data, axis=2)
-        top_data = np.min(data_genxpop, axis=1) # min : top
-        avg_data = np.mean(data_genxpop, axis=1)
-        avg_data_summed_across_indivs = np.sum(avg_data, axis=1) # sum bw each agent
-        top_ind = np.argsort(avg_data_summed_across_indivs)[:1] # min : top
-        avg_fit = [avg_data[i,:].round(0) for i in top_ind]
-        for g,f in zip(top_ind, avg_fit):
-            print(f'trn | gen {int(g)}: fit {f}')
+    dists = []
+    for g_num, (group_name, run_names) in enumerate(groups):
+        for r_num, name in enumerate(run_names):
+            dist = int(name_to_metric(name, 'distance'))
+            dists.append(dist)
 
-        for indiv in range(num_indivs):
-            l1 = ax1.plot(avg_data[:,indiv], 
-                            label = f'avg {name}, ag{indiv}',
-                            color=cmap(i/cmap_range), 
-                            alpha=0.2
-                            )
-            lns.append(l1[0])
+    n_bins = 20
+    bins = np.linspace(0, 400, n_bins)
+    ax.hist(dists, bins=bins, weights=np.ones(len(dists))/len(dists), histtype='step')
 
-            l2 = ax1.plot(top_data[:,indiv], 
-                            label = f'top {name}, ag{indiv}',
-                            color=cmap(i/cmap_range), 
-                            linestyle='dashed',
-                            alpha=0.2
-                            )
-            lns.append(l2[0])
+    n_bins = 40
+    bins = np.linspace(0, 400, n_bins)
+    ax.hist(dists, bins=bins, weights=np.ones(len(dists))/len(dists), histtype='step')
 
-        # if top_data.shape[0] > 1000:
-        #     top_data = top_data[-1000:]
+    n_bins = 80
+    bins = np.linspace(0, 400, n_bins)
+    ax.hist(dists, bins=bins, weights=np.ones(len(dists))/len(dists), histtype='step')
 
-        group_top.append(avg_data)
+    ax.set_ylabel('Frequency')
+    ax.set_xlabel('Remaining Distance from Patch')
 
-        # parse val results text file if exists
-        if val is not None:
-            if val == 'top': filename = 'val_results'
-            elif val == 'cen': filename = 'val_results_cen'
-
-            if Path(fr'{data_dir}/{name}/{filename}.txt').is_file():
-                with open(fr'{data_dir}/{name}/{filename}.txt') as f:
-                    lines = f.readlines()
-
-                    val_data = np.zeros((len(lines)-1, 1 + num_indivs*2))
-                    for n, line in enumerate(lines[1:]):
-                        data = [item.strip() for item in line.split(' ')]
-
-                        val_data[n,0] = data[1] # generation
-
-                        data_raw = ''.join(data[4 : 4 + num_indivs])[1:-1]
-                        val_data[n,1:1+num_indivs] = list(map(float,data_raw.split(','))) # train fitness
-
-                        data_raw = ''.join(data[6 + num_indivs : 6 + num_indivs*2])[1:-1]
-                        val_data[n,1+num_indivs:1+2*num_indivs] = list(map(float,data_raw.split(','))) # val fitness
-
-                    top_ind = np.argsort(val_data[:,2])[:3] # min : top
-                    top_gen = [val_data[i,0] for i in top_ind]
-                    top_valfit = [val_data[i,1+num_indivs:1+2*num_indivs] for i in top_ind]
-                    for g,f in zip(top_gen, top_valfit):
-                        print(f'val | gen {int(g)}: fit {f}')
-
-                    # print(top_gen)
-                    # print(top_valfit)
-                    # top_vals_current = np.array(([i], [top_gen[0]], [top_valfit[0]]))
-                    # top_vals_overall = np.hstack((top_vals_overall, top_vals_current))
-
-                train_fits = val_data[:,1:1+num_indivs]
-                val_fits = val_data[:,1+num_indivs:1+2*num_indivs]
-
-                val_diff = np.mean((val_fits - train_fits)**2)
-                print(f'mean sq val diff: {val_diff}')
-                val_diffs.append(val_diff)
-
-                for indiv in range(num_indivs):
-                    ax1.vlines(val_data[:,0], train_fits[:,indiv], val_fits[:,indiv],
-                            color='black',
-                            alpha=0.5
-                            )
-                    ax1.scatter(val_data[:,0], val_fits[:,indiv], color=cmap(i/cmap_range), edgecolor='black')
-
-                    avg_val = np.mean(val_fits[:,indiv])
-                    val_avgs.append(avg_val)
-
-                    ax1.hlines(avg_val, i*5, data_genxpop.shape[0] + i*5,
-                            color=cmap(i/cmap_range),
-                            linestyle='dashed',
-                            alpha=0.5
-                            )
-            else:
-                print(fr'{data_dir}/{name}/{filename}.txt is not a file')
-    
-    # group_top = np.array(group_top)
-    # est_trend = np.median(group_top, axis=0)
-    # lt = ax1.plot(est_trend, 
-    #                 label = f'Median of group top',
-    #                 color='k', 
-    #                 alpha=.5
-    #                 )
-    # lns.append(lt[0])
-
-    ax1.set_xlabel('Generation')
-
-    labs = [l.get_label() for l in lns]
-    ax1.legend(lns, labs, loc='lower right')
-
-    ax1.set_ylabel('Time to Find Patch')
-    ax1.set_ylim(175,1475)
-
-    # if val is not None:
-    #     top_val_inds = np.argsort(top_vals_overall[2,:])
-    #     top_reps = top_vals_overall[0,:][top_val_inds]
-    #     top_gens = top_vals_overall[1,:][top_val_inds]
-    #     top_vals = top_vals_overall[2,:][top_val_inds]
-
-    #     top_num = 50
-    #     for rep, gen, val_fit in zip(top_reps[:top_num], top_gens[:top_num], top_vals[:top_num]):
-    #         print(f'overall val | rep {names[int(rep)]} | gen {int(gen)} | fit {int(val_fit)}')
-
+    plt.tight_layout()
     if save_name: 
-        plt.savefig(fr'{data_dir}/{save_name}.png')
-    plt.show()
+        plt.savefig(fr'{data_dir}/{save_name}_disthist.png', dpi=100)
+    plt.close()
 
+
+
+
+def plot_2D_GMM(groups, metric_type1, metric_type2, save_name=None):
+
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+
+    with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+        data_dict = pickle.load(f)
+
+    metric_type2_list = [
+            'de_mean_OG', 'de_mean_NS', 'de_mean_ET', 'de_mean_ER',
+            'JS_mean_OGNS', 'JS_mean_NSET', 'JS_mean_NSER', 'JS_mean_ETER'
+            ]
+    index = metric_type2_list.index(metric_type2)
+
+    dists1_all = []
+    dists2_all = []
+    for g_num, (group_name, run_names) in enumerate(groups):
+        for r_num, name in enumerate(run_names):
+            dist1 = name_to_metric(name, metric_type1)
+            dist2 = data_dict[name][index]
+            dists1_all.append(dist1)
+            dists2_all.append(dist2)
+    dists = np.array([dists1_all,dists2_all]).T
+
+    from sklearn.mixture import GaussianMixture
+    gmm = GaussianMixture(n_components=3, random_state=0)
+    gmm.fit(dists)
+    labels = gmm.predict(dists)
+
+
+    # fig, ax = plt.subplots(figsize=(6,6)) # full fig
+    fig, ax = plt.subplots(figsize=(4,4)) # perturb figs
+    ax.scatter(dists[:,0], dists[:,1], c=labels, s=10, alpha=.3, zorder=2)    
+    ax.scatter(gmm.means_[:,0], gmm.means_[:,1], c='black', s=50, zorder=3, alpha=.7)
+
+    from scipy import linalg
+    for i, (mean, cov) in enumerate(zip(gmm.means_, gmm.covariances_)):
+        v, w = linalg.eigh(cov)
+        v = 2. * np.sqrt(2.) * np.sqrt(v)
+        u = w[0] / linalg.norm(w[0])
+        angle = np.arctan2(u[1], u[0]) * 180/np.pi + 180
+        ell = mpatches.Ellipse(xy=mean, width=v[0], height=v[1], angle=angle, alpha=.3)
+        ell.set_clip_box(plt.gca().bbox)
+        plt.gca().add_artist(ell)
+
+    if 'NSET' in metric_type1:
+        ax.set_xlabel('Performance Difference')
+        ax.set_ylabel('Directional Divergence')
+        ax.xaxis.label.set_color('forestgreen')
+        ax.yaxis.label.set_color('red')
+    else:
+        ax.set_xlabel('Performance Difference (NS - OG)')
+        ax.set_ylabel('Directional Divergence (NS - OG)')
+
+    # ax.set_xlim(-500,850) # full fig
+    ax.set_xlim(-200,850) # perturb figs
+    ax.set_ylim(-.01,.43)
+
+    plt.tight_layout()
+    if save_name: 
+        plt.savefig(fr'{data_dir}/{save_name}_2D_GMM.png', dpi=100)
+    plt.close()
+
+
+
+# def plot_mult_EA_trends_multievo(names, val=None, save_name=None):
+
+#     # establish load directory
+#     root_dir = Path(__file__).parent.parent
+#     data_dir = Path(root_dir, r'data/simulation_data')
+
+#     # init plot details
+#     fig, ax1 = plt.subplots(figsize=(15,10)) 
+#     cmap = plt.get_cmap('hsv')
+#     cmap_range = len(names)
+#     lns = []
+#     val_avgs = []
+#     val_diffs = []
+#     top_vals_overall = np.zeros((3,0))
+#     group_top = []
+    
+#     # iterate over each file
+#     for i, name in enumerate(names):
+#         print(name)
+
+#         with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
+#             data = pickle.load(f)
+#         num_steps,num_gen,num_eps,num_indivs = data.shape
+#         data_genxpop = np.mean(data, axis=2)
+#         top_data = np.min(data_genxpop, axis=1) # min : top
+#         avg_data = np.mean(data_genxpop, axis=1)
+#         avg_data_summed_across_indivs = np.sum(avg_data, axis=1) # sum bw each agent
+#         top_ind = np.argsort(avg_data_summed_across_indivs)[:1] # min : top
+#         avg_fit = [avg_data[i,:].round(0) for i in top_ind]
+#         for g,f in zip(top_ind, avg_fit):
+#             print(f'trn | gen {int(g)}: fit {f}')
+
+#         for indiv in range(num_indivs):
+#             l1 = ax1.plot(avg_data[:,indiv], 
+#                             label = f'avg {name}, ag{indiv}',
+#                             color=cmap(i/cmap_range), 
+#                             alpha=0.2
+#                             )
+#             lns.append(l1[0])
+
+#             l2 = ax1.plot(top_data[:,indiv], 
+#                             label = f'top {name}, ag{indiv}',
+#                             color=cmap(i/cmap_range), 
+#                             linestyle='dashed',
+#                             alpha=0.2
+#                             )
+#             lns.append(l2[0])
+
+#         # if top_data.shape[0] > 1000:
+#         #     top_data = top_data[-1000:]
+
+#         group_top.append(avg_data)
+
+#         # parse val results text file if exists
+#         if val is not None:
+#             if val == 'top': filename = 'val_results'
+#             elif val == 'cen': filename = 'val_results_cen'
+
+#             if Path(fr'{data_dir}/{name}/{filename}.txt').is_file():
+#                 with open(fr'{data_dir}/{name}/{filename}.txt') as f:
+#                     lines = f.readlines()
+
+#                     val_data = np.zeros((len(lines)-1, 1 + num_indivs*2))
+#                     for n, line in enumerate(lines[1:]):
+#                         data = [item.strip() for item in line.split(' ')]
+
+#                         val_data[n,0] = data[1] # generation
+
+#                         data_raw = ''.join(data[4 : 4 + num_indivs])[1:-1]
+#                         val_data[n,1:1+num_indivs] = list(map(float,data_raw.split(','))) # train fitness
+
+#                         data_raw = ''.join(data[6 + num_indivs : 6 + num_indivs*2])[1:-1]
+#                         val_data[n,1+num_indivs:1+2*num_indivs] = list(map(float,data_raw.split(','))) # val fitness
+
+#                     top_ind = np.argsort(val_data[:,2])[:3] # min : top
+#                     top_gen = [val_data[i,0] for i in top_ind]
+#                     top_valfit = [val_data[i,1+num_indivs:1+2*num_indivs] for i in top_ind]
+#                     for g,f in zip(top_gen, top_valfit):
+#                         print(f'val | gen {int(g)}: fit {f}')
+
+#                     # print(top_gen)
+#                     # print(top_valfit)
+#                     # top_vals_current = np.array(([i], [top_gen[0]], [top_valfit[0]]))
+#                     # top_vals_overall = np.hstack((top_vals_overall, top_vals_current))
+
+#                 train_fits = val_data[:,1:1+num_indivs]
+#                 val_fits = val_data[:,1+num_indivs:1+2*num_indivs]
+
+#                 val_diff = np.mean((val_fits - train_fits)**2)
+#                 print(f'mean sq val diff: {val_diff}')
+#                 val_diffs.append(val_diff)
+
+#                 for indiv in range(num_indivs):
+#                     ax1.vlines(val_data[:,0], train_fits[:,indiv], val_fits[:,indiv],
+#                             color='black',
+#                             alpha=0.5
+#                             )
+#                     ax1.scatter(val_data[:,0], val_fits[:,indiv], color=cmap(i/cmap_range), edgecolor='black')
+
+#                     avg_val = np.mean(val_fits[:,indiv])
+#                     val_avgs.append(avg_val)
+
+#                     ax1.hlines(avg_val, i*5, data_genxpop.shape[0] + i*5,
+#                             color=cmap(i/cmap_range),
+#                             linestyle='dashed',
+#                             alpha=0.5
+#                             )
+#             else:
+#                 print(fr'{data_dir}/{name}/{filename}.txt is not a file')
+    
+#     # group_top = np.array(group_top)
+#     # est_trend = np.median(group_top, axis=0)
+#     # lt = ax1.plot(est_trend, 
+#     #                 label = f'Median of group top',
+#     #                 color='k', 
+#     #                 alpha=.5
+#     #                 )
+#     # lns.append(lt[0])
+
+#     ax1.set_xlabel('Generation')
+
+#     labs = [l.get_label() for l in lns]
+#     ax1.legend(lns, labs, loc='lower right')
+
+#     ax1.set_ylabel('Time to Find Patch')
+#     ax1.set_ylim(175,1475)
+
+#     # if val is not None:
+#     #     top_val_inds = np.argsort(top_vals_overall[2,:])
+#     #     top_reps = top_vals_overall[0,:][top_val_inds]
+#     #     top_gens = top_vals_overall[1,:][top_val_inds]
+#     #     top_vals = top_vals_overall[2,:][top_val_inds]
+
+#     #     top_num = 50
+#     #     for rep, gen, val_fit in zip(top_reps[:top_num], top_gens[:top_num], top_vals[:top_num]):
+#     #         print(f'overall val | rep {names[int(rep)]} | gen {int(gen)} | fit {int(val_fit)}')
+
+#     if save_name: 
+#         plt.savefig(fr'{data_dir}/{save_name}.png')
+#     plt.show()
 
 # ------------------------------- social tables ---------------------------------------- #
 
 
-def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
+def plot_social_table_DR(metric_type, extra='', dpi=50):
 
     fig, ax = plt.subplots()
     h,w = 4,4.5
@@ -2606,49 +2451,39 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
 
     if extra == '':
         metric_row = [
-            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)], metric_type, metric_thresh), #-40 higher
-            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), #+40 same
-            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)], metric_type, metric_thresh), #-40 higher
+            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)], metric_type), #-40 higher
+            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), #+40 same
+            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)], metric_type), #-40 higher
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), #+40 lower
-            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), #+40 lower
+            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), #+40 same
-            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), #+40 same
-            np.nan,
-            np.nan
-        ]
-        metric_all.append(metric_row)
-
-        metric_row = [
-            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), #+40 lower
-            np.nan,
+            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), #+40 same
+            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), #+40 same
             np.nan,
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
+            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), #+40 lower
             np.nan,
             np.nan,
             np.nan
@@ -2656,7 +2491,17 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan
+        ]
+        metric_all.append(metric_row)
+
+        metric_row = [
+            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan,
             np.nan,
@@ -2667,49 +2512,39 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
 
     elif extra == 'nocoll':
         metric_row = [
-            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), # same as above
-            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), # same as above
+            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
-            np.nan
-        ]
-        metric_all.append(metric_row)
-
-        metric_row = [
-            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
+            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
+            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan,
             np.nan
@@ -2717,7 +2552,17 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan
+        ]
+        metric_all.append(metric_row)
+
+        metric_row = [
+            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan,
             np.nan,
@@ -2728,49 +2573,39 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
 
     elif extra == 'SinitAg100':
         metric_row = [
-            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), # same as above
-            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), # same as above
+            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
-            np.nan
-        ]
-        metric_all.append(metric_row)
-
-        metric_row = [
-            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
+            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
+            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan,
             np.nan
@@ -2778,7 +2613,17 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan
+        ]
+        metric_all.append(metric_row)
+
+        metric_row = [
+            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan,
             np.nan,
@@ -2789,49 +2634,39 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
 
     elif extra == 'collinput':
         metric_row = [
-            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type, metric_thresh), # same as above
-            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)], metric_type), # same as above
+            names_to_metric([f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
-            np.nan
-        ]
-        metric_all.append(metric_row)
-
-        metric_row = [
-            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
+            names_to_metric([f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan
         ]
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
-            np.nan,
+            names_to_metric([f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan,
             np.nan
@@ -2839,7 +2674,17 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
         metric_all.append(metric_row)
 
         metric_row = [
-            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type, metric_thresh),
+            names_to_metric([f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            names_to_metric([f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan
+        ]
+        metric_all.append(metric_row)
+
+        metric_row = [
+            names_to_metric([f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)], metric_type),
             np.nan,
             np.nan,
             np.nan,
@@ -2854,10 +2699,10 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
     if 'fit' in metric_type:
         min,max = 200,400
         # min,max = 200,900 # nosoc
-    elif 'JSspatial' in metric_type and metric_thresh is None:
+    elif 'JSspatial' in metric_type:
         min,max = 0.05,0.15
         # min,max = 0.05,0.25 # SinitAg100
-    elif 'meanshift' in metric_type and metric_thresh is None:
+    elif 'meanshift' in metric_type:
         min,max = -50,300
         # min,max = 0,100 # OG-ETER
         # min,max = -50,600 # SinitAg100
@@ -2873,35 +2718,18 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
                 vmin=min, vmax=max,
                 )
 
-    # if 'fit_og' in metric_type: label_type = 'Median of Means, OG'
-    # elif 'fit_nosoc' in metric_type: label_type = 'Median of Means, No-Social'
-    # elif 'fit_exploiter' in metric_type: label_type = 'Median of Means, Beacon-Exploiter'
-    # elif 'fit_explorer' in metric_type: label_type = 'Median of Means, Beacon-Explorer'
     if 'meanshift_OGNS' in metric_type: 
         cbar = ax.figure.colorbar(im, ax=ax, label='Performance Difference (NS - OG)', extend='both')
     elif 'meanshift_NSET' in metric_type:
         cbar = ax.figure.colorbar(im, ax=ax, extend='both')
         cbar.set_label(label='Performance Difference', color='forestgreen')
-    # elif 'meanshift_NSER' in metric_type: label_type = f'Mean Shift, NoSocial-BeaconExplorer, Threshold @ {metric_thresh}'
-    # elif 'meanshift_ETER' in metric_type: label_type = f'Mean Shift, Beacon Exploiter-Explorer, Threshold @ {metric_thresh}'
-    # elif 'JS_soc' in metric_type: label_type = f'JS Divergence, OG-NoSocial, Threshold @ {metric_thresh}'
-    # elif 'JS_exp' in metric_type: label_type = f'JS Divergence, Beacon Exploiter-Explorer, Threshold @ {metric_thresh}'
     elif 'JSspatial_OGNS' in metric_type: 
         cbar = ax.figure.colorbar(im, ax=ax, label='Directional Divergence (NS - OG)', extend='max')
     elif 'JSspatial_NSET' in metric_type: 
         cbar = ax.figure.colorbar(im, ax=ax, extend='max')
         cbar.set_label(label='Directional Divergence', color='red')
-    # elif 'JSspatial_NSER' in metric_type: label_type = f'Spatial JS Divergence, NoSocial-BeaconExplorer'
-    # elif 'JSspatial_ETER' in metric_type: label_type = f'Spatial JS Divergence, Beacon:Explorer-Exploiter'
-    # elif 'learning_time' in metric_type: label_type = f'Learning Time @ {metric_thresh}'
-    # elif 'dirent_OG' in metric_type: label_type = f'Directional Entropy, OG'
     elif 'dirent_NS' in metric_type: 
-        cbar = ax.figure.colorbar(im, ax=ax, label='Directedness (No-Social)', extend='max')
-    # elif 'dirent_ET' in metric_type: label_type = f'Directional Entropy, BeaconExploiter'
-    # elif 'dirent_ER' in metric_type: label_type = f'Directional Entropy, BeaconExplorer'
-    # elif 'meanshift_Nd+2' in metric_type: label_type = f'Mean Shift, OG-OG+Nd2'
-    # elif 'meanshift_Nr+2' in metric_type: label_type = f'Mean Shift, OG-OG+Nr2'
-    # elif 'meanshift_SinitAg100-1' in metric_type: label_type = f'Mean Shift, OG-OG+Nd2'
+        cbar = ax.figure.colorbar(im, ax=ax, label='Directedness (NS)', extend='max')
     else:
         cbar = ax.figure.colorbar(im, ax=ax, label=metric_type, extend='both')
 
@@ -2914,7 +2742,7 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
             if not np.isnan(value):
                 if 'fit' in metric_type:
                     plt.text(j, i, int(value), ha='center', va='center', color='white')
-                elif 'meanshift' in metric_type and metric_thresh is None:
+                elif 'meanshift' in metric_type:
                     plt.text(j, i, int(value), ha='center', va='center', color='white')
                 else:
                     plt.text(j, i, round(value,2), ha='center', va='center', color='white')
@@ -2922,177 +2750,10 @@ def plot_social_table_DR(metric_type, metric_thresh=None, extra='', dpi=50):
     fig.tight_layout()
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
     if extra == '':
-        plt.savefig(fr'{data_dir}/social_table_DR_{metric_type}_thresh{metric_thresh}_{dpi}.png', dpi=dpi)
+        plt.savefig(fr'{data_dir}/social_table_DR_{metric_type}.png', dpi=dpi)
     else:
-        plt.savefig(fr'{data_dir}/social_table_DR_{extra}_{metric_type}_thresh{metric_thresh}_{dpi}.png', dpi=dpi)
+        plt.savefig(fr'{data_dir}/social_table_DR_{extra}_{metric_type}.png', dpi=dpi)
     plt.close()
-
-
-
-def names_to_metric(names, metric_type, metric_thresh, std=False):
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    bin_range = np.arange(0,1001,10)
-
-    row = []
-    for name in names:
-        # print(name)
-
-        if Path(fr'{data_dir}/{name}/val_matrix_best_nosocial_perturb.bin').is_file():
-            with open(fr'{data_dir}/{name}/val_matrix_best.bin','rb') as f:
-                data_og = pickle.load(f)
-            with open(fr'{data_dir}/{name}/val_matrix_best_nosocial_perturb.bin','rb') as f:
-                data_nosoc = pickle.load(f)
-        else:
-            # print(name)
-            with open(fr'{data_dir}/{name}/val_matrix_best_ghostexploiter_perturb.bin','rb') as f:
-                data_og = pickle.load(f)
-            with open(fr'{data_dir}/{name}/val_matrix_best.bin','rb') as f:
-                data_og = pickle.load(f)
-            with open(fr'{data_dir}/{name}/val_matrix_best.bin','rb') as f:
-                data_nosoc = pickle.load(f)
-        with open(fr'{data_dir}/{name}/val_matrix_best_ghostexploiter_perturb.bin','rb') as f:
-            data_exploiter = pickle.load(f)
-        with open(fr'{data_dir}/{name}/val_matrix_best_ghostexplorer_perturb.bin','rb') as f:
-            data_explorer = pickle.load(f)
-
-        # # skip poor performers
-        # if np.mean(data_og) > 500:
-        #     metric = None
-
-        if 'og' in metric_type:
-            metric = np.mean(data_og)
-        elif 'nosoc' in metric_type:
-            metric = np.mean(data_nosoc)
-        elif 'exploiter' in metric_type:
-            metric = np.mean(data_exploiter)
-        elif 'explorer' in metric_type:
-            metric = np.mean(data_explorer)
-
-        elif 'shift_OGNS' in metric_type:
-            metric = np.mean(data_nosoc) - np.mean(data_og)
-        elif 'shift_NSETs' in metric_type: # check if multiple first
-            with open(fr'{data_dir}/{name}/val_matrix_best_ghostexploiters_perturb.bin','rb') as f:
-                data_exploiters = pickle.load(f)
-            metric = np.mean(data_nosoc) - np.mean(data_exploiters)
-        elif 'shift_NSET' in metric_type:
-            metric = np.mean(data_nosoc) - np.mean(data_exploiter)
-        elif 'shift_NSER' in metric_type:
-            metric = np.mean(data_nosoc) - np.mean(data_explorer)
-        elif 'shift_ETERs' in metric_type: # check if multiple first
-            with open(fr'{data_dir}/{name}/val_matrix_best_ghostexploiters_perturb.bin','rb') as f:
-                data_exploiters = pickle.load(f)
-            with open(fr'{data_dir}/{name}/val_matrix_best_ghostexplorers_perturb.bin','rb') as f:
-                data_explorers = pickle.load(f)
-            metric = np.mean(data_explorers) - np.mean(data_exploiters)
-        elif 'shift_ETER' in metric_type:
-            metric = np.mean(data_explorer) - np.mean(data_exploiter)
-        elif 'shift_Nd+2' in metric_type:
-            with open(fr'{data_dir}/{name}/val_matrix_best_Nd+2_perturb.bin','rb') as f:
-                data_Nd2 = pickle.load(f)
-            metric = np.mean(data_Nd2) - np.mean(data_og)
-        elif 'shift_Nr+2' in metric_type:
-            with open(fr'{data_dir}/{name}/val_matrix_best_Nr+2_perturb.bin','rb') as f:
-                data_Nr2 = pickle.load(f)
-            metric = np.mean(data_Nr2) - np.mean(data_og)
-        elif 'shift_SinitAg100-1' in metric_type:
-            with open(fr'{data_dir}/{name}/val_matrix_best_SinitAg100-1_perturb.bin','rb') as f:
-                data_SinitAg = pickle.load(f)
-            metric = np.mean(data_SinitAg) - np.mean(data_exploiter)
-
-        # elif 'JS_soc' in metric_type:
-        #     h_og = np.histogram(data_og, bins=bin_range)[0]
-        #     h_nosoc = np.histogram(data_nosoc, bins=bin_range)[0]
-        #     metric = calc_JSdiv(h_og, h_nosoc)
-        # elif 'JS_exp' in metric_type:
-        #     h_explorer = np.histogram(data_explorer, bins=bin_range)[0]
-        #     h_exploiter = np.histogram(data_exploiter, bins=bin_range)[0]
-        #     metric = calc_JSdiv(h_explorer, h_exploiter)
-
-        elif 'JSspatial' in metric_type or 'dirent' in metric_type:
-            # spatial_metric_list = [
-            #         'de_mean_OG', 'de_mean_NS', 'de_mean_ET', 'de_mean_ER',
-            #         'JS_mean_OGNS', 'JS_mean_NSET', 'JS_mean_NSER', 'JS_mean_ETER'
-            #         ]
-            if 'OGNS' in metric_type:
-                index = 4
-            elif 'NSET' in metric_type:
-                index = 5
-                # index = 10 # for social_extra + patch_only + JS
-            elif 'NSER' in metric_type:
-                index = 6
-            elif 'ETER' in metric_type:
-                index = 7
-            elif 'OG' in metric_type:
-                index = 0
-            elif 'NS' in metric_type:
-                index = 1
-                # index = 8 # for social_extra + patch_only + dirent_NS
-            elif 'ET' in metric_type:
-                index = 2
-            elif 'ER' in metric_type:
-                index = 3
-
-            # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
-            #     data_dict = pickle.load(f)
-            # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'rb') as f:
-            #     data_dict = pickle.load(f)
-            with open(fr'{data_dir}/traj_matrices/gamut_social_mults.bin', 'rb') as f:
-                data_dict = pickle.load(f)
-            if 'NSETs' in metric_type:
-                index = 8
-            elif 'ETERs' in metric_type:
-                index = 9
-            elif 'Nd+2' in metric_type:
-                index = 10
-
-            metric = data_dict[name][index]
-
-        elif 'learning_time' in metric_type:
-            with open(fr'{data_dir}/{name}/fitness_spread_per_generation.bin','rb') as f:
-                data = pickle.load(f)
-
-            data_genxpop = np.mean(data, axis=2)
-            top_data = np.min(data_genxpop, axis=1)
-
-            if np.min(top_data) <= metric_thresh:
-                metric = int(np.argwhere(top_data <= metric_thresh)[0][0])
-            else:
-                metric = 1000
-
-        elif 'distance' in metric_type:
-            with open(fr'{data_dir}/{name}/val_matrix_best_nosocial-dist_perturb.bin','rb') as f:
-                data = pickle.load(f)
-            metric = np.mean(data)
-            # metric = np.std(data)
-
-        else:
-            print(f'{metric_type} not valid metric type -type1')
-
-        row.append(metric)
-
-    # row = [x for x in metric_row if x is not None]
-    row = np.asarray(row)
-    if 'fit' in metric_type:
-        return np.median(row)
-    elif 'meanshift' in metric_type: # perf_diff in tables
-        if metric_thresh is not None:
-            return (row > metric_thresh).sum()/len(row)
-        else:
-            return np.median(row)
-    elif 'dist' in metric_type: # endonly_means
-        return row
-    elif 'JSspatial' in metric_type:
-        if metric_thresh is not None:
-            return (row > metric_thresh).sum()/len(row)
-        else:
-            return np.median(row)
-    elif 'learning_time' in metric_type:
-        return np.median(row)
-    elif 'dirent' in metric_type:
-        return np.median(row)
-    else:
-        print(f'{metric_type} not valid metric type -type2y')
 
 
 # ------------------------------- relative occurence ---------------------------------------- #
@@ -3398,14 +3059,17 @@ def relative_stacked_bars_social(groups, metric_type1, metric_type2, save_name, 
         for r_num, name in enumerate(run_names):
 
             if name in data_dict.keys():
-                dist1 = name_to_metric(name, metric_type1)
-                dist2 = data_dict[name][index]
+                perfdiff = name_to_metric(name, metric_type1)
+                dirdiv = data_dict[name][index]
+                dist = int(name_to_metric(name, 'distance'))
 
-                if dist1 < 119:
+                if perfdiff < 120:
+                # if dist == 0:
                     navs += 1
-                # elif dist1 > 625 and dist2 > .247:
-                elif dist1 > 625 and dist2 > .21:
-                # elif dist1 > 512.5 and dist2 > .155:
+                # # elif perfdiff > 625 and dirdiv > .247:
+                # elif perfdiff > 625 and dirdiv > .21:
+                # # elif perfdiff > 512.5 and dirdiv > .155:
+                elif dist > 350:
                     folls += 1
                 else:
                     hybs += 1
@@ -3485,6 +3149,8 @@ def plot_social_pies(groups, metric_type1, metric_type2, plot_type, save_name, d
     index = metric_type2_list.index(metric_type2)
 
     runtype_by_category = {} # add by group_name
+    max_all = 0
+    min_all = 1000 # max measure is up to 1000 (learning time)
     for g_num, (group_name, run_names) in enumerate(groups):
         navs = 0
         hybs = 0
@@ -3498,8 +3164,9 @@ def plot_social_pies(groups, metric_type1, metric_type2, plot_type, save_name, d
         for r_num, name in enumerate(run_names):
             if name in data_dict.keys():
 
-                dist1 = name_to_metric(name, metric_type1)
-                dist2 = data_dict[name][index]
+                perfdiff = name_to_metric(name, metric_type1)
+                # dirdiv = data_dict[name][index]
+                dist = int(name_to_metric(name, 'distance'))
 
                 if plot_type == 'fits':
                     extra = name_to_metric(name, 'og')
@@ -3519,16 +3186,42 @@ def plot_social_pies(groups, metric_type1, metric_type2, plot_type, save_name, d
                     extra = name_to_metric(name, 'shift_Nd+2')
                 elif plot_type == 'Nr+2':
                     extra = name_to_metric(name, 'shift_Nr+2')
+                elif plot_type == 'dist':
+                    extra = name_to_metric(name, 'distance')
+                elif plot_type == 'dist-scaled':
+                    extra = name_to_metric(name, 'distance-scaled')
+                elif 'timeXdist' in plot_type: # as seen in trajs.py/patch_timeXdist bar plots
+                    gen,_ = find_top_val_gen(name, 'cen')
+                    with open(fr'{data_dir}/dists/{name}_{gen}.bin', 'rb') as f:
+                        data = pickle.load(f)
+                    num_runs, num_timesteps = data.shape
+
+                    from abm.monitoring.trajs import form_timeXdist_dict
+                    dists_by_category = form_timeXdist_dict(data, thresh=100)
+
+                    # integrand, frequency normed over time & run count
+                    if 'near_start' in plot_type:
+                        extra = np.sum( np.array(dists_by_category['near start']) / num_runs) / num_timesteps 
+                    elif 'in_transit' in plot_type:
+                        extra = np.sum( np.array(dists_by_category['in transit']) / num_runs) / num_timesteps 
+                    elif 'near_patch' in plot_type:
+                        extra = np.sum( np.array(dists_by_category['near patch']) / num_runs) / num_timesteps 
+                    elif 'at_patch' in plot_type:
+                        extra = np.sum( np.array(dists_by_category['at patch']) / num_runs) / num_timesteps 
+                    
                 else:
                     extra = 0
 
-                if dist1 < 119:
+                if perfdiff < 120:
+                # if dist < 20:
+                # if dist == 0:
                     navs += 1
                     # navs_extra += extra
                     navs_extra.append(extra)
-                # elif dist1 > 625 and dist2 > .247:
-                elif dist1 > 625 and dist2 > .21:
-                # elif dist1 > 512.5 and dist2 > .155:
+                # # elif perfdiff > 625 and dirdiv > .247:
+                # elif perfdiff > 625 and dirdiv > .21:
+                # # elif perfdiff > 512.5 and dirdiv > .155:
+                elif dist > 350:
                     folls += 1
                     # folls_extra += extra
                     folls_extra.append(extra)
@@ -3543,6 +3236,8 @@ def plot_social_pies(groups, metric_type1, metric_type2, plot_type, save_name, d
         hybs_extra = np.array(hybs_extra)
         folls_extra = np.array(folls_extra)
         runtype_by_category[group_name] = [navs, hybs, folls], [np.median(navs_extra), np.median(hybs_extra), np.median(folls_extra)]
+        max_all = max(max_all, np.median(navs_extra), np.median(hybs_extra), np.median(folls_extra))
+        min_all = min(min_all, np.median(navs_extra), np.median(hybs_extra), np.median(folls_extra))
 
 
     fig, axes = plt.subplots(6,6, figsize=(10,10))
@@ -3583,6 +3278,15 @@ def plot_social_pies(groups, metric_type1, metric_type2, plot_type, save_name, d
         # colormap = plt.get_cmap('viridis')
         norm = mpl.colors.TwoSlopeNorm(vmin=-100, vcenter=0, vmax=600)
         colormap = virfade
+    elif plot_type == 'dist':
+        norm = plt.Normalize(vmin=0, vmax=400)
+        colormap = plt.get_cmap('viridis')
+    elif 'timeXdist' in plot_type:
+        if 'minmax' in plot_type:
+            norm = plt.Normalize(vmin=min_all, vmax=max_all)
+        else:
+            norm = plt.Normalize(vmin=0.1, vmax=0.55)
+        colormap = plt.get_cmap('viridis')
 
     for i in range(6):
         for j in range(6):
@@ -3618,6 +3322,184 @@ def plot_social_pies(groups, metric_type1, metric_type2, plot_type, save_name, d
         plt.savefig(fr'{data_dir}/relative_occurence_social_pietable_{plot_type}_OGNS_{save_name}_{dpi}.png', dpi=dpi)
     else:
         plt.savefig(fr'{data_dir}/relative_occurence_social_pietable_{plot_type}_NSET_{save_name}_{dpi}.png', dpi=dpi)
+    plt.show()
+
+
+def plot_spin_violins(groups, metric_type1, metric_type2, save_name, dpi=100):
+
+    import dotenv as de
+    from abm.start_sim import reconstruct_NN
+    from abm.monitoring.util import name_to_metric, find_top_val_gen
+
+    root_dir = Path(__file__).parent.parent
+    data_dir = Path(root_dir, r'data/simulation_data')
+
+    with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+        data_dict = pickle.load(f)
+
+    metric_type2_list = [
+            'de_mean_OG', 'de_mean_NS', 'de_mean_ET', 'de_mean_ER',
+            'JS_mean_OGNS', 'JS_mean_NSET', 'JS_mean_NSER', 'JS_mean_ETER'
+            ]
+    index = metric_type2_list.index(metric_type2)
+
+
+    vis_input_list = []
+
+    vis_input = np.zeros((6,8))
+    vis_input[0,:2] = 1
+    vis_input[2,2:6] = 1
+    vis_input[1,6:] = 1
+    vis_input_list.append(vis_input)
+
+    vis_input = np.zeros((6,8))
+    vis_input[3,:2] = 1
+    vis_input[0,2:6] = 1
+    vis_input[2,6:] = 1
+    vis_input_list.append(vis_input)
+
+    vis_input = np.zeros((6,8))
+    vis_input[1,:2] = 1
+    vis_input[3,2:6] = 1
+    vis_input[0,6:] = 1
+    vis_input_list.append(vis_input)
+
+    vis_input = np.zeros((6,8))
+    vis_input[2,:2] = 1
+    vis_input[1,2:6] = 1
+    vis_input[3,6:] = 1
+    vis_input_list.append(vis_input)
+
+
+    fig, ax1 = plt.subplots(figsize=(3,3)) 
+
+    spins_by_groups = {}
+    for g_num, (group_name, run_names) in enumerate(groups):
+
+        spins = []
+        fits = []
+        for r_num, name in enumerate(run_names):
+            if name in data_dict.keys():
+
+                dist1 = name_to_metric(name, metric_type1)
+                dist2 = data_dict[name][index]
+
+                if dist1 > 625 and dist2 > .21:
+                    # of the followers for each group:
+                    # retrieve model
+                    gen_ext, valfit = find_top_val_gen(name, 'cen')
+                    with open(fr'{data_dir}/{name}/{gen_ext}_NNcen_pickle.bin','rb') as f:
+                        pv = pickle.load(f)
+                    env_path = fr'{data_dir}/{name}/.env'
+                    envconf = de.dotenv_values(env_path)
+                    NN,_ = reconstruct_NN(envconf,pv)
+                    # vis obs --> action
+                    angles = []
+                    for vis_input in vis_input_list:
+                        action,_,_,_ = NN.forward(vis_input, np.array([0]), None)
+                        angle = np.abs(action * 90)
+                        angles.append(angle)
+                    angles = np.array(angles)
+
+                    # if group_name == '5x0':
+                    #     print(name, gen_ext, np.mean(angles))
+
+                    # if np.std(angles) > 1:
+                    #     print(name, angles, np.std(angles))
+    
+                    if np.mean(angles) > 45:
+                        print(name, angles) # outlier!!
+                    else:
+                        spins.append(np.mean(angles))
+                        fits.append(int(name_to_metric(name, 'dist_og')))
+
+            else:
+                print(f'{name} not in dict')
+
+        if spins:
+            spins_by_groups[group_name] = spins, fits
+
+    cmap = plt.get_cmap('viridis')
+    num_groups = len(spins_by_groups)
+    width = 1
+    labs = []
+    for i,(group_name,(spins,fits)) in enumerate(spins_by_groups.items()):
+
+        color = cmap(i/num_groups)
+        # color = 'lightgrey'
+
+        l0 = ax1.violinplot(spins, 
+                    positions=[i],
+                    widths=width, 
+                    showmedians=True, 
+                    showextrema=False,
+                    )
+        for part in l0["bodies"]:
+            part.set_edgecolor(color)
+            part.set_facecolor(color)
+        l0["cmedians"].set_edgecolor(color)
+        labs.append((mpl.patches.Patch(color=color), group_name))
+        # labs.append(group_name)
+
+        if len(spins) > 1:
+            x = beeswarm(spins)
+        else:
+            x = 0
+        ax1.scatter(i + x*width/2, spins, color=color, s=1, alpha=1, clip_on=False, zorder=10) # by group
+        # sc = ax1.scatter(i + x*width/2, spins, c=fits, cmap='viridis', s=1, alpha=.7, clip_on=False, zorder=10) # by fitog, local norm
+        # sc = ax1.scatter(i + x*width/2, spins, c=fits, cmap='viridis', norm=plt.Normalize(vmin=200, vmax=400), s=1, alpha=1, clip_on=False, zorder=10) # by fitog, global norm
+
+    ax1.set_xticks(np.linspace(0,num_groups-1,num_groups), labels=labs, rotation=45)
+    ax1.set_ylabel('Spin Angle')
+    ax1.set_ylim(0,30)
+
+    plt.tight_layout()
+    plt.savefig(fr'{data_dir}/spins/violins_{save_name}.png', dpi=dpi)
+    plt.show()
+
+
+def plot_init_socdist(groups):
+
+    # establish load directory
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+
+    # init plot details
+    fig, ax1 = plt.subplots(figsize=(3,3)) 
+    # cmap = plt.get_cmap('plasma')
+    # cmap_range = len(groups)
+    
+    # iterate over each file
+    for g_num, (group_name, run_names) in enumerate(groups):
+
+        data_group = []        
+        for r_num, name in enumerate(run_names):
+
+            with open(fr'{data_dir}/{name}/val_matrix_initdist_from_other.bin','rb') as f:
+                data = pickle.load(f)
+            # data /= num_agents
+            data_group.append(data.flatten())
+
+        data = np.array(data_group).flatten()
+        l0 = ax1.violinplot(data, 
+                    positions=[g_num],
+                    widths=1, # KDE plot area proportional to navigator ratio 
+                    showmedians=True, 
+                    showextrema=False,
+                    )
+        # for part in l0["bodies"]:
+        #     part.set_edgecolor(cmap(g_num/cmap_range))
+        #     part.set_facecolor(cmap(g_num/cmap_range))
+        # l0["cmedians"].set_edgecolor(cmap(g_num/cmap_range))
+        print(f'{group_name}: {int(np.mean(data))}')
+
+    ax1.set_xticks(np.linspace(0,len(groups)-1,len(groups)))
+    ax1.set_xticklabels(['All Map', 'Within 100 Units'])
+    # ax1.set_xticks([])
+    ax1.set_ylabel('Initial Distance Between Agents')
+    # ax1.set_ylim(-20,max)
+
+    plt.tight_layout()
+    plt.savefig(fr'{data_dir}/spins/initdist.png', dpi=100)
     plt.show()
 
 
@@ -3669,9 +3551,6 @@ if __name__ == '__main__':
     # plot_social_table_DR(metric_type='fit_nosoc', dpi=100)
     # plot_social_table_DR(metric_type='fit_exploiter', dpi=100)
     # plot_social_table_DR(metric_type='fit_explorer', dpi=100)
-    # # plot_social_table_DR(metric_type='meanshift_OGNS', metric_thresh=100, dpi=100)
-    # # plot_social_table_DR(metric_type='meanshift_NSET', metric_thresh=100, dpi=100)
-    # # plot_social_table_DR(metric_type='meanshift_ETER', metric_thresh=100, dpi=100)
     # plot_social_table_DR(metric_type='meanshift_OGNS', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_NSET', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_NSER', dpi=100)
@@ -3680,9 +3559,7 @@ if __name__ == '__main__':
     # plot_social_table_DR(metric_type='JSspatial_NSET', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_NSER', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_ETER', dpi=100)
-    # # plot_social_table_DR(metric_type='JSspatial_NSET', metric_thresh=100, dpi=100)
-    # # plot_social_table_DR(metric_type='JSspatial_ETER', metric_thresh=0.1, dpi=100)
-    # plot_social_table_DR(metric_type='learning_time', metric_thresh=500, dpi=100)
+    # plot_social_table_DR(metric_type='learning_time', dpi=100)
     # plot_social_table_DR(metric_type='dirent_OG', dpi=100)
     # plot_social_table_DR(metric_type='dirent_NS', dpi=100)
     # # plot_social_table_DR(metric_type='dirent_ET', dpi=100)
@@ -3697,13 +3574,11 @@ if __name__ == '__main__':
     # plot_social_table_DR(metric_type='meanshift_NSET', extra='nocoll', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_NSER', extra='nocoll', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_ETER', extra='nocoll', dpi=100)
-    # # plot_social_table_DR(metric_type='meanshift_ETER', extra='nocoll', metric_thresh=100, dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_OGNS', extra='nocoll', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_NSET', extra='nocoll', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_NSER', extra='nocoll', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_ETER', extra='nocoll', dpi=100)
-    # # plot_social_table_DR(metric_type='JSspatial_ETER', extra='nocoll', metric_thresh=0.1, dpi=100)
-    # plot_social_table_DR(metric_type='learning_time', extra='nocoll', metric_thresh=500, dpi=100)
+    # plot_social_table_DR(metric_type='learning_time', extra='nocoll', dpi=100)
     # plot_social_table_DR(metric_type='dirent_OG', extra='nocoll', dpi=100)
     # plot_social_table_DR(metric_type='dirent_NS', extra='nocoll', dpi=100)
     # # plot_social_table_DR(metric_type='meanshift_Nd+2', extra='nocoll', dpi=100)
@@ -3716,13 +3591,11 @@ if __name__ == '__main__':
     # plot_social_table_DR(metric_type='meanshift_NSET', extra='SinitAg100', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_NSER', extra='SinitAg100', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_ETER', extra='SinitAg100', dpi=100)
-    # # plot_social_table_DR(metric_type='meanshift_ETER', extra='SinitAg100', metric_thresh=100, dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_OGNS', extra='SinitAg100', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_NSET', extra='SinitAg100', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_NSER', extra='SinitAg100', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_ETER', extra='SinitAg100', dpi=100)
-    # # plot_social_table_DR(metric_type='JSspatial_ETER', extra='SinitAg100', metric_thresh=0.1, dpi=100)
-    # plot_social_table_DR(metric_type='learning_time', extra='SinitAg100', metric_thresh=500, dpi=100)
+    # plot_social_table_DR(metric_type='learning_time', extra='SinitAg100', dpi=100)
     # plot_social_table_DR(metric_type='dirent_OG', extra='SinitAg100', dpi=100)
     # plot_social_table_DR(metric_type='dirent_NS', extra='SinitAg100', dpi=100)
 
@@ -3733,13 +3606,11 @@ if __name__ == '__main__':
     # plot_social_table_DR(metric_type='meanshift_NSET', extra='collinput', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_NSER', extra='collinput', dpi=100)
     # plot_social_table_DR(metric_type='meanshift_ETER', extra='collinput', dpi=100)
-    # # # plot_social_table_DR(metric_type='meanshift_ETER', extra='collinput', metric_thresh=100, dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_OGNS', extra='collinput', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_NSET', extra='collinput', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_NSER', extra='collinput', dpi=100)
     # plot_social_table_DR(metric_type='JSspatial_ETER', extra='collinput', dpi=100)
-    # # # plot_social_table_DR(metric_type='JSspatial_ETER', extra='collinput', metric_thresh=0.1, dpi=100)
-    # plot_social_table_DR(metric_type='learning_time', extra='collinput', metric_thresh=500, dpi=100)
+    # plot_social_table_DR(metric_type='learning_time', extra='collinput', dpi=100)
     # plot_social_table_DR(metric_type='dirent_OG', extra='collinput', dpi=100)
     # plot_social_table_DR(metric_type='dirent_NS', extra='collinput', dpi=100)
 
@@ -3748,8 +3619,8 @@ if __name__ == '__main__':
 
     groups = []
     names = []
-    n = 40
-    save_name='groups_sc_Nall_CNN14_FNN16_vis8'
+    n = 20
+    # save_name='groups_sc_Nall_CNN14_FNN16_vis8'
     # save_name='groups_sc_ratio_CNN14_FNN16_vis8'
     # save_name='groups_sc_ag_CNN14_FNN16_vis8'
     # save_name='groups_sc_agNd5_CNN14_FNN16_vis8'
@@ -3757,16 +3628,18 @@ if __name__ == '__main__':
     # save_name='groups_sc_resNd2_CNN14_FNN16_vis8'
     # save_name='groups_sc_resNd5_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nd0_CNN14_FNN16_vis8'
+    # save_name='groups_sc_Nrw0_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nall_nocoll_CNN14_FNN16_vis8'
     # save_name='groups_sc_ratio_nocoll_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nd0_nocoll_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nall_collinput_CNN14_FNN16_vis8'
     # save_name='groups_sc_ratio_collinput_CNN14_FNN16_vis8'
-    # save_name='groups_sc_Nall_SinitAg100_CNN14_FNN16_vis8'
+    save_name='groups_sc_Nall_SinitAg100_CNN14_FNN16_vis8'
     # save_name='groups_sc_ratio_SinitAg100_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nd5_varycoll_CNN14_FNN16_vis8'
     # save_name='groups_sc_Nd5_varycog_CNN14_FNN16_vis8'
     # save_name='groups_sc_solo_only'
+    # save_name='groups_sc_ghost_CNN14_FNN16_vis8'
 
     if 'Nall_C' in save_name:
         groups.append(('0x0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
@@ -3790,6 +3663,27 @@ if __name__ == '__main__':
         groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
         groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
         groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
+        # groups.append(('0x0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x1', [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x2', [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x3', [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
+        # groups.append(('1x0', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('1x1', [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('1x2', [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('1x3', [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
+        # groups.append(('2x0', [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('2x1', [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('2x2', [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('2x3', [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
+        # groups.append(('3x0', [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]))
+        # groups.append(('3x1', [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('3x2', [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
+        # groups.append(('4x0', [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('4x1', [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
+        # groups.append(('5x0', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)])) #
     elif 'ratio_C' in save_name:
         groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
         groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)])) #
@@ -3844,6 +3738,16 @@ if __name__ == '__main__':
         groups.append(('15', [f'sc_N16_NRW15_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
         groups.append(('20', [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
         # groups.append(('5x5', [f'sc_N11_NRW5_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+    elif 'Nrw0_C' in save_name:
+        # groups.append(('0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        groups.append(('1', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('2', [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('3', [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]))
+        # groups.append(('4', [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        groups.append(('5', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]))
+        groups.append(('10', [f'sc_N11_NRW0_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        groups.append(('15', [f'sc_N16_NRW0_ND15_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        groups.append(('20', [f'sc_N21_NRW0_ND20_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
     elif 'Nall_nocoll' in save_name:
         groups.append(('0x0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
         groups.append(('1x0', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
@@ -3866,6 +3770,27 @@ if __name__ == '__main__':
         groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
         groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
         groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
+        # groups.append(('0x0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x1', [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('0x2', [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('0x3', [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
+        # groups.append(('1x0', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('1x1', [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('1x2', [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('1x3', [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
+        # groups.append(('2x0', [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('2x1', [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('2x2', [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('2x3', [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
+        # groups.append(('3x0', [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('3x1', [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('3x2', [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
+        # groups.append(('4x0', [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]))
+        # groups.append(('4x1', [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
+        # groups.append(('5x0', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
     elif 'ratio_nocoll' in save_name:
         groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
         groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)])) #
@@ -3902,6 +3827,27 @@ if __name__ == '__main__':
         groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
         groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
         groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
+        # groups.append(('0x0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x1', [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('0x2', [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('0x3', [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
+        # groups.append(('1x0', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('1x1', [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('1x2', [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('1x3', [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
+        # groups.append(('2x0', [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('2x1', [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('2x2', [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('2x3', [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
+        # groups.append(('3x0', [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('3x1', [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('3x2', [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
+        # groups.append(('4x0', [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
+        # groups.append(('4x1', [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
+        # groups.append(('5x0', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)])) #
     elif 'ratio_collinput' in save_name:
         groups.append(('0x5',[f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
         groups.append(('1x4',[f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]))
@@ -3931,6 +3877,27 @@ if __name__ == '__main__':
         groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
         groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
         groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
+        # groups.append(('0x0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        # groups.append(('0x1', [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('0x2', [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('0x3', [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('0x4', [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('0x5', [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
+        # groups.append(('1x0', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('1x1', [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('1x2', [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('1x3', [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('1x4', [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
+        # groups.append(('2x0', [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('2x1', [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('2x2', [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('2x3', [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
+        # groups.append(('3x0', [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('3x1', [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('3x2', [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
+        # groups.append(('4x0', [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
+        # groups.append(('4x1', [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
+        # groups.append(('5x0', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)])) #
     elif 'ratio_SinitAg' in save_name:
         groups.append(('0x5',[f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
         groups.append(('1x4',[f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]))
@@ -3952,8 +3919,14 @@ if __name__ == '__main__':
         # groups.append(('CNN18/FNN64x2',[f'sc_N6_NRW0_ND5_CNN18_FNN64x2_vis8_rep{x}' for x in range(n)]))
     elif 'solo' in save_name:
         groups.append(('0x0', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
-
-
+    elif 'ghost' in save_name:
+        groups.append(('D0 x Ghost', [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(20)]))
+        groups.append(('D1', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        groups.append(('D1 x 100', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]))
+        groups.append(('D1 x Ghost', [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(20)]))
+        groups.append(('D5', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]))
+        groups.append(('D5 x 100', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitRes100_rep{x}' for x in range(n)]))
+        groups.append(('D5 x Ghost', [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(20)]))
 
 
 
@@ -3967,33 +3940,27 @@ if __name__ == '__main__':
 
     # plot_mult_EA_trends_groups_endonly_means(groups,metric_type=test,cmap=cmap,save_name=save_name)
 
-    # # test = 'dist_shift_NSETs'
-    # test = 'dist_shift_ETERs'
-    # cmap = 'berlin'
-
-    # plot_mult_EA_trends_groups_endonly_means(groups,metric_type=test,cmap=cmap,save_name=save_name)
-
-    # # # test = 'dist_og'
+    # test = 'dist_og'
     # # # test = 'dist_nosoc'
     # # # test = 'dist_exploiter'
     # # test = 'dist_JSspatial_OGNS'
     # # test = 'dist_JSspatial_NSET'
-    # test = 'dist_JSspatial_NSETs'
-    # test = 'dist_JSspatial_ETERs'
-    # test = 'dist_JSspatial_Nd+2'
+    # # test = 'dist_JSspatial_NSETs'
+    # # test = 'dist_JSspatial_ETERs'
+    # # test = 'dist_JSspatial_Nd+2'
     # # # test = 'dist_dirent_OG'
     # # # test = 'dist_dirent_NS'
     # # # test = 'dist_dirent_ET'
     # # test = 'dist_shift_Nd+2'
     # # # test = 'dist_shift_SinitAg100-1'
-    # # # test = 'dist_learning_time', # add 'metric_thresh=500,' to call
-    # # # test = 'dist_distance'
+    # # # test = 'dist_learning_time'
+    # # test = 'dist_distance'
     # # # test = 'dist_time'
     # cmap = 'dist_shift_NSET'
     # # cmap = 'dist_shift_OGNS'
     # # # cmap = 'dist_shift_ETER'
     # # # cmap = 'dist_JSspatial_NSET'
-    # # # cmap = 'fit_og'
+    # # cmap = 'fit_og'
     # # # cmap = 'fit_ET'
     # # # cmap = 'by_run'
 
@@ -4010,23 +3977,24 @@ if __name__ == '__main__':
         # 'dist_exploiter',
         # 'dist_JSspatial_OGNS',
         # 'dist_JSspatial_NSET',
-        'dist_JSspatial_NSETs',
-        'dist_JSspatial_ETERs',
-        'dist_JSspatial_Nd+2',
+        # 'dist_JSspatial_NSETs',
+        # 'dist_JSspatial_ETERs',
+        # 'dist_JSspatial_Nd+2',
         # 'dist_dirent_NS',
         # 'dist_dirent_ET',
         # 'dist_shift_Nd+2',
         # 'dist_shift_SinitAg100-1',
         # 'dist_shift_NSETs',
         # 'dist_shift_ETERs',
-        # 'dist_learning_time', # add 'metric_thresh=500,' to call
+        # 'dist_learning_time',
         # 'dist_distance',
+        'dist_distance-scaled',
         # 'dist_time',
         ]
     # for test in tests:
     #     # for cmap in ['berlin']:
-    #     # for cmap in ['dist_shift_NSET']:
-    #     for cmap in ['dist_shift_OGNS']:
+    #     for cmap in ['dist_shift_NSET']:
+    #     # for cmap in ['dist_shift_OGNS']:
     #     # for cmap in ['dist_shift_ETER']:
     #     # for cmap in ['dist_JSspatial_NSET']:
     #     # for cmap in ['fit_og']:
@@ -4036,15 +4004,15 @@ if __name__ == '__main__':
 
 
 
-    tests = [
-        ('dist_shift_OGNS', 'JS_mean_OGNS'),
-        # ('dist_shift_NSET', 'JS_mean_NSET'),
-        # ('dist_shift_NSER', 'JS_mean_NSER'),
-        # ('dist_shift_ETER', 'JS_mean_ETER'),
-        # ('dist_nosoc', 'JS_mean_NSET'),
-        # ('dist_shift_NSETs', 'JS_mean_NSETs'),
-        # ('dist_shift_ETERs', 'JS_mean_ETERs'),
-    ]
+    if 'SinitAg' in save_name:
+        metric_type1, metric_type2 = ('dist_shift_OGNS', 'JS_mean_OGNS')
+    else:
+        metric_type1, metric_type2 = ('dist_shift_NSET', 'JS_mean_NSET')
+    # metric_type1, metric_type2 = ('dist_shift_NSER', 'JS_mean_NSER'),
+    # metric_type1, metric_type2 = ('dist_shift_ETER', 'JS_mean_ETER'),
+    # metric_type1, metric_type2 = ('dist_nosoc', 'JS_mean_NSET'),
+    # metric_type1, metric_type2 = ('dist_shift_NSETs', 'JS_mean_NSETs'),
+    # metric_type1, metric_type2 = ('dist_shift_ETERs', 'JS_mean_ETERs'),
     color_types = [
         # '',
         # 'COM',
@@ -4053,7 +4021,7 @@ if __name__ == '__main__':
         # 'num_rand',
         # 'num_total',
         # 'num_direct_split',
-        'heatmap',
+        # 'heatmap',
         # 'heatmap_taskdep',
         # 'learning_time',
         # 'dirent_OG',
@@ -4078,47 +4046,55 @@ if __name__ == '__main__':
         # 'dist_JSspatial_ETERs',
         # 'dist_JSspatial_Nd+2',
         # 'distance',
+        'distance-scaled',
+        # 'distance-vir',
     ]
-    for test1,test2 in tests:
-        for color in color_types:
-            plot_mult_EA_trends_groups_2D(groups, metric_type1=test1, metric_type2=test2, color_type=color, save_name=save_name)
+    # for color in color_types:
+    #     plot_mult_EA_trends_groups_2D(groups, metric_type1=metric_type1, metric_type2=metric_type2, color_type=color, save_name=save_name)
 
-    # for test1,test2 in tests:
     #     for i in range(1000):
     #         group = groups[i]
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='', save_name=f'groups_sc_Nall_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', save_name=f'groups_sc_Nall_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='heatmap', save_name=f'groups_sc_Nall_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_ag_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_res_Nd5_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_Nd0_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_Nall_nocoll_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_Nd0_nocoll_CNN14_FNN16_vis8_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_ratio_nocoll_2D_{group[0]}')
-    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_ratio_SinitAg100_2D_{group[0]}')
-    #         plot_mult_EA_trends_groups_2D([group], metric_type1=test1, metric_type2=test2, color_type='fit_OG', cbar=False, save_name=f'groups_ratio_collinput_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='', save_name=f'groups_sc_Nall_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', save_name=f'groups_sc_Nall_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='heatmap', save_name=f'groups_sc_Nall_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_ag_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_res_Nd5_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_Nd0_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_Nall_nocoll_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_sc_Nd0_nocoll_CNN14_FNN16_vis8_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_ratio_nocoll_2D_{group[0]}')
+    #         # plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_ratio_SinitAg100_2D_{group[0]}')
+    #         plot_mult_EA_trends_groups_2D([group], metric_type1=metric_type1, metric_type2=metric_type2, color_type='fit_OG', cbar=False, save_name=f'groups_ratio_collinput_2D_{group[0]}')
 
 
-    # relative_stacked_bars_social(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, dpi=100)
-    # relative_stacked_bars_social(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, dpi=100)
+    # plot_disthist(groups, save_name)
+    # plot_2D_GMM(groups, metric_type1, metric_type2, save_name)
 
+    # relative_stacked_bars_social(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='types', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='fits', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='ETER', dpi=100)
+    # # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='dirent_OG', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='dirent_NS', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='learning_time', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='Nd+2', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='Nr+2', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='dist', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-near_start-minmax', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-in_transit-minmax', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-near_patch-minmax', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-at_patch-minmax', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-near_start', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-in_transit', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-near_patch', dpi=100)
+    # plot_social_pies(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name, plot_type='timeXdist-at_patch', dpi=100)
 
-    # # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='types', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='types', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='fits', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='fits', dpi=100)
-    # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='ETER', dpi=100)
-    # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='ETER', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='dirent_OG', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='dirent_OG', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='dirent_NS', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='dirent_NS', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='learning_time', dpi=100)
-    # # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='learning_time', dpi=100)
-    # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='Nd+2', dpi=100)
-    # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='Nd+2', dpi=100)
-    # plot_social_pies(groups, metric_type1='dist_shift_NSET', metric_type2='JS_mean_NSET', save_name=save_name, plot_type='Nr+2', dpi=100)
-    # plot_social_pies(groups, metric_type1='dist_shift_OGNS', metric_type2='JS_mean_OGNS', save_name=save_name, plot_type='Nr+2', dpi=100)
+    # groups = []
+    # groups.append(('all', ['sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep0']))
+    # groups.append(('100', ['sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep0']))
+    # plot_init_socdist(groups)
+
+    # plot_spin_violins(groups, metric_type1=metric_type1, metric_type2=metric_type2, save_name=save_name)
 
 
 ### ----------multievo----------- ###
@@ -4137,9 +4113,6 @@ if __name__ == '__main__':
     # plot_mult_EA_trends_multievo(names=[f'sc_N2_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)], val='cen', save_name=f'sc_N2_multi')
     # plot_mult_EA_trends_multievo(names=[f'sc_N2_multi_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)], val='cen', save_name=f'sc_N2_SinitAg100_multi')
     # plot_mult_EA_trends_multievo(names=[f'sc_N6_multi_CNN14_FNN16_vis8_rep{x}' for x in range(n)], val='cen', save_name=f'sc_N6_multi')
-
-
-    # plot_mult_EA_trends_multievo(names=[f'sc_N6_multi_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n,n+1)], val=None, save_name='sc_N6_SinitAg100_multi')
 
 
 ### ----------pop runs----------- ###

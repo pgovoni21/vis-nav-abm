@@ -9,21 +9,15 @@ import dotenv as de
 from abm.monitoring.trajs import find_top_val_gen, agent_action_from_view
 from abm.start_sim import reconstruct_NN
 
+def gather_views(data_dir, basis_vfr):
 
-def plot_sensitivity(names, num_ags=1, plot_type='abs(action)'):
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    exp_name = names[0]
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    # gather views
-    basis_vfr = 8
+    # gather non-social views
     with open(fr'{data_dir}/IDM/views_vfr{basis_vfr}.bin', 'rb') as f:
         views = pickle.load(f)
-    num_views = len(views)
 
     views_list = views.copy() # start with set without viewable agent
 
+    # 1 ag
     for x in range(basis_vfr): # set with 1 explorer x each visual perturb
         for view in views:
             v = view.copy()
@@ -35,131 +29,147 @@ def plot_sensitivity(names, num_ags=1, plot_type='abs(action)'):
             v[x] = 'agent_exploit'
             views_list.append(v)
 
-    if num_ags >= 2:
-        for x in range(basis_vfr-1): # set with 2 explorer x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_explore'
-                v[x+1] = 'agent_explore'
-                views_list.append(v)
-        for x in range(basis_vfr-1): # set with 2 exploiter x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_exploit'
-                v[x+1] = 'agent_exploit'
-                views_list.append(v)
-    if num_ags >= 3:
-        for x in range(basis_vfr-2): # set with 3 explorer x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_explore'
-                v[x+1] = 'agent_explore'
-                v[x+2] = 'agent_explore'
-                views_list.append(v)
-        for x in range(basis_vfr-2): # set with 3 exploiter x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_exploit'
-                v[x+1] = 'agent_exploit'
-                v[x+2] = 'agent_exploit'
-                views_list.append(v)
-    if num_ags >= 4:
-        for x in range(basis_vfr-3): # set with 4 explorer x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_explore'
-                v[x+1] = 'agent_explore'
-                v[x+2] = 'agent_explore'
-                v[x+3] = 'agent_explore'
-                views_list.append(v)
-        for x in range(basis_vfr-3): # set with 4 exploiter x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_exploit'
-                v[x+1] = 'agent_exploit'
-                v[x+2] = 'agent_exploit'
-                v[x+3] = 'agent_exploit'
-                views_list.append(v)
-    if num_ags >= 5:
-        for x in range(basis_vfr-4): # set with 5 explorer x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_explore'
-                v[x+1] = 'agent_explore'
-                v[x+2] = 'agent_explore'
-                v[x+3] = 'agent_explore'
-                v[x+4] = 'agent_explore'
-                views_list.append(v)
-        for x in range(basis_vfr-4): # set with 5 exploiter x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_exploit'
-                v[x+1] = 'agent_exploit'
-                v[x+2] = 'agent_exploit'
-                v[x+3] = 'agent_exploit'
-                v[x+4] = 'agent_exploit'
-                views_list.append(v)
-    if num_ags >= 6:
-        for x in range(basis_vfr-5): # set with 6 explorer x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_explore'
-                v[x+1] = 'agent_explore'
-                v[x+2] = 'agent_explore'
-                v[x+3] = 'agent_explore'
-                v[x+4] = 'agent_explore'
-                v[x+5] = 'agent_explore'
-                views_list.append(v)
-        for x in range(basis_vfr-5): # set with 6 exploiter x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_exploit'
-                v[x+1] = 'agent_exploit'
-                v[x+2] = 'agent_exploit'
-                v[x+3] = 'agent_exploit'
-                v[x+4] = 'agent_exploit'
-                v[x+5] = 'agent_exploit'
-                views_list.append(v)
-    if num_ags >= 7:
-        for x in range(basis_vfr-6): # set with 7 explorer x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_explore'
-                v[x+1] = 'agent_explore'
-                v[x+2] = 'agent_explore'
-                v[x+3] = 'agent_explore'
-                v[x+4] = 'agent_explore'
-                v[x+5] = 'agent_explore'
-                v[x+6] = 'agent_explore'
-                views_list.append(v)
-        for x in range(basis_vfr-6): # set with 7 exploiter x each visual perturb
-            for view in views:
-                v = view.copy()
-                v[x] = 'agent_exploit'
-                v[x+1] = 'agent_exploit'
-                v[x+2] = 'agent_exploit'
-                v[x+3] = 'agent_exploit'
-                v[x+4] = 'agent_exploit'
-                v[x+5] = 'agent_exploit'
-                v[x+6] = 'agent_exploit'
-                views_list.append(v)
-    if num_ags == 8:
+    # 2 ags
+    for x in range(basis_vfr-1): # set with 2 explorer x each visual perturb
         for view in views:
             v = view.copy()
-            v = ['agent_explore','agent_explore','agent_explore','agent_explore','agent_explore','agent_explore','agent_explore','agent_explore']
+            v[x] = 'agent_explore'
+            v[x+1] = 'agent_explore'
             views_list.append(v)
+    for x in range(basis_vfr-1): # set with 2 exploiter x each visual perturb
         for view in views:
             v = view.copy()
-            v = ['agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit']
+            v[x] = 'agent_exploit'
+            v[x+1] = 'agent_exploit'
             views_list.append(v)
+    
+    # 3 ags
+    for x in range(basis_vfr-2): # set with 3 explorer x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_explore'
+            v[x+1] = 'agent_explore'
+            v[x+2] = 'agent_explore'
+            views_list.append(v)
+    for x in range(basis_vfr-2): # set with 3 exploiter x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_exploit'
+            v[x+1] = 'agent_exploit'
+            v[x+2] = 'agent_exploit'
+            views_list.append(v)
+    
+    # 4 ags
+    for x in range(basis_vfr-3): # set with 4 explorer x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_explore'
+            v[x+1] = 'agent_explore'
+            v[x+2] = 'agent_explore'
+            v[x+3] = 'agent_explore'
+            views_list.append(v)
+    for x in range(basis_vfr-3): # set with 4 exploiter x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_exploit'
+            v[x+1] = 'agent_exploit'
+            v[x+2] = 'agent_exploit'
+            v[x+3] = 'agent_exploit'
+            views_list.append(v)
+    
+    # 5 ags
+    for x in range(basis_vfr-4): # set with 5 explorer x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_explore'
+            v[x+1] = 'agent_explore'
+            v[x+2] = 'agent_explore'
+            v[x+3] = 'agent_explore'
+            v[x+4] = 'agent_explore'
+            views_list.append(v)
+    for x in range(basis_vfr-4): # set with 5 exploiter x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_exploit'
+            v[x+1] = 'agent_exploit'
+            v[x+2] = 'agent_exploit'
+            v[x+3] = 'agent_exploit'
+            v[x+4] = 'agent_exploit'
+            views_list.append(v)
+    
+    # 6 ags
+    for x in range(basis_vfr-5): # set with 6 explorer x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_explore'
+            v[x+1] = 'agent_explore'
+            v[x+2] = 'agent_explore'
+            v[x+3] = 'agent_explore'
+            v[x+4] = 'agent_explore'
+            v[x+5] = 'agent_explore'
+            views_list.append(v)
+    for x in range(basis_vfr-5): # set with 6 exploiter x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_exploit'
+            v[x+1] = 'agent_exploit'
+            v[x+2] = 'agent_exploit'
+            v[x+3] = 'agent_exploit'
+            v[x+4] = 'agent_exploit'
+            v[x+5] = 'agent_exploit'
+            views_list.append(v)
+    
+    # 7 ags
+    for x in range(basis_vfr-6): # set with 7 explorer x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_explore'
+            v[x+1] = 'agent_explore'
+            v[x+2] = 'agent_explore'
+            v[x+3] = 'agent_explore'
+            v[x+4] = 'agent_explore'
+            v[x+5] = 'agent_explore'
+            v[x+6] = 'agent_explore'
+            views_list.append(v)
+    for x in range(basis_vfr-6): # set with 7 exploiter x each visual perturb
+        for view in views:
+            v = view.copy()
+            v[x] = 'agent_exploit'
+            v[x+1] = 'agent_exploit'
+            v[x+2] = 'agent_exploit'
+            v[x+3] = 'agent_exploit'
+            v[x+4] = 'agent_exploit'
+            v[x+5] = 'agent_exploit'
+            v[x+6] = 'agent_exploit'
+            views_list.append(v)
+    
+    # 8 ags
+    for view in views:
+        v = view.copy()
+        v = ['agent_explore','agent_explore','agent_explore','agent_explore','agent_explore','agent_explore','agent_explore','agent_explore']
+        views_list.append(v)
+    for view in views:
+        v = view.copy()
+        v = ['agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit','agent_exploit']
+        views_list.append(v)
 
-    views = views_list
+    return views_list
+
+
+def plot_sensitivity(names, plot_type='abs(action)'):
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    exp_name = names[0]
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    basis_vfr = 8
+    views = gather_views(data_dir, basis_vfr)
+    num_views = len(views[0])
     num_conditions = int(len(views)/num_views)
-
 
     # iterate over runs
     for name in names:
-        print(f'plot {name} - {plot_type} sensitivity @ {num_ags} agents')
+        print(f'plot {name} - {plot_type} sensitivity')
         gen, valfit = find_top_val_gen(name, 'cen')
         with open(fr'{data_dir}/{name}/{gen}_NNcen_pickle.bin','rb') as f:
             pv = pickle.load(f)
@@ -183,7 +193,7 @@ def plot_sensitivity(names, num_ags=1, plot_type='abs(action)'):
         last_loop = 1
         borders.append(last_loop)
 
-        for a in range(num_ags):
+        for a in range(basis_vfr):
             for j in range(basis_vfr - a):
                 for i in range(num_views):
                     if plot_type == 'act-abs':          act_array[i,last_loop+j] = np.abs(acts[x])
@@ -205,7 +215,7 @@ def plot_sensitivity(names, num_ags=1, plot_type='abs(action)'):
 
 
         # heatmap
-        fig, axes = plt.subplots(figsize=(15,2*num_ags - .12*num_ags**2)) # scaling
+        fig, axes = plt.subplots(figsize=(15,2*basis_vfr - .12*basis_vfr**2)) # scaling
 
         act_array = act_array.T # uno reverse
         # print(act_array.shape, np.any(act_array==0))
@@ -235,25 +245,25 @@ def plot_sensitivity(names, num_ags=1, plot_type='abs(action)'):
         elif plot_type == 'act-diff-abs': labs = []
         labs.extend(['', '', '', '1 Ag Explore', '', '', '', '', 
                 '', '', '', '1 Ag Exploit', '', '', '', '', ])
-        if num_ags >= 2:
+        if basis_vfr >= 2:
             labs.extend(['', '', '', '2 Ag Explore', '', '', '',
                          '', '', '', '2 Ag Exploit', '', '', '',])
-        if num_ags >= 3:
+        if basis_vfr >= 3:
             labs.extend(['', '', '3 Ag Explore', '', '', '',
                          '', '', '3 Ag Exploit', '', '', '',])
-        if num_ags >= 4:
+        if basis_vfr >= 4:
             labs.extend(['', '', '4 Ag Explore', '', '',
                          '', '', '4 Ag Exploit', '', '',])
-        if num_ags >= 5:
+        if basis_vfr >= 5:
             labs.extend(['', '5 Ag Explore', '', '',
                          '', '5 Ag Exploit', '', '',])
-        if num_ags >= 6:
+        if basis_vfr >= 6:
             labs.extend(['', '6 Ag Explore', '',
                          '', '6 Ag Exploit', '',])
-        if num_ags >= 7:
+        if basis_vfr >= 7:
             labs.extend(['7 Ag Explore', '',
                          '7 Ag Exploit', '',])
-        if num_ags >= 8:
+        if basis_vfr >= 8:
             labs.extend(['8 Ag Explore',
                          '8 Ag Exploit',])
         axes.set_yticklabels(labs[::-1]) # uno reverse
@@ -262,32 +272,49 @@ def plot_sensitivity(names, num_ags=1, plot_type='abs(action)'):
         axes.set_xlabel('132 Spatial Views')
 
         fig.tight_layout()
-        plt.savefig(fr'{data_dir}/sensitivity/{plot_type}_{num_ags}ags_{name}.png', dpi=100)
+        plt.savefig(fr'{data_dir}/sensitivity/{plot_type}_{basis_vfr}_{name}.png', dpi=100)
         plt.close()
 
+
+# def action_vs_COM():
+#     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+
+#     # exp_name = names[0]
+#     # env_path = fr'{data_dir}/{exp_name}/.env'
+#     # envconf = de.dotenv_values(env_path)
+
+#     basis_vfr = 8
+#     views = gather_views(data_dir, basis_vfr)
+#     num_views = len(views[0])
+#     num_conditions = int(len(views)/num_views)
+
+#     # for v in views:
+#     #     print(v)
 
 
 if __name__ == "__main__":
 
-    n = 20
-    name_list = []
-    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        name_list.append(name)
-    for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        name_list.append(name)
-    for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        name_list.append(name)
-    for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        name_list.append(name)
-    for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        name_list.append(name)
-    for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        name_list.append(name)
-    labels = np.arange(0,len(name_list))
+    # n = 20
+    # name_list = []
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     name_list.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     name_list.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     name_list.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     name_list.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     name_list.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     name_list.append(name)
+    # labels = np.arange(0,len(name_list))
 
-    # plot_sensitivity(name_list, num_ags=1)
+    # plot_sensitivity(name_list, basis_vfr=1)
     # for i in range(1,8+1):
-    #     plot_sensitivity(name_list, num_ags=i)
-    plot_sensitivity(name_list, num_ags=8, plot_type='act-abs')
-    plot_sensitivity(name_list, num_ags=8, plot_type='act-diff-abs')
+    #     plot_sensitivity(name_list, basis_vfr=i)
+    # plot_sensitivity(name_list, basis_vfr=8, plot_type='act-abs')
+    # plot_sensitivity(name_list, basis_vfr=8, plot_type='act-diff-abs')
+
+    action_vs_COM()
 

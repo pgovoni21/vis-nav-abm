@@ -1,12 +1,10 @@
 from abm.start_sim import start
 from abm.start_sim_multi import start as start_multi
-from abm.monitoring.trajs import find_top_val_gen
 
 from pathlib import Path
 import pickle
 import numpy as np
 import multiprocessing as mp
-import os
 import dotenv as de
 
 
@@ -185,7 +183,7 @@ def rerun_best_val_NN(name, num_seeds=1000, perturb_type=None):
     # pack inputs for multiprocessing map
     mp_inputs = []
     for s in range(num_seeds):
-        mp_inputs.append( (None, pv, None, s, env_path) ) # model_tuple=None, load_dir=None
+        mp_inputs.append( (None, pv, None, s, env_path) ) # model_tuple=None, load_dir=None, init_info=None
 
     # run agent NNs in parallel
     with mp.Pool() as pool:
@@ -197,8 +195,10 @@ def rerun_best_val_NN(name, num_seeds=1000, perturb_type=None):
     # allocate fitnesses
     val_matrix = np.zeros((num_seeds))
     for s,(time_taken, dist_from_patch, data) in enumerate(results_list):
-        val_matrix[s] = int(time_taken)
-        # val_matrix[s] = int(dist_from_patch)
+        if 'dist' in perturb_type:
+            val_matrix[s] = int(dist_from_patch)
+        else:
+            val_matrix[s] = int(time_taken)
 
     # saving protocol for perturb/regular
     if perturb_type == 'ghostexplorer':
@@ -793,12 +793,12 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
-    #     names.append(name)
+    # # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    # #     names.append(name)
     # # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     # #     names.append(name)
-    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
-        names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    #     names.append(name)
 
     # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
@@ -806,12 +806,12 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    # # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
+    # # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: # testing
     # #     names.append(name)
     # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
 
     # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
@@ -819,44 +819,46 @@ if __name__ == '__main__':
     #     names.append(name)
     # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    # # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
+    # # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
     # #     names.append(name)
-    for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
-    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
+    # # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]:
+    # #     names.append(name)
 
     # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
-    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: ## not complete yet
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
+    # # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep{x+40}' for x in range(n)]: # testing
+    # #     names.append(name)
 
     # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
 
-    for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
 
-    # # for name in [f'sc_N11_NRW0_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    # #     names.append(name)
-    # # for name in [f'sc_N11_NRW5_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    # #     names.append(name)
-    # for name in [f'sc_N11_NRW10_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # for name in [f'sc_N11_NRW0_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
-    # for name in [f'sc_N16_NRW15_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    #     names.append(name)
-    # # for name in [f'sc_N21_NRW0_ND20_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # # # for name in [f'sc_N11_NRW5_ND5_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # # #     names.append(name)
+    # # for name in [f'sc_N11_NRW10_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     # #     names.append(name)
-    # # for name in [f'sc_N21_NRW10_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-    # #     names.append(name)
-    # for name in [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # for name in [f'sc_N16_NRW0_ND15_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
+    # # for name in [f'sc_N16_NRW15_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
+    # for name in [f'sc_N21_NRW0_ND20_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # # # for name in [f'sc_N21_NRW10_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # # #     names.append(name)
+    # # for name in [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+    # #     names.append(name)
 
     # n = 20
     # for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_ghost_rep{x}' for x in range(n)]:
@@ -1098,7 +1100,7 @@ if __name__ == '__main__':
         # rerun_NNs(name, perturb_type='N2-ghostexplorer')
         # rerun_NNs(name, perturb_type='nowalls-ghostexploiter')
 
-        rerun_best_val_NN(name, num_seeds=5000)
+        # rerun_best_val_NN(name, num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='nosocial', num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='ghostexploiter', num_seeds=5000)
         # rerun_best_val_NN(name, perturb_type='ghostexplorer', num_seeds=5000)

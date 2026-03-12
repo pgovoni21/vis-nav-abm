@@ -1,6 +1,4 @@
-# python template
 __pycache__/
-
 *.egg-info/
 venv/
 
@@ -9,5 +7,5 @@ abm/data/simulation_data/*
 vids/
 # *.bin
 # *.gif
-# *.mp4
+*.mp4
 *.png

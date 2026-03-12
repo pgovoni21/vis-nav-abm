@@ -1,10 +1,8 @@
 from abm.start_sim import reconstruct_NN, start
 from abm.sprites.agent import Agent
-# from abm.sprites.agent_LM import Agent
-from abm.sprites.landmark import Landmark
 from abm.sprites import supcalc
-from abm.monitoring.plot_funcs import plot_map_iterative_traj, plot_map_iterative_traj_3d, plot_map_iterative_collisions, beeswarm
-from abm.monitoring.plot_funcs import calc_entropy, calc_KLdiv, calc_JSdiv
+from abm.monitoring.plot_funcs import plot_map_iterative_traj, plot_map_iterative_traj_3d, plot_map_iterative_collisions
+from abm.monitoring.util import find_top_val_gen, calc_entropy, calc_KLdiv, calc_JSdiv, beeswarm, name_to_metric
 
 import dotenv as de
 from pathlib import Path
@@ -18,6 +16,7 @@ from matplotlib.markers import MarkerStyle
 import os, sys, platform
 import itertools
 import seaborn as sns
+from pygam import LinearGAM
 
 # -------------------------- action -------------------------- #
 
@@ -851,8 +850,7 @@ def plot_action_vecfield(exp_name, gen_ext, space_step, orient_step, plot_type='
 #     plt.close()
 
 
-# -------------------------- early trajectory -------------------------- #
-
+# -------------------------- trajectory -------------------------- #
 
 def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', archive=False, feat_out=False):
     print(f'building {exp_name}, {gen_ext}, {space_step}, {int(np.pi/orient_step)}, {timesteps}, {extra}')
@@ -873,9 +871,6 @@ def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, ran
     if extra == '': 
         extra = envconf['N']
         save_extra = ''
-    elif extra == 'Nd+2':
-        extra = int(envconf['N'])+2
-        save_extra = 'Nd+2'
     else:
         save_extra = extra
 
@@ -897,11 +892,15 @@ def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, ran
     num_inits = len(x_range) * len(y_range) * len(orient_range)
     if feat_out:
         if envconf['SIM_TYPE'] == 'walls':
-            traj_matrix = np.zeros( (num_inits, timesteps, 10) ) # (pos_x, pos_y, _, _) --> to match self.data_agent format
+            traj_matrix = np.zeros( (num_inits, timesteps, 10) ) # (pos_x, pos_y, _, _, ...) --> to match self.data_agent format
         elif 'social' in envconf['SIM_TYPE']:
-            traj_matrix = np.zeros( (num_inits, timesteps, 24) ) # (pos_x, pos_y, _, _)
+            traj_matrix = np.zeros( (num_inits, timesteps, 24) ) # (pos_x, pos_y, _, _, ...)
     else:
-        traj_matrix = np.zeros( (num_inits, timesteps, 4) ) # (pos_x, pos_y, _, _)
+        if envconf['SIM_TYPE'] == 'walls':
+            traj_matrix = np.zeros( (num_inits, timesteps, 4) ) # (pos_x, pos_y, ori, act)
+        elif 'social' in envconf['SIM_TYPE']:
+            # traj_matrix = np.zeros( (num_inits, timesteps, 6) ) # (pos_x, pos_y, ori, act, COM_pos_x, COM_pos_y)
+            traj_matrix = np.zeros( (num_inits, timesteps, 3) ) # (pos_x, pos_y, ori)
     # print(f'traj matrix shape (# initializations, timesteps, ): {traj_matrix.shape}')
     
     # pack inputs for multiprocessing map
@@ -910,7 +909,7 @@ def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, ran
     for x in x_range:
         for y in y_range:
             for orient in orient_range:
-                init_info = x, y, orient, timesteps, extra
+                init_info = x, y, orient, timesteps, extra, ''
                 mp_inputs.append( (None, pv, None, seed, env_path, init_info, feat_out) ) # model_tuple=None, load_dir=None
                 seed += 1
 
@@ -936,12 +935,12 @@ def build_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, ran
     if save_extra == '':
         save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}.bin'
     else:
-        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{save_extra}.bin'
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}_{extra}.bin'
     with open(save_name, 'wb') as f:
         pickle.dump(traj_matrix, f)
 
 
-def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, ex_lines=False, act_arr=False, extra='', archive=False, dpi=50):
+def plot_agent_trajs(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', ellipses=False, eye=True, ex_lines=False, act_arr=False, extra='', archive=False, dpi=25):
     print(f'plotting map - {exp_name}, {gen_ext}, ell{ellipses}, ex_lines{ex_lines}, extra{extra}')
 
     save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -1061,8 +1060,8 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
     x = ag_data[:,delay:,0].flatten()
     y = ag_data[:,delay:,1].flatten()
     ori = ag_data[:,delay:,2].flatten()
-    action = ag_data[:,delay:,3].flatten()
-    action = np.abs(action)
+    # action = ag_data[:,delay:,3].flatten()
+    # action = np.abs(action)
 
     num_bins = 25
     x_bins = np.linspace(0, x_max, num_bins+1)
@@ -1074,14 +1073,14 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
         X,Y = np.meshgrid(x_bins, y_bins)
         axes.pcolormesh(X, Y, H.T, cmap='plasma')
 
-    elif plot_type == '_avgact':
-        H_count,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
-        H,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=action)
-        H = np.divide(H, H_count, out=np.zeros_like(H), where=H_count!=0)
+    # elif plot_type == '_avgact':
+    #     H_count,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins])
+    #     H,_,_ = np.histogram2d(x, y, bins=[x_bins, y_bins], weights=action)
+    #     H = np.divide(H, H_count, out=np.zeros_like(H), where=H_count!=0)
  
-        X,Y = np.meshgrid(x_bins, y_bins)
-        norm = mpl.colors.Normalize(vmin=H.min(), vmax=H.max())
-        axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
+    #     X,Y = np.meshgrid(x_bins, y_bins)
+    #     norm = mpl.colors.Normalize(vmin=H.min(), vmax=H.max())
+    #     axes.pcolormesh(X, Y, H.T, cmap='plasma', norm=norm)
         
     elif plot_type == '_avgori':
         num_bins = 39
@@ -1604,6 +1603,151 @@ def plot_traj_vecfield(exp_name, gen_ext, space_step, orient_step, timesteps, pl
         return np.mean(H_mask), np.min(H_mask), np.max(H_mask)
 
 
+def plot_traj_vecfield_perturb_div(exp_name, gen_ext, space_step, orient_step, timesteps, plot_type='', base_cond='', perturb_cond='', mask_cond='', dpi=50):
+    print(f'plotting traj vector field - {exp_name}: {plot_type} + {base_cond}/{perturb_cond}/{mask_cond} @ {dpi} dpi')
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x_min, x_max = 0, width
+    y_min, y_max = 0, height
+    orient_range = np.arange(0, 2*np.pi, orient_step)
+
+    fig, axes = plt.subplots() 
+    axes.set_xlim(0, x_max)
+    axes.set_ylim(0, y_max)
+    h,w = 8,8
+    l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
+    fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
+
+    if base_cond == '':
+        save_name_baseline = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    else:
+        save_name_baseline = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_{base_cond}'
+    with open(save_name_baseline+'.bin', 'rb') as f:
+        ag_data_base = pickle.load(f)
+    # print(ag_data.shape)
+
+    delay = 25
+    x_base = ag_data_base[::10,delay:,0].flatten()
+    y_base = ag_data_base[::10,delay:,1].flatten()
+    ori_base = ag_data_base[::10,delay:,2].flatten()
+
+    if perturb_cond == '':
+        save_name_perturb = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
+    else:
+        save_name_perturb = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_{perturb_cond}'
+    with open(save_name_perturb+'.bin', 'rb') as f:
+        ag_data_perturb = pickle.load(f)
+    # print(ag_data.shape)
+
+    x_perturb = ag_data_perturb[::10,delay:,0].flatten()
+    y_perturb = ag_data_perturb[::10,delay:,1].flatten()
+    ori_perturb = ag_data_perturb[::10,delay:,2].flatten()
+
+    # print(ag_data_base == ag_data_perturb)
+
+    num_bins = 51
+    # num_bins = 101
+    x_bins = np.linspace(0, x_max, num_bins)
+    y_bins = np.linspace(0, y_max, num_bins)
+    # organize base
+    hitx = np.digitize(x_base, x_bins[1:])
+    hity = np.digitize(y_base, y_bins[1:])
+    hitbins = list(zip(hitx, hity))
+    ori_and_bins_base = list(zip(ori_base, hitbins))
+    # organize perturb
+    hitx = np.digitize(x_perturb, x_bins[1:])
+    hity = np.digitize(y_perturb, y_bins[1:])
+    hitbins = list(zip(hitx, hity))
+    ori_and_bins_perturb = list(zip(ori_perturb, hitbins))
+
+    H = np.zeros((num_bins-1, num_bins-1))
+
+    if plot_type == 'JS':
+        norm = mpl.colors.LogNorm(vmin=.01, vmax=1)
+        # norm = mpl.colors.Normalize(vmin=0, vmax=0.5)
+        for i in range(num_bins-1):
+            for j in range(num_bins-1):
+                bin_ori_base = [ori for (ori,bin) in ori_and_bins_base if bin == (i,j)]
+                bin_ori_perturb = [ori for (ori,bin) in ori_and_bins_perturb if bin == (i,j)]
+                if bin_ori_base and bin_ori_perturb:
+                    x = np.histogram(bin_ori_base, bins=orient_range)[0]
+                    y = np.histogram(bin_ori_perturb, bins=orient_range)[0]
+                    H[i,j] = calc_JSdiv(x,y)
+                    # print('y')
+                # else:
+                #     print(i,j,'no data')
+    # elif plot_type == 'KL':
+    #     norm = mpl.colors.LogNorm(vmin=.01, vmax=10)
+    #     for i in range(num_bins-1):
+    #         for j in range(num_bins-1):
+    #             bin_ori_base = [ori for (ori,bin) in ori_and_bins_base if bin == (i,j)]
+    #             bin_ori_perturb = [ori for (ori,bin) in ori_and_bins_perturb if bin == (i,j)]
+    #             if bin_ori_base and bin_ori_perturb:
+    #                 x = np.histogram(bin_ori_base, bins=orient_range)[0]
+    #                 y = np.histogram(bin_ori_perturb, bins=orient_range)[0]
+    #                 H[i,j] = calc_KLdiv(x,y)
+
+    # norm = mpl.colors.Normalize(vmin=0, vmax=1)
+    X,Y = np.meshgrid(x_bins, y_bins)
+    im = axes.pcolormesh(X, Y, H.T, cmap='viridis', norm=norm)
+    # cbar = axes.figure.colorbar(im, ax=axes, fraction=0.046, pad=0.04, extend='both')
+
+    radius = int(envconf["RADIUS_RESOURCE"])
+    x,y = tuple(eval(envconf["RESOURCE_POS"]))
+    axes.add_patch( plt.Circle((x, height-y), radius, edgecolor='k', fill=False, zorder=1) )
+
+    if mask_cond == '':
+        # mask edges (100 from each edge) + patch vicinity (100 from center)
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:5,:] = 1
+        mask[:,:5] = 1
+        mask[46:,:] = 1
+        mask[:,46:] = 1
+        mask[16:25,26:35] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    elif mask_cond == 'no_patch':
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:5,:] = 1
+        mask[:,:5] = 1
+        mask[46:,:] = 1
+        mask[:,46:] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    elif mask_cond == 'patch_only':
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:16,:] = 1
+        mask[25:,:] = 1
+        mask[:,:26] = 1
+        mask[:,35:] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    elif mask_cond == 'near_patch':
+        mask = np.zeros([num_bins-1, num_bins-1])
+        mask[:11,:] = 1
+        mask[30:,:] = 1
+        mask[:,:21] = 1
+        mask[:,40:] = 1
+        H_mask = np.ma.array(H, mask=mask)
+    else:
+        print('no valid mask condition specified')
+    axes.set_title(f'Masked + Mean JS Divergence: {np.mean(H_mask):.3f}')
+    axes.set_xticklabels([])
+    axes.set_yticklabels([])
+    plt.tight_layout()
+
+    if base_cond == '': base_cond = 'base'
+    if perturb_cond == '': perturb_cond = 'base'
+    plt.savefig(fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{base_cond}_{perturb_cond}_traj_hist_{plot_type}{mask_cond}.png', dpi=dpi)
+    plt.close()
+
+    print(f'min/mean/max: {np.min(H_mask):.3f}/{np.mean(H_mask):.3f}/{np.max(H_mask):.3f}')
+
+    return np.mean(H_mask), np.min(H_mask), np.max(H_mask)
+
+
+# -------------------------- activfield -------------------------- #
 
 def print_activfield_results():
     data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
@@ -1769,149 +1913,6 @@ def plot_activfield_results(plot_type, data_type=''):
         plt.close()
 
 
-
-def plot_traj_vecfield_perturb_div(exp_name, gen_ext, space_step, orient_step, timesteps, plot_type='', base_cond='', perturb_cond='', mask_cond='', dpi=50):
-    print(f'plotting traj vector field - {exp_name}: {plot_type} + {base_cond}/{perturb_cond}/{mask_cond} @ {dpi} dpi')
-
-    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
-    env_path = fr'{data_dir}/{exp_name}/.env'
-    envconf = de.dotenv_values(env_path)
-
-    width, height = tuple(eval(envconf["ENV_SIZE"]))
-    x_min, x_max = 0, width
-    y_min, y_max = 0, height
-    orient_range = np.arange(0, 2*np.pi, orient_step)
-
-    fig, axes = plt.subplots() 
-    axes.set_xlim(0, x_max)
-    axes.set_ylim(0, y_max)
-    h,w = 8,8
-    l,r,t,b = fig.subplotpars.left, fig.subplotpars.right, fig.subplotpars.top, fig.subplotpars.bottom
-    fig.set_size_inches( float(w)/(r-l) , float(h)/(t-b) )
-
-    if base_cond == '':
-        save_name_baseline = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
-    else:
-        save_name_baseline = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_{base_cond}'
-    with open(save_name_baseline+'.bin', 'rb') as f:
-        ag_data_base = pickle.load(f)
-    # print(ag_data.shape)
-
-    delay = 25
-    x_base = ag_data_base[::10,delay:,0].flatten()
-    y_base = ag_data_base[::10,delay:,1].flatten()
-    ori_base = ag_data_base[::10,delay:,2].flatten()
-
-    if perturb_cond == '':
-        save_name_perturb = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1'
-    else:
-        save_name_perturb = fr'{data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_{perturb_cond}'
-    with open(save_name_perturb+'.bin', 'rb') as f:
-        ag_data_perturb = pickle.load(f)
-    # print(ag_data.shape)
-
-    x_perturb = ag_data_perturb[::10,delay:,0].flatten()
-    y_perturb = ag_data_perturb[::10,delay:,1].flatten()
-    ori_perturb = ag_data_perturb[::10,delay:,2].flatten()
-
-    # print(ag_data_base == ag_data_perturb)
-
-    num_bins = 51
-    # num_bins = 101
-    x_bins = np.linspace(0, x_max, num_bins)
-    y_bins = np.linspace(0, y_max, num_bins)
-    # organize base
-    hitx = np.digitize(x_base, x_bins[1:])
-    hity = np.digitize(y_base, y_bins[1:])
-    hitbins = list(zip(hitx, hity))
-    ori_and_bins_base = list(zip(ori_base, hitbins))
-    # organize perturb
-    hitx = np.digitize(x_perturb, x_bins[1:])
-    hity = np.digitize(y_perturb, y_bins[1:])
-    hitbins = list(zip(hitx, hity))
-    ori_and_bins_perturb = list(zip(ori_perturb, hitbins))
-
-    H = np.zeros((num_bins-1, num_bins-1))
-
-    if plot_type == 'JS':
-        norm = mpl.colors.LogNorm(vmin=.01, vmax=1)
-        # norm = mpl.colors.Normalize(vmin=0, vmax=0.5)
-        for i in range(num_bins-1):
-            for j in range(num_bins-1):
-                bin_ori_base = [ori for (ori,bin) in ori_and_bins_base if bin == (i,j)]
-                bin_ori_perturb = [ori for (ori,bin) in ori_and_bins_perturb if bin == (i,j)]
-                if bin_ori_base and bin_ori_perturb:
-                    x = np.histogram(bin_ori_base, bins=orient_range)[0]
-                    y = np.histogram(bin_ori_perturb, bins=orient_range)[0]
-                    H[i,j] = calc_JSdiv(x,y)
-                    # print('y')
-                # else:
-                #     print(i,j,'no data')
-    # elif plot_type == 'KL':
-    #     norm = mpl.colors.LogNorm(vmin=.01, vmax=10)
-    #     for i in range(num_bins-1):
-    #         for j in range(num_bins-1):
-    #             bin_ori_base = [ori for (ori,bin) in ori_and_bins_base if bin == (i,j)]
-    #             bin_ori_perturb = [ori for (ori,bin) in ori_and_bins_perturb if bin == (i,j)]
-    #             if bin_ori_base and bin_ori_perturb:
-    #                 x = np.histogram(bin_ori_base, bins=orient_range)[0]
-    #                 y = np.histogram(bin_ori_perturb, bins=orient_range)[0]
-    #                 H[i,j] = calc_KLdiv(x,y)
-
-    # norm = mpl.colors.Normalize(vmin=0, vmax=1)
-    X,Y = np.meshgrid(x_bins, y_bins)
-    im = axes.pcolormesh(X, Y, H.T, cmap='viridis', norm=norm)
-    # cbar = axes.figure.colorbar(im, ax=axes, fraction=0.046, pad=0.04, extend='both')
-
-    radius = int(envconf["RADIUS_RESOURCE"])
-    x,y = tuple(eval(envconf["RESOURCE_POS"]))
-    axes.add_patch( plt.Circle((x, height-y), radius, edgecolor='k', fill=False, zorder=1) )
-
-    if mask_cond == '':
-        # mask edges (100 from each edge) + patch vicinity (100 from center)
-        mask = np.zeros([num_bins-1, num_bins-1])
-        mask[:5,:] = 1
-        mask[:,:5] = 1
-        mask[46:,:] = 1
-        mask[:,46:] = 1
-        mask[16:25,26:35] = 1
-        H_mask = np.ma.array(H, mask=mask)
-    elif mask_cond == 'no_patch':
-        mask = np.zeros([num_bins-1, num_bins-1])
-        mask[:5,:] = 1
-        mask[:,:5] = 1
-        mask[46:,:] = 1
-        mask[:,46:] = 1
-        H_mask = np.ma.array(H, mask=mask)
-    elif mask_cond == 'patch_only':
-        mask = np.zeros([num_bins-1, num_bins-1])
-        mask[:16,:] = 1
-        mask[25:,:] = 1
-        mask[:,:26] = 1
-        mask[:,35:] = 1
-        H_mask = np.ma.array(H, mask=mask)
-    elif mask_cond == 'near_patch':
-        mask = np.zeros([num_bins-1, num_bins-1])
-        mask[:11,:] = 1
-        mask[30:,:] = 1
-        mask[:,:21] = 1
-        mask[:,40:] = 1
-        H_mask = np.ma.array(H, mask=mask)
-    else:
-        print('no valid mask condition specified')
-    axes.set_title(f'Masked + Mean JS Divergence: {np.mean(H_mask):.3f}')
-    axes.set_xticklabels([])
-    axes.set_yticklabels([])
-    plt.tight_layout()
-
-    if base_cond == '': base_cond = 'base'
-    if perturb_cond == '': perturb_cond = 'base'
-    plt.savefig(fr'{data_dir}/action_maps/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{base_cond}_{perturb_cond}_traj_hist_{plot_type}{mask_cond}.png', dpi=dpi)
-    plt.close()
-
-    print(f'min/mean/max: {np.min(H_mask):.3f}/{np.mean(H_mask):.3f}/{np.max(H_mask):.3f}')
-
-    return np.mean(H_mask), np.min(H_mask), np.max(H_mask)
 
 
 # -------------------------- correlations -------------------------- #
@@ -4433,6 +4434,622 @@ def plot_IDM_unique_views(space_step, orient_step, vis_field_res=32, dpi=50):
     # plt.show()
 
 
+def build_social_views(exp_name, gen_ext, space_step, orient_step, timesteps, extra=''):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/IDM/social_view_set.bin', 'rb') as f:
+        view_set_all = pickle.load(f)
+    view_set = set()
+
+    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
+    with open(NN_pv_path,'rb') as f:
+        pv = pickle.load(f)
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    if extra == '': 
+        extra = envconf['N']
+
+    # every grid position/direction
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x_min, x_max = 0, width
+    y_min, y_max = 0, height
+    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
+    x_range = np.linspace(x_min + coll_boundary_thickness, 
+                        x_max - coll_boundary_thickness, 
+                        int((width - coll_boundary_thickness*2) / space_step))
+    y_range = np.linspace(y_min + coll_boundary_thickness, 
+                        y_max - coll_boundary_thickness, 
+                        int((height - coll_boundary_thickness*2) / space_step))
+    orient_range = np.arange(0, 2*np.pi, orient_step)
+
+    # pack inputs for multiprocessing map
+    mp_inputs = []
+    seed = 0
+    for x in x_range:
+        for y in y_range:
+            for orient in orient_range:
+                init_info = x, y, orient, timesteps, extra, 'views'
+                mp_inputs.append( (None, pv, None, seed, env_path, init_info, False) ) # model_tuple=None, load_dir=None
+                seed += 1
+
+    # run agent NNs in parallel
+    with mp.Pool() as pool:
+        results = pool.starmap_async( start, mp_inputs )
+        pool.close()
+        pool.join()
+
+    results_list = results.get()
+    for time_taken, dist_from_patch, output in results_list:
+        view_set.update(output)
+        view_set_all.update(output)
+
+    with open(fr'{data_dir}/IDM/social_view_set.bin', 'wb') as f:
+        pickle.dump(view_set_all, f)
+    return view_set
+
+
+def encode_one_hot(vis_field):
+
+        num_class_elements = 6
+        len_field = 8
+        field_onehot = np.zeros((num_class_elements, len_field))
+        for i,x in enumerate(vis_field):
+            if x == 'wall_north': field_onehot[0,i] = 1
+            elif x == 'wall_south': field_onehot[1,i] = 1
+            elif x == 'wall_east': field_onehot[2,i] = 1
+            elif x == 'wall_west': field_onehot[3,i] = 1
+            elif x == 'agent_explore': field_onehot[4,i] = 1
+            elif x == 'agent_exploit': field_onehot[5,i] = 1
+            else: 
+                print('error - nothing is perceived')
+
+        return field_onehot
+
+
+def COM_from_view(vis_input):
+
+    # vis_input.shape = (6,8) # types, rays
+
+    explore = vis_input[4,:]
+    exploit = vis_input[5,:]
+    both = explore + exploit
+
+    if np.all(explore == 0): # no explore
+        explore_avg = -1
+        explore_only_avg = -1
+    elif np.any(exploit != 0): # explore + also exploit
+        explore_avg = np.argwhere(explore == 1).mean()
+        explore_only_avg = -1
+    else: # explore + no exploit
+        explore_avg = np.argwhere(explore == 1).mean()
+        explore_only_avg = explore_avg
+
+    if np.all(exploit == 0): # no exploit
+        exploit_avg = -1
+        exploit_only_avg = -1
+    elif np.any(explore != 0): # exploit + also explore
+        exploit_avg = np.argwhere(exploit == 1).mean()
+        exploit_only_avg = -1
+    else: # exploit + no explore
+        exploit_avg = np.argwhere(exploit == 1).mean()
+        exploit_only_avg = exploit_avg
+
+    if np.all(both == 0): # no either
+        both_avg = -1
+        both_only_avg = -1
+        none = 0
+    elif np.all(explore == 0) or np.all(exploit == 0): # both
+        both_avg = np.argwhere(both == 1).mean()
+        both_only_avg = -1
+        none = -1
+    else: # either
+        both_avg = np.argwhere(both == 1).mean()
+        both_only_avg = both_avg
+        none = -1
+
+    return explore_avg, exploit_avg, both_avg, explore_only_avg, exploit_only_avg, both_only_avg, none
+    
+
+def actions_per_view(name, gen_ext, view_set=None):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if view_set:
+        save_name = f'actions_per_view_{name}_solo'
+    else:
+        save_name = f'actions_per_view_{name}_all'
+        with open(fr'{data_dir}/IDM/social_view_set.bin', 'rb') as f:
+            view_set = pickle.load(f)
+    view_dict = dict.fromkeys(view_set, 0)
+    print(f'actions_per_view {name} @ {len(view_set)} views')
+
+    if os.path.exists(fr'{data_dir}/IDM/{save_name}.png'):
+        print('traj already plotted')
+        return
+
+    # retrieve model
+    gen_ext, valfit = find_top_val_gen(name, 'cen')
+    with open(fr'{data_dir}/{name}/{gen_ext}_NNcen_pickle.bin','rb') as f:
+        pv = pickle.load(f)
+    env_path = fr'{data_dir}/{name}/.env'
+    envconf = de.dotenv_values(env_path)
+    NN,_ = reconstruct_NN(envconf,pv)
+
+    # vis obs --> action
+    angles = []
+    avgs = []
+
+    for vis_input in view_dict.keys():
+        vis_input = encode_one_hot(vis_input)
+
+        all_avgs = COM_from_view(vis_input)
+        avgs.append(all_avgs)
+
+        action,_,_,_ = NN.forward(vis_input, np.array([0]), None)
+        angle = action * 90
+        angles.append(angle)
+
+    angles = np.array(angles)
+    avgs = np.array(avgs)
+
+    fig, axs = plt.subplots(1,3, figsize=(5,3))
+
+    lab_list = ['Explore', 'Exploit', 'Both']
+    for i in range(3):
+        mask = (avgs[:,i+3] != -1) # take out non-hits
+        angles_subset = angles[mask]
+        avgs_subset = avgs[:,i+3][mask]
+        avgs_subset -= 3.5 # center
+        avgs_subset *= 72/3.5 # scale to FOV
+
+        axs[i].hlines(0, -72, 72, 'k', alpha=.1)
+        axs[i].vlines(0, -90, 90, 'k', alpha=.1)
+
+        gam = LinearGAM(n_splines=5, verbose=False).gridsearch(avgs_subset, angles_subset, progress=False)
+        XX = gam.generate_X_grid(term=0, n=100).flatten()
+
+        # intervals = gam.prediction_intervals(XX, width=0.95)
+        # axs[i].plot(XX, intervals, color="b", ls="--")
+        # axs[i].fill_between(XX, intervals[:,0], intervals[:,1], color='b', ls='--', alpha=.2)
+
+        axs[i].plot(avgs_subset, angles_subset, 'ko', markeredgecolor='none', markersize=5, alpha=1/255)
+        axs[i].plot(XX, gam.predict(XX), 'C0--')
+
+        # non-social obs
+        angles_subset = angles[(avgs[:,6] != -1)]
+        # print(np.min(angles_subset), np.max(angles_subset), np.median(angles_subset), np.std(angles_subset))
+        axs[i].plot(0, np.median(angles_subset), 'C0o', markersize=5, alpha=.8)
+
+        axs[i].set_xlabel(lab_list[i])
+        axs[i].set_ylim(-92,92)
+        
+        axs[i].set_xticks(np.linspace(-72,72,3))
+        axs[i].set_yticks(np.linspace(-90,90,7))
+
+    axs[0].set_ylabel('NN Output Angle')
+
+    plt.tight_layout()
+    plt.savefig(fr'{data_dir}/IDM/{save_name}.png', dpi=dpi)
+    plt.close()
+
+
+# -------------------------- dists -------------------------- #
+
+def build_patch_dists(exp_name, gen_ext, space_step, orient_step, timesteps, extra=''):
+    print(f'building {exp_name} dists')
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
+    with open(NN_pv_path,'rb') as f:
+        pv = pickle.load(f)
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    if extra == '': 
+        extra = envconf['N']
+
+    width, height = tuple(eval(envconf["ENV_SIZE"]))
+    x_min, x_max = 0, width
+    y_min, y_max = 0, height
+    coll_boundary_thickness = int(envconf["RADIUS_AGENT"])*2
+    x_range = np.linspace(x_min + coll_boundary_thickness, 
+                        x_max - coll_boundary_thickness, 
+                        int((width - coll_boundary_thickness*2) / space_step))
+    y_range = np.linspace(y_min + coll_boundary_thickness, 
+                        y_max - coll_boundary_thickness, 
+                        int((height - coll_boundary_thickness*2) / space_step))
+    orient_range = np.arange(0, 2*np.pi, orient_step)
+
+    num_inits = len(x_range) * len(y_range) * len(orient_range)
+    traj_matrix = np.zeros( (num_inits, timesteps) )
+
+    mp_inputs = []
+    seed = 0
+    for x in x_range:
+        for y in y_range:
+            for orient in orient_range:
+                init_info = x, y, orient, timesteps, extra, 'dists'
+                mp_inputs.append( (None, pv, None, seed, env_path, init_info, False) ) # model_tuple=None, load_dir=None
+                seed += 1
+
+    with mp.Pool() as pool:
+        results = pool.starmap_async( start, mp_inputs )
+        pool.close()
+        pool.join()
+
+    results_list = results.get()
+    for n, (time_taken, dist_from_patch, output) in enumerate(results_list):
+        traj_matrix[n,:] =  output
+
+    with open(fr'{data_dir}/dists/{exp_name}_{gen_ext}.bin', 'wb') as f:
+        pickle.dump(traj_matrix, f)
+
+
+def patch_timeXdist(name, gen_ext, plot_type=''):
+    print('plotting patch_timeXdist', name, plot_type)
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    with open(fr'{data_dir}/dists/{name}_{gen_ext}.bin', 'rb') as f:
+        data = pickle.load(f)
+
+    fig, axs = plt.subplots(figsize=(3,3))
+
+    num_runs, num_timesteps = data.shape
+    time = np.linspace(0,num_timesteps-1,num_timesteps)
+
+    if plot_type == '':
+        # lines
+        for i in range(num_runs):
+            dist_at_run = data[i,:]
+            axs.plot(time, dist_at_run, 'k', alpha=1/255)
+
+        # time_all = []
+        # dist_all = []
+        # for i in range(num_runs):
+        #     dist = data[i,:]
+        #     axs.plot(time, dist, 'k', alpha=1/255)
+        #     time_all.append(time)
+        #     dist_all.append(dist)
+        # time_all = np.array(time_all).flatten()
+        # dist_all = np.array(dist_all).flatten()
+
+        # gam = LinearGAM(n_splines=5, verbose=False).gridsearch(time_all, dist_all, progress=False)
+        # XX = gam.generate_X_grid(term=0, n=100).flatten()
+
+        # intervals = gam.prediction_intervals(XX, width=0.95)
+        # axs.plot(XX, intervals, 'C0--')
+        # axs.fill_between(XX, intervals[:,0], intervals[:,1], color='b', ls='--', alpha=.2)
+
+        # axs.plot(XX, gam.predict(XX), 'r--')
+
+        axs.set_xlim([0,num_timesteps])
+        axs.set_ylim([0,800])
+
+        axs.set_xlabel('Time')
+        axs.set_ylabel('Distance to Patch')
+    
+    elif plot_type == '_bars':
+
+        dists_by_category = form_timeXdist_dict(data, thresh=100)
+
+        bottom = np.zeros(num_timesteps)
+        for category, num in dists_by_category.items():
+            num = np.array(num)
+            p = axs.bar(time, num/num_runs, width=1, label=category, bottom=bottom)
+            bottom += num/num_runs
+
+            # print(category, round(np.sum(num/num_runs)/num_timesteps, 2))
+
+        axs.set_xticks(np.linspace(0, num_timesteps, 6))
+        axs.set_xlabel('Time')
+        axs.set_ylabel('Frequency')
+        # axs.legend()
+
+    plt.tight_layout()
+    plt.savefig(fr'{data_dir}/{name}_{gen_ext}{plot_type}.png', dpi=dpi)
+    plt.close()
+
+
+def form_timeXdist_dict(data, thresh):
+
+    dists_by_category = {
+        'near start':[],
+        'in transit':[],
+        'near patch':[],
+        'at patch':[]
+    }
+
+    num_runs, num_timesteps = data.shape
+    dist_at_start = data[:,0]
+
+    for t in range(num_timesteps):
+        dist_at_time = data[:,t]
+
+        num_at_patch = np.sum(dist_at_time == 0)
+        num_near_patch = np.sum((dist_at_time <= thresh) & (dist_at_time > 0)) # near + not at patch
+        num_near_start = np.sum((dist_at_start - dist_at_time <= thresh) & (dist_at_time > thresh)) # close to start + not near patch
+        num_in_transit = num_runs - num_at_patch - num_near_patch - num_near_start
+
+        dists_by_category['near start'].append(num_near_start)
+        dists_by_category['in transit'].append(num_in_transit)
+        dists_by_category['near patch'].append(num_near_patch)
+        dists_by_category['at patch'].append(num_at_patch)
+    
+    return dists_by_category
+
+
+# -------------------------- spins -------------------------- #
+
+def build_agent_spins(exp_name, gen_ext, spin_angle, extra=''):
+    print(f'building {spin_angle} spin')
+
+    # pull pv + envconf from save folders
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    exp_name = 'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep0' # dummy
+    gen_ext = 'gen988' # dummy
+    with open(fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin','rb') as f:
+        pv = pickle.load(f)
+    env_path = fr'{data_dir}/{exp_name}/.env'
+
+    # determines initial positions for perceived agent (focal agent is stationary)
+    # z_range = np.linspace(0, 1000, 41)
+    # z_range = np.linspace(25, 1000, 40) # +/- 25 noise
+    z_range = np.linspace(25, 1200, 48) # +/- 25 noise
+
+    # each run varies by total timesteps but normalized by 1 revolution (spin_angle = 1 --> 90 deg turns)
+    # timesteps = int(4 / spin_angle)
+    timesteps = int(4 / spin_angle) * 1000 # noise
+
+    # construct matrix of each traj for each grid pos/dir
+    traj_matrix = np.zeros( (len(z_range), timesteps, 4) ) # (pos_x, pos_y, ori, detection_count)
+
+    # pack inputs for multiprocessing map
+    mp_inputs = []
+    seed = 0
+    for z in z_range:
+        init_info = z, spin_angle, timesteps, extra
+        mp_inputs.append( (None, pv, None, seed, env_path, init_info) ) # model_tuple=None, load_dir=None
+        seed += 1
+
+    # run agent NNs in parallel
+    with mp.Pool() as pool:
+        results = pool.starmap_async( start, mp_inputs )
+        pool.close()
+        pool.join()
+
+    # unpack results into matrix (y coords transformed for plotting)
+    results_list = results.get()
+
+    empties = []
+    for n, (time_taken, dist_from_patch, output) in enumerate(results_list):
+        traj_matrix[n,:,:] =  output
+        if not output[0,:].any():
+            empties.append(n) 
+    for n in empties:
+        traj_matrix = np.delete(traj_matrix, n, axis=0)
+
+    # transform to distance X detec prob
+    detect_count = traj_matrix[:,:,3]
+    detect_avg = np.average(detect_count, axis=1)
+
+    save_name = fr'{data_dir}/spins/angle{spin_angle}.bin'
+    with open(save_name, 'wb') as f:
+        pickle.dump(detect_avg, f)
+
+
+def plot_spin_chart(dpi=100):
+    print(f'plot spin chart')
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    exp_name = 'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep0' # dummy
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+
+    # angles = [.0125, .025, .05, .1, .2, .3, .4]
+    angles = np.linspace(1, 90, 90)/90
+    angles = angles.round(3)
+
+    counts = []
+    for angle in angles:
+        with open(fr'{data_dir}/spins/angle{angle}.bin', 'rb') as f:
+            detect_avg = pickle.load(f) # [z, detection_count]
+        counts.append(detect_avg)
+
+    # z_range = np.linspace(0, 1000, 41)
+    # z_range = np.linspace(25, 1000, 40)
+    z_range = np.linspace(25, 1200, 48)
+
+    cmap = plt.get_cmap('viridis')
+    colors = cmap(np.linspace(0, 1, len(angles)))
+
+    # fig, axes = plt.subplots(figsize=(4.15,3.15))
+    fig, axes = plt.subplots(figsize=(4.25,3.25))
+    for i,angle in enumerate(angles):
+        deg = int(angle*90)
+        axes.plot(z_range, counts[i], label=f'{deg}$^\circ$', c=colors[i], alpha=.25)
+        # print(angle, deg)
+        # print(z_range[2],'',counts[i][2])
+        # print(z_range[7],'',counts[i][7])
+        # print(z_range[19],'',counts[i][19])
+        # print(z_range[29],'',counts[i][29])
+        # print('')
+
+    axes.vlines(67, 0, 0.5, color='grey', linestyle='dashed', alpha=0.5)
+    axes.vlines(497, 0, 0.5, color='grey', linestyle='dashed', alpha=0.5)
+    axes.annotate('Within 100 Units', xy=(67, 0.125), xytext=(5,0), textcoords='offset points', color='darkslategrey', fontsize=8, rotation=90, va='center')
+    axes.annotate('All Map Initialization', xy=(497, 0.3), xytext=(5,0), textcoords='offset points', color='darkslategrey', fontsize=8, rotation=90, va='center')
+
+    # axes.legend(title='Spin Angle', loc='upper right')
+
+    axes.set_xlabel('Distance Between Agents')
+    axes.set_ylabel('Detection Probability')
+    # axes.set_ylim(-20,1020)
+
+    plt.tight_layout()
+    plt.savefig(fr'{data_dir}/spins/detect-prob_all-angles.png', dpi=dpi)
+    plt.close()
+
+
+
+def plot_social_orient_corr(exp_name, gen_ext, space_step, orient_step, timesteps, rank='cen', eye=True, extra='', archive=False, dpi=None):
+    print(f'plotting corr - {exp_name}')
+
+    save_data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    if archive:
+        data_dir = Path(__file__).parent.parent / r'data/simulation_data/archive - ISBDDP/'
+    else:
+        data_dir = save_data_dir
+
+    if extra == '':
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
+    else:
+        save_name = fr'{save_data_dir}/traj_matrices/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}{extra}'
+    if not os.path.exists(save_name+'.bin'):
+        print(f'no data found for {save_name}')
+        return 0,0,0,0
+    with open(save_name+'.bin', 'rb') as f:
+        ag_data = pickle.load(f)
+    save_name = fr'{save_data_dir}/corrs/{exp_name}_{gen_ext}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e{int(eye)}'
+
+    num_runs,t_len,_ = ag_data.shape
+    t = np.linspace(0,t_len,t_len)
+    # print(f'ag_data shape: {num_runs, len(t)}')
+
+    # corr to init
+    delay = 0
+    # t = t[:-delay] # if there is a delay
+    t_len -= delay
+
+    x = ag_data[:,delay:,0]
+    y = ag_data[:,delay:,1]
+    pt_self = np.array([x,y])
+
+    orient = ag_data[:,delay:,2]
+    x_COM = ag_data[:,delay:,4]
+    y_COM = ag_data[:,delay:,5]
+    pt_COM = np.array([x_COM,y_COM])
+    disp = pt_self.transpose() - pt_COM.transpose()
+
+    # corr to COM
+    angle_to_target = np.arctan2(disp[:,:,1], disp[:,:,0]) + np.pi # shift by pi for [0-2pi]
+    # print('max/min angle_to_target: ', np.max(angle_to_target), np.min(angle_to_target))
+    corr_COM_angle_diff = angle_to_target.transpose() - orient
+    corr_COM_angle_diff_scaled = (corr_COM_angle_diff - np.pi) % (2*np.pi) - np.pi # [-pi/2, pi/2]
+    corr_COM = np.cos(corr_COM_angle_diff)
+
+    # distance to patch
+    env_path = fr'{data_dir}/{exp_name}/.env'
+    envconf = de.dotenv_values(env_path)
+    pt_target = np.array(eval(envconf["RESOURCE_POS"]))
+    pt_target[1] = 1000 - pt_target[1]
+    disp = pt_self.transpose() - pt_target
+    dist = np.linalg.norm(disp, axis=2)
+
+
+    ### temporal correlations ###
+
+    fig = plt.figure(figsize=(3,3))
+    ax0 = plt.subplot()
+
+    corr_COM_avg = np.mean(corr_COM, 0)
+    ax0.plot(t, corr_COM_avg, 'k')
+    ax0.axhline(color='gray', ls='--')
+
+    # decorr_idx = np.argmax(corr_COM_avg < 0.5)
+    # decorr_time = t[decorr_idx]
+    # decorr_val = corr_COM_avg[decorr_idx]
+
+    # ax0.vlines(decorr_time, 0, decorr_val, color='red', ls='--')
+    # # ax0.set_title(f'Decorr Time: {decorr_time:.2f}')
+
+    ax0.set_xlim(-20,520)
+    ax0.set_ylim(-1.05,1.05)
+    # ax0.set_ylim(-0.05,1.05)
+    ax0.set_xlabel('Timesteps')
+    ax0.set_ylabel('Orientation Correlation')
+
+    plt.tight_layout()
+    plt.savefig(fr'{save_name}{extra}_corr_orient_COM_{dpi}.png', dpi=dpi)
+    plt.close()
+
+
+    ### spatial correlation trajectories ###
+
+    fig = plt.figure(figsize=(3,3))
+    ax1 = plt.subplot()
+
+    for r in range(num_runs)[::50]:
+        ax1.plot(dist[:,r], -corr_COM_angle_diff_scaled[r,:], c='k', alpha=5/255) # negative to match orientation of polar plot
+
+    ins = ax1.inset_axes([0.7,0.05,0.25,0.25])
+    ins.set_yticks([])
+    ins.set_xticks([])
+
+    inits = [
+        [800, 200, np.pi], #BR-W
+        [800, 900, np.pi/2], #TR-W
+        [100, 200, np.pi/2], #BL-N
+        [100, 900, 3*np.pi/2], #TL-S
+    ]
+    colors = [
+        'cornflowerblue',
+        'tomato',
+        'forestgreen',
+        'gold',
+    ]
+    for pt,color in zip(inits,colors):
+        distance, index_xy = scipy.spatial.KDTree(ag_data[:,0,:2]).query(pt[:2])
+        index_ori = (np.abs(ag_data[index_xy:index_xy+16,0,2] - pt[2])).argmin()
+        index = index_xy + index_ori
+
+        # ax[0,0].plot(t, corr_init[index,:], c=color, alpha=.5)
+        # ax[0,2].plot(dist[:,index], corr_init[index,:], c=color, alpha=.5)
+        # ax[0,3].plot(dist[:,index], corr_init_angle_diff[index,:], c=color, alpha=.5)
+        # ax[1,0].plot(t, corr_patch[:,index], c=color, alpha=.5)
+        # ax[1,2].plot(dist[:,index], corr_patch[:,index], c=color, alpha=.5)
+        # ax[1,3].plot(dist[:,index], corr_patch_angle_diff[:,index], c=color, alpha=.5)
+        ins.plot(dist[:,index], -corr_COM_angle_diff_scaled[index,:], c=color, alpha=.5, linewidth=1)
+
+    labels = [r'-$\pi$', r'-$\pi/2$', '$0$', r'$\pi/2$', r'$\pi$']
+
+    ax1.set_xlim(-20,820)
+    ax1.set_yticks(np.arange(-np.pi, np.pi+0.01, np.pi/2))
+    ax1.set_yticklabels(labels)
+    ax1.set_xlabel('Distance to Patch')
+    ax1.set_ylabel('Relative Orientation')
+
+    plt.tight_layout()
+    plt.savefig(fr'{save_name}{extra}_corr_trajs_COM_{dpi}.png', dpi=dpi)
+    plt.close()
+
+
+    ### spatial correlation  - polar hist ###
+
+    fig = plt.figure(figsize=(3,3))
+    ax2 = plt.subplot(projection='polar')
+
+    dist = dist.flatten()
+    m = np.ma.masked_less(dist, 100)
+
+    corr_COM_angle_diff = corr_COM_angle_diff_scaled.transpose().flatten()
+    corr_COM_angle_diff_masked = (1-m.mask)*corr_COM_angle_diff
+    corr_COM_angle_diff_comp = corr_COM_angle_diff_masked[corr_COM_angle_diff_masked != 0]
+
+    # Visualise by area of bins
+    n, bins, patches = circular_hist(ax2, corr_COM_angle_diff_comp, bins=100, offset=np.pi/2, colored=True)
+    # # Visualise by radius of bins
+    # circular_hist(ax[1], corr_init_angle_diff_comp, bins=100, offset=np.pi/2, density=False)
+
+    x_avg = np.mean(np.cos(corr_COM_angle_diff_comp))
+    y_avg = np.mean(np.sin(corr_COM_angle_diff_comp))
+    histo_avg = np.arctan2(y_avg, x_avg)
+
+    ax2.axvline(histo_avg, color='gray', ls='--')
+
+    plt.tight_layout()
+    plt.savefig(fr'{save_name}{extra}_corr_polar_COM_{dpi}.png', dpi=dpi)
+    plt.close()
+
 # -------------------------- script -------------------------- #
 
 def run_gamut(group_name, names, dpi):
@@ -4542,26 +5159,26 @@ def run_gamut_social(group_name, names, dpi):
         gen, valfit = find_top_val_gen(name, rank)
         print(f'{name} @ {gen} w {valfit} fitness')
 
-        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
-            data = pickle.load(f)
-        if name in data:
-            print('already there')
-            print('')
+        # with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+        #     data = pickle.load(f)
+        # if name in data:
+        #     print('already there')
+        #     print('')
 
-            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
-            # if os.path.exists(save_name_traj):
-            #     os.remove(save_name_traj)
-            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
-            # if os.path.exists(save_name_traj):
-            #     os.remove(save_name_traj)
-            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
-            # if os.path.exists(save_name_traj):
-            #     os.remove(save_name_traj)
-            # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
-            # if os.path.exists(save_name_traj):
-            #     os.remove(save_name_traj)
+        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+        #     # if os.path.exists(save_name_traj):
+        #     #     os.remove(save_name_traj)
+        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+        #     # if os.path.exists(save_name_traj):
+        #     #     os.remove(save_name_traj)
+        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        #     # if os.path.exists(save_name_traj):
+        #     #     os.remove(save_name_traj)
+        #     # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
+        #     # if os.path.exists(save_name_traj):
+        #     #     os.remove(save_name_traj)
 
-            continue
+        #     continue
 
         save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
         if not os.path.exists(save_name_traj):
@@ -4650,69 +5267,124 @@ def run_gamut_social_extra(group_name, names, dpi):
     for name in names:
 
         gen, valfit = find_top_val_gen(name, rank)
-        print(f'{name} @ {gen} w {valfit} fitness')
+        # print(f'{name} @ {gen} w {valfit} fitness')
 
+        # if len(data[name]) == 8:
+        #     # print(f'{name} @ {gen} w {valfit} fitness')
+        #     continue
+        # elif len(data[name]) == 11:
+        #     print(f'skip {name}, already done')
+        #     continue
+        # else:
+        #     print(f'remove {name}, do again')
+        #     # del data[name]
+        #     # with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
+        #     #     pickle.dump(data, f)
+        #     continue
         if name in data:
             print('already there')
             continue
-        else:
-            with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
-                old_data = pickle.load(f)
 
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
-        if not os.path.exists(save_name_traj):
-            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='')
         save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
         if not os.path.exists(save_name_traj):
             build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial')
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiters.bin'
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
         if not os.path.exists(save_name_traj):
-            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiters')
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorers.bin'
-        if not os.path.exists(save_name_traj):
-            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorers')
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_Nd+2.bin'
-        if not os.path.exists(save_name_traj):
-            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='Nd+2')
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter')
 
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiters_ex_lines_50.png'
-        if not os.path.exists(save_name_traj):
-            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_exploiters')
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorers_ex_lines_50.png'
-        if not os.path.exists(save_name_traj):
-            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_explorers')
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_Nd+2_ex_lines_50.png'
-        if not os.path.exists(save_name_traj):
-            plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='Nd+2')
+        de_mean_NS_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='', dpi=dpi)
+        de_mean_NS_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='patch_only', dpi=dpi)
+        de_mean_ET_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='', dpi=dpi)
+        de_mean_ET_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='patch_only', dpi=dpi)
 
-        # de_mean_NS_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='', dpi=dpi)
-        # de_mean_NS_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='patch_only', dpi=dpi)
-        # de_mean_ET_new,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='', dpi=dpi)
-        # de_mean_ET_patchonly,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='patch_only', dpi=dpi)
+        JS_mean_NSET_new,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                            base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='')
+        JS_mean_NSET_patchonly,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
+                                                            base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='patch_only')
 
-        JS_mean_NSETs,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
-                                                            base_cond='nosocial', perturb_cond='ghost_exploiters', mask_cond='')
-        JS_mean_ETERs,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
-                                                            base_cond='ghost_exploiters', perturb_cond='ghost_explorers', mask_cond='')
-        JS_mean_Nd2,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, 
-                                                            base_cond='', perturb_cond='Nd+2', mask_cond='')
-
-        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
-        # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'rb') as f:
+        # with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+        with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
             data = pickle.load(f)
 
-        # de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER, de_mean_NS_patchonly, de_mean_ET_patchonly, JS_mean_NSET_patchonly = data[name]
-        de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER = old_data[name]
-        data[name] = de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER, JS_mean_NSETs, JS_mean_ETERs, JS_mean_Nd2
+        de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER, JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER = data[name]
+        data[name] = de_mean_OG, de_mean_NS_new, de_mean_ET_new, de_mean_ER, JS_mean_OGNS, JS_mean_NSET_new, JS_mean_NSER, JS_mean_ETER, de_mean_NS_patchonly, de_mean_ET_patchonly, JS_mean_NSET_patchonly
 
         with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
-        # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'wb') as f:
             pickle.dump(data, f)
 
-        # print(f'de_mean_NS-og: {de_mean_NS}, de_mean_NS-new: {de_mean_NS_new}, -patchonly: {de_mean_NS_patchonly}')
-        # print(f'de_mean_ET-og: {de_mean_ET}, de_mean_ET-new: {de_mean_ET_new}, -patchonly: {de_mean_ET_patchonly}')
-        # print(f'JS_mean_NSET-og: {JS_mean_NSET}, JS_mean_NSET-new: {JS_mean_NSET_new}, -patchonly: {JS_mean_NSET_patchonly}')
-        print(f'JS_NSET: {JS_mean_NSET}, JS_NSETs: {JS_mean_NSETs}, JS_ETER: {JS_mean_ETER}, JS_ETERs: {JS_mean_ETERs}, JS_Nd2: {JS_mean_Nd2}')
+        print(f'de_mean_NS-og: {de_mean_NS}, de_mean_NS-new: {de_mean_NS_new}, -patchonly: {de_mean_NS_patchonly}')
+        print(f'de_mean_ET-og: {de_mean_ET}, de_mean_ET-new: {de_mean_ET_new}, -patchonly: {de_mean_ET_patchonly}')
+        print(f'JS_mean_NSET-og: {JS_mean_NSET}, JS_mean_NSET-new: {JS_mean_NSET_new}, -patchonly: {JS_mean_NSET_patchonly}')
+
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        if os.path.exists(save_name_traj):
+            os.remove(save_name_traj)
+
+
+def run_gamut_social_redo(group_name, names, dpi):
+
+    data_dir = Path(__file__).parent.parent / r'data/simulation_data/'
+    rank = 'cen'
+    space_step = 25
+    timesteps = 500
+    orient_step = np.pi/8
+
+    for name in names:
+
+        gen, valfit = find_top_val_gen(name, rank)
+        print(f'{name} @ {gen} w {valfit} fitness')
+
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps)
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter')
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
+        if not os.path.exists(save_name_traj):
+            build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer')
+
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi)
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='nosocial')
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_exploiter')
+        plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=dpi, extra='ghost_explorer')
+
+        de_mean_OG,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi)
+        de_mean_NS,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='nosocial', mask_cond='', dpi=dpi)
+        de_mean_ET,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', extra='ghost_exploiter', mask_cond='', dpi=dpi)
+        de_mean_ER,_,_ = plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type='_dirent', dpi=dpi, extra='ghost_explorer')
+
+        JS_mean_OGNS,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='')
+        JS_mean_NSET,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='', dpi=dpi)
+        JS_mean_NSER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='nosocial', perturb_cond='ghost_explorer')
+        JS_mean_ETER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=dpi, base_cond='ghost_exploiter', perturb_cond='ghost_explorer')
+
+        update = (
+            de_mean_OG, de_mean_NS, de_mean_ET, de_mean_ER,
+            JS_mean_OGNS, JS_mean_NSET, JS_mean_NSER, JS_mean_ETER,
+            )
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'rb') as f:
+            data = pickle.load(f)
+        print(f'same? {update == data[name]}')
+        if not update == data[name]:
+            for x,(i,j) in enumerate(zip(update, data[name])):
+                print(f'same? {i == j}')
+        data[name] = update
+
+        with open(fr'{data_dir}/traj_matrices/{group_name}.bin', 'wb') as f:
+            pickle.dump(data, f)
+
+        with open(fr'{data_dir}/dups_alt.bin', 'rb') as f:
+            dups = pickle.load(f)
+        dups.remove(name)
+        with open(fr'{data_dir}/dups_alt.bin', 'wb') as f:
+            pickle.dump(dups, f)
 
         save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1.bin'
         if os.path.exists(save_name_traj):
@@ -4720,13 +5392,10 @@ def run_gamut_social_extra(group_name, names, dpi):
         save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_nosocial.bin'
         if os.path.exists(save_name_traj):
             os.remove(save_name_traj)
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiters.bin'
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_exploiter.bin'
         if os.path.exists(save_name_traj):
             os.remove(save_name_traj)
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorers.bin'
-        if os.path.exists(save_name_traj):
-            os.remove(save_name_traj)
-        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_Nd+2.bin'
+        save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_{rank}_e1_ghost_explorer.bin'
         if os.path.exists(save_name_traj):
             os.remove(save_name_traj)
 
@@ -7413,51 +8082,6 @@ def gamut_label(group):
         pickle.dump(data, f)
 
 
-
-# -------------------------- misc -------------------------- #
-
-def find_top_val_gen(data_dir, exp_name, rank='cen'):
-
-    # parse val results text file
-    if rank == 'top': 
-        with open(fr'{data_dir}/{exp_name}/val_results.txt') as f:
-            lines = f.readlines()
-
-            val_data = np.zeros((len(lines)-1, 3))
-            for i, line in enumerate(lines[1:]):
-                data = [item.strip() for item in line.split(' ')]
-                val_data[i,0] = data[1] # generation
-                val_data[i,1] = data[4] # train fitness
-                val_data[i,2] = data[7] # val fitness
-
-            # sort according to val fitness
-            top_ind = np.argsort(val_data[:,2])[0] 
-            top_gen = int(val_data[top_ind,0])
-            top_valfit = int(val_data[top_ind,2])
-            # print(f'gen {top_gen}: fit {top_valfit}')
-
-    elif rank == 'cen': 
-        with open(fr'{data_dir}/{exp_name}/val_results_cen.txt') as f:
-            lines = f.readlines()
-        # with open(fr'{data_dir}/{exp_name}/val_matrix_cen.bin') as f:
-        #     val_data = pickle.load(f)
-
-            val_data = np.zeros((len(lines)-1, 3))
-            for i, line in enumerate(lines[1:]):
-                data = [item.strip() for item in line.split(' ')]
-                val_data[i,0] = data[1] # generation
-                val_data[i,1] = data[4] # train fitness
-                val_data[i,2] = data[7] # val fitness
-
-            # sort according to val fitness
-            top_ind = np.argsort(val_data[:,2])[0] 
-            top_gen = int(val_data[top_ind,0])
-            top_valfit = int(val_data[top_ind,2])
-            # print(f'gen {top_gen}: fit {top_valfit}')
-
-    return f'gen{top_gen}', top_valfit
-
-
 if __name__ == '__main__':
 
     ## traj
@@ -7467,7 +8091,11 @@ if __name__ == '__main__':
     timesteps = 500
     dpi = 100
 
-    ## quick test
+    # # med test
+    # space_step = 50
+    # orient_step = np.pi/4
+
+    # # quick test
     # space_step = 500
     # orient_step = np.pi/2
 
@@ -7637,22 +8265,70 @@ if __name__ == '__main__':
     # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep16') # perf + med spatial
     # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_collinput_rep31') # perf + strong spatial
 
-    # names.append('sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep2')
-    # names.append('sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep10')
-    # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep10')
-    # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep15')
-    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep1')
-    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep20')
-    # names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep0')
-    # names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep11')
+    # names.append('sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N6_NRW3_ND2_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_rep0')
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N5_NRW1_ND3_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N5_NRW3_ND1_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N5_NRW4_ND0_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N4_NRW0_ND3_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N4_NRW1_ND2_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N4_NRW3_ND0_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N3_NRW1_ND1_CNN14_FNN16_vis8_rep0')
+    # # names.append('sc_N3_NRW2_ND0_CNN14_FNN16_vis8_rep0')
+    # names.append('sc_N2_NRW0_ND1_CNN14_FNN16_vis8_rep0')
+    # names.append('sc_N2_NRW1_ND0_CNN14_FNN16_vis8_rep0')
+
+    # names.append('sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # # names.append('sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # names.append('sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep0')
+    # names.append('sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep0')
+
+    # idx = int(sys.argv[1])-1
+    # name = names[idx]
+    # print(f'running name index {idx} on {platform.node()}')
+    # gen, valfit = find_top_val_gen(name, 'cen')
+    # for angle in [.5,.1,.05,.01]:
+    #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra=f'spin-{angle}')
+
+    # metrics = ['avg-init100', 'avg-init200']
+    # plots = ['heatmap']
+    # types = ['explore', 'exploit']
+
+    # comb_tuples = list(itertools.product(metrics, plots, types))
+    # comb_strings = [f'{metric}-{soctype}-{plot}' for metric, plot, soctype in comb_tuples]
+
 
     # for name in names:
     #     gen, valfit = find_top_val_gen(name, 'cen')
 
         # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
         # if not os.path.exists(save_name_traj):
-        #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps)
-        #     build_agent_trajs(name, gen, space_step, orient_step, timesteps, feat_out=True)
+        #     build_agent_trajs(name, gen, space_step, orient_step, timesteps)
+        #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, feat_out=True)
         # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1_nosocial.bin'
         # if not os.path.exists(save_name_traj):
         #     # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='nosocial')
@@ -7670,22 +8346,22 @@ if __name__ == '__main__':
         # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_exploiter', feat_out=True)
         # build_agent_trajs(name, gen, space_step, orient_step, timesteps, extra='ghost_explorer', feat_out=True)
 
-        # for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
-        #     plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50, extra=test)
-        #     for a in range(16):
-        #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a+4}', dpi=50, extra=test)
+    #     for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
+    #         plot_agent_trajs(name, gen, space_step, orient_step, timesteps, ex_lines=True, dpi=50, extra=test)
+    #         for a in range(16):
+    #             plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=f'_avgactiv{a+4}', dpi=50, extra=test)
 
     #     JS_mean_OGNS,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='nosocial', perturb_cond='')
     #     JS_mean_NSET,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='nosocial', perturb_cond='ghost_exploiter', mask_cond='')
     #     JS_mean_NSER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='nosocial', perturb_cond='ghost_explorer')
     #     JS_mean_ETER,_,_ = plot_traj_vecfield_perturb_div(name, gen, space_step, orient_step, timesteps, plot_type='JS', dpi=50, base_cond='ghost_exploiter', perturb_cond='ghost_explorer')
 
-        # # for plot in ['_interfaces']: # _avgorilen
-        # # # for plot in ['_finalheat']: 
-        # # # for plot in ['_interfaces','_finalheat']:
-        # for plot in ['_dirent','_interfaces','_finalheat']:
-        #     for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
-        #         plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=plot, dpi=50, extra=test)
+    #     # for plot in ['_interfaces']: # _avgorilen
+    #     # # for plot in ['_finalheat']: 
+    #     # # for plot in ['_interfaces','_finalheat']:
+    #     for plot in ['_dirent','_interfaces','_finalheat']:
+    #         for test in ['','nosocial','ghost_exploiter','ghost_explorer']:
+    #             plot_traj_vecfield(name, gen, space_step, orient_step, timesteps, plot_type=plot, dpi=50, extra=test)
 
         # save_name_traj = fr'{data_dir}/traj_matrices/{name}_{gen}_c{space_step}_o{int(np.pi/orient_step)}_t{timesteps}_cen_e1.bin'
         # if os.path.exists(save_name_traj):
@@ -7700,6 +8376,15 @@ if __name__ == '__main__':
         # if os.path.exists(save_name_traj):
         #     os.remove(save_name_traj)
 
+    # name = 'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_rep0'
+    # # angles = [.0125, .025, .05, .1, .2, .3, .4]
+    # # angles = [.15, .25]
+    # # angles = np.linspace(1, 90, 90)/90
+    # # angles = angles.round(3)
+    # for angle in angles:
+    #     gen, valfit = find_top_val_gen(name, 'cen')
+    #     build_agent_spins(name, gen, angle)
+    # plot_spin_chart()
 
 
     ### ------ views/phys resolution scaling ------- ###
@@ -8222,6 +8907,13 @@ if __name__ == '__main__':
     # for name in [f'sc_N21_NRW20_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
     #     names.append(name)
 
+    for name in [f'sc_N11_NRW0_ND10_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N16_NRW0_ND15_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
+    for name in [f'sc_N21_NRW0_ND20_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
+        names.append(name)
+
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
     #     names.append(name)
     # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_nocoll_rep{x}' for x in range(n)]:
@@ -8278,49 +8970,46 @@ if __name__ == '__main__':
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis12_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-    for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-    for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
-        names.append(name)
-
-    for name in [f'sc_N1_NRW0_ND0_CNN14_FNN16_vis8_rep{x}' for x in range(n)]:
-        names.append(name)
+    # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW3_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW4_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N6_NRW5_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW0_ND4_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW1_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW2_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW3_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N5_NRW4_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW0_ND3_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW1_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N4_NRW3_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW1_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N3_NRW2_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW0_ND1_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
+    # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_SinitAg100_rep{x}' for x in range(n)]:
+    #     names.append(name)
 
     # for name in [f'sc_N6_NRW0_ND5_CNN14_FNN16_vis8_SinitAg100_collinput_rep{x}' for x in range(n)]:
     #     names.append(name)
@@ -8366,20 +9055,25 @@ if __name__ == '__main__':
     # for name in [f'sc_N2_NRW1_ND0_CNN14_FNN16_vis8_collinput_rep{x}' for x in range(n)]:
     #     names.append(name)
 
-    # size = 4
-    # idx = int(sys.argv[1])-1
-    # names = names[idx*size:(idx+1)*size]
-    # print(f'running name indices {idx*size}:{(idx+1)*size}')
-    # print(f'on {platform.node()}')
+    with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+        data = pickle.load(f)
 
-    # run_gamut_social('gamut_social', names, dpi=50)
-    # run_gamut_social('gamut_social_extra', names, dpi=50)
-    # run_gamut_social_extra('gamut_social_extra', names, dpi=50)
-    # run_gamut_social_extra('gamut_social_mults', names, dpi=50)
+    # for name in names:
+    #     print(name, len(data[name]))
 
-    # # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+    size = 2
+    idx = int(sys.argv[1])-1
+    names = names[idx*size:(idx+1)*size]
+    print(f'running name indices {idx*size}:{(idx+1)*size}')
+    print(f'on {platform.node()}')
+
+    run_gamut_social('gamut_social', names, dpi=25)
+    # # run_gamut_social('gamut_social_extra', names, dpi=50)
+    # run_gamut_social_extra('gamut_social', names, dpi=50)
+    # run_gamut_social_redo('gamut_social', names, dpi=25)
+
+    # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
     # # with open(fr'{data_dir}/traj_matrices/gamut_social_extra.bin', 'rb') as f:
-    # with open(fr'{data_dir}/traj_matrices/gamut_social_mults.bin', 'rb') as f:
     #     data = pickle.load(f)
     # count = 0
     # run = []
@@ -8409,17 +9103,15 @@ if __name__ == '__main__':
     #     if k in data2:
     #         v1 = data1[k]
     #         v2 = data2[k]
-    #         if v1 != v2[:8]:
-    #             # print(k, 'diff')
-    #             # # print(len(v1),len(v2[:8]))
-    #             # print(v1)
-    #             # print(v2)
-    #             pass
-    #         else:
-    #             print(f'match in {k}')
+    #         if v1 != v2:
+    #             print(k, 'diff')
+    #             print(v1)
+    #             print(v2)
+    #             # # pass
+    #         # else:
+    #         #     print(f'match in {k}')
     #     else:
-    #         # print(f'missing')
-    #         pass
+    #         print(f'missing')
     #     # print('')
 
     # for k,v in sorted(data2.items()):
@@ -8435,6 +9127,50 @@ if __name__ == '__main__':
 
     # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'wb') as f:
     #     pickle.dump(data1, f)
+
+
+
+    # with open(fr'{data_dir}/traj_matrices/gamut_social.bin', 'rb') as f:
+    #     data_dict = pickle.load(f)
+
+    # # metric_type1 = 'dist_shift_NSET'
+    # # metric_type2 = 'JS_mean_NSET'
+    # metric_type1 = 'dist_shift_OGNS'
+    # metric_type2 = 'JS_mean_OGNS'
+    # metric_type2_list = [
+    #         'de_mean_OG', 'de_mean_NS', 'de_mean_ET', 'de_mean_ER',
+    #         'JS_mean_OGNS', 'JS_mean_NSET', 'JS_mean_NSER', 'JS_mean_ETER'
+    #         ]
+    # index = metric_type2_list.index(metric_type2)
+
+    # for name in names:
+    #     gen, valfit = find_top_val_gen(name, 'cen')
+    #     # plot_social_orient_corr(name, gen, space_step, orient_step, timesteps, dpi=dpi)
+    #     if name in data_dict.keys():
+    #         dist1 = name_to_metric(name, metric_type1)
+    #         dist2 = data_dict[name][index]
+    #         if dist1 > 625 and dist2 > .21:
+    #             # of the followers for each group:
+    #             gen, valfit = find_top_val_gen(name, 'cen')
+    #             # view_set = build_social_views(name, gen, space_step, orient_step, timesteps)
+    #             # actions_per_view(name, gen, view_set)
+    #             actions_per_view(name, gen)
+
+
+    # names = []
+    # names.append('sc_N6_NRW5_ND0_CNN14_FNN16_vis8_rep37') # no perf + no spatial
+    # names.append('sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep18') # spatial only
+    # names.append('sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep35') # perf only (BD)
+    # names.append('sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep33') # perf + weak spatial (hybrid)
+    # names.append('sc_N5_NRW2_ND2_CNN14_FNN16_vis8_rep31') # perf + strong spatial + discernment (only exploiter) --> not in list
+    # names.append('sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep18') # perf + strong spatial + some discernment (explorer also, but less)
+
+    # for name in names:
+        
+    #     gen, valfit = find_top_val_gen(name, 'cen')
+    #     # build_patch_dists(name, gen, space_step, orient_step, timesteps)
+    #     # patch_timeXdist(name, gen)
+    #     patch_timeXdist(name, gen, plot_type='_bars')
 
 
     # analyze_gamut --> input index for desired data type

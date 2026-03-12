@@ -14,43 +14,13 @@ from abm.sprites.wall import Wall
 class Simulation:
     # @timer
     def __init__(self, env_size, window_pad,
-                 N, T, with_visualization, framerate, save_ext,
-                 agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, 
+                 N, N_rand, T, with_visualization, framerate, save_ext,
+                 agent_radius, max_vel, vis_field_res, vision_range, agent_fov, show_vision_range, agent_consumption, agent_collide, agent_patch_collide,
                  N_res, patch_radius, res_pos, res_units, res_quality, regenerate_patches, 
-                 NNs, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
-                 boundary_scale, sim_type, RW_rot_diff, social_init_range, social_init_type, init_info=None
+                 NN, other_input, vis_transform, percep_angle_noise_std, percep_dist_noise_std, action_noise_std,
+                 boundary_scale, sim_type, RW_rot_diff, social_init_range, social_init_type, init_info=None, feat_out=False,
                  ):
-        """
-        Initializing the main simulation instance
-        :param width: real width of environment (not window size)
-        :param height: real height of environment (not window size)
-        :param window_pad: padding of the environment in simulation window in pixels
-        :param N: number of agents
-        :param T: simulation time
-        :param with_visualization: turns visualization on or off. For large batch autmatic simulation should be off so
-            that we can use a higher/maximal framerate
-        :param framerate: framerate of simulation
-        :param save_ext:
-        :param agent_radius: radius of the agents
-        :param max_vel:
-        :param vis_field_res: projection field (visual + proximity) resolution in pixels
-        :param vision_range: range (in px) of agents' vision
-        :param agent_fov (float): the field of view of the agent as percentage. e.g. if 0.5, the the field of view is
-                                between -pi/2 and pi/2
-        :param show_vision_range: bool to switch visualization of visual range for agents. If true the limit of far
-                                and near field visual field will be drawn around the agents
-        :param agent_consumption: agent consumption (exploitation speed) in res. units / time units
-        :param N_res: number of resource patches in the environment
-        :param patch_radius: radius of resource patches
-        :param min_res_perpatch: minimum resource unit per patch
-        :param max_res_perpatch: maximum resource units per patch
-        :param min_res_quality: minimum resource quality in unit/timesteps that is allowed for each agent on a patch
-            to exploit from the patch
-        : param max_res_quality: maximum resource quality in unit/timesteps that is allowed for each agent on a patch
-            to exploit from the patch
-        :param regenerate_patches: bool to decide if patches shall be regenerated after depletion
-        :param NN:
-        """
+
         # Arena parameters
         self.WIDTH, self.HEIGHT = env_size
         self.window_pad = window_pad
@@ -58,8 +28,8 @@ class Simulation:
 
         self.x_min, self.x_max = 0, self.WIDTH
         self.y_min, self.y_max = 0, self.HEIGHT
-        self.boundary_info_coll = (agent_radius*2, self.WIDTH - agent_radius*2, 
-                                   agent_radius*2, self.HEIGHT - agent_radius*2)
+        # self.boundary_info_coll = (agent_radius*2, self.WIDTH - agent_radius*2, 
+        #                            agent_radius*2, self.HEIGHT - agent_radius*2)
 
         self.boundary_endpts = [
             np.array([ -boundary_scale, -boundary_scale ]),
@@ -71,6 +41,7 @@ class Simulation:
 
         # Simulation parameters
         self.N = N
+        self.N_rand = N_rand
         self.T = T
         self.t = 0
         self.with_visualization = with_visualization
@@ -93,33 +64,30 @@ class Simulation:
         self.agent_fov = agent_fov
         self.show_vision_range = show_vision_range
         self.agent_consumption = agent_consumption
+        self.agent_collide = agent_collide
+        self.agent_patch_collide = agent_patch_collide
         self.social_init_range = social_init_range
         self.social_init_type = social_init_type
 
-        # params from trajs call
-        if init_info is not None:
-            x,y,orient,timesteps,perturb = init_info
-            self.T = timesteps # override envconf
-            self.agent_init = x,y,orient # pass to create_agent
-            if perturb == 'nosocial': 
-                self.N = 1
-                self.sim_type = 'walls, social'
-            elif perturb == 'ghost_exploiter': 
-                self.N = 1
-                self.sim_type = 'walls, social-ghostexploiter'
-            elif perturb == 'ghost_explorer': 
-                self.N = 1
-                self.sim_type = 'walls, social-ghostexplorer'
-            else:
-                # print(self.N, int(perturb))
-                self.N = int(perturb) # override potential validation perturb
-                self.sim_type = 'walls, social'
-        else:
-            self.agent_init = None
+        # Params from build_agent_trajs()
+        # if init_info is not None:
+        #     x,y,orient,timesteps,perturb = init_info
+        z,spin_angle,timesteps,perturb = init_info
+        self.T = timesteps # override envconf
+        self.agent_init = z # pass to create_agent
+        self.spin_angle = spin_angle # controls agent.move()
+        # else:
+        #     self.agent_init = None
 
         # Tracking parameters
-        self.data_agent = np.zeros( (self.T, 3) ) # (pos_x, pos_y, ori)
+        self.feat_out = feat_out
+        if self.feat_out:
+            self.data_agent = np.zeros( (self.T, 24) ) # (pos_x, pos_y, ori, action, vis_feat, RNN_out)
+        else:
+            self.data_agent = np.zeros( (self.T, 4) ) # (pos_x, pos_y, ori, action)
         self.data_res = []
+        self.vis_feat = np.zeros(4)
+        self.RNN_out = np.zeros(16)
         self.save_ext = save_ext
 
         # Boundary-Ray Collision parameters
@@ -146,7 +114,7 @@ class Simulation:
         self.regenerate_resources = regenerate_patches
 
         # Neural Network parameters
-        self.models = NNs
+        self.model = NN
         self.rot_diff = RW_rot_diff
 
         self.num_class_elements = 6 # multi-agent --> perception of 4 walls + 2 agent modes
@@ -417,25 +385,25 @@ class Simulation:
         if self.show_vision_range: 
             self.draw_visual_fields()
     
-### -------------------------- ENV FUNCTIONS -------------------------- ###
+# ### -------------------------- ENV FUNCTIONS -------------------------- ###
     
-    def create_walls(self):
+#     def create_walls(self):
 
-        walls = [
-            ('wall_north', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_min ])),
-            ('wall_south', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_max - self.coll_boundary_thickness ])),
-            ('wall_east', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_max - self.coll_boundary_thickness, self.y_min ])),
-            ('wall_west', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_min, self.y_min ]))
-        ]
+#         walls = [
+#             ('wall_north', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_min ])),
+#             ('wall_south', (self.WIDTH, self.coll_boundary_thickness), np.array([ self.x_min, self.y_max - self.coll_boundary_thickness ])),
+#             ('wall_east', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_max - self.coll_boundary_thickness, self.y_min ])),
+#             ('wall_west', (self.coll_boundary_thickness, self.HEIGHT), np.array([ self.x_min, self.y_min ]))
+#         ]
 
-        for id, size, position in walls:
-            wall = Wall(
-                id=id,
-                size=size,
-                position=position,
-                window_pad=self.window_pad
-            )
-            self.walls.add(wall)
+#         for id, size, position in walls:
+#             wall = Wall(
+#                 id=id,
+#                 size=size,
+#                 position=position,
+#                 window_pad=self.window_pad
+#             )
+#             self.walls.add(wall)
 
 ### -------------------------- AGENT FUNCTIONS -------------------------- ###
 
@@ -447,118 +415,74 @@ class Simulation:
         Randomly initializes orientation (0 : right, pi/2 : up)
         Adds agent class to PyGame sprite group class (faster operations than lists)
         """
-        x_min, x_max, y_min, y_max = self.boundary_info_coll
+        # x_min, x_max, y_min, y_max = self.boundary_info_coll
 
-        # ANN controlled agents
+        # ANN controlled agent
 
-        if self.social_init_type == '':
+        # colliding_resources = [0]
+        # retries = 0 
+        # while len(colliding_resources) > 0:
 
-            for i in range(0, self.N):
+            # if self.agent_init is None:
+            #     x = np.random.randint(x_min, x_max)
+            #     y = np.random.randint(y_min, y_max)            
+            #     orient = np.random.uniform(0, 2 * np.pi)
+            # else: # no-res traj sim
+            #     x,y,orient = self.agent_init
 
-                colliding_resources = [0]
-                colliding_agents = [0]
-                retries = 0
-                while len(colliding_resources) > 0 or len(colliding_agents) > 0:
+        x,y = 1015,1015
+        orient = np.pi/4
 
-                    x = np.random.randint(x_min, x_max)
-                    y = np.random.randint(y_min, y_max)
-                    orient = np.random.uniform(0, 2 * np.pi)
-
-                    agent = Agent(
-                            id=i,
-                            position=(x, y),
-                            orientation=orient,
-                            max_vel=self.max_vel,
-                            FOV=self.agent_fov,
-                            vision_range=self.vision_range,
-                            num_class_elements=self.num_class_elements,
-                            vis_field_res=self.vis_field_res,
-                            consumption=self.agent_consumption,
-                            model=self.models[i],
-                            boundary_endpts=self.boundary_endpts,
-                            window_pad=self.window_pad,
-                            radius=self.agent_radii,
-                            color=colors.BLUE,
-                            vis_transform=self.vis_transform,
-                            percep_angle_noise_std=self.percep_angle_noise_std,
-                            sim_type=self.sim_type
-                        )
-                    
-                    colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
-                    colliding_agents = pygame.sprite.spritecollide(agent, self.agents, False, supcalc.within_group_collision)
-
-                    retries += 1
-                    if retries > 10: print(f'Retries > 10')
-                self.agents.add(agent)
-                if 'ghost' in self.sim_type:
-                    self.viewable_agents.add(agent)
-        
-        else:
-
-            if self.social_init_type == 'res':
-                target_pos = self.res_pos
-            elif self.social_init_type == 'ag':
-                target_pos = [
-                    np.random.randint(self.x_min, self.x_max),
-                    np.random.randint(self.y_min, self.y_max)
-                ]
-
-            spawn_x_min = max(x_min,target_pos[0] - self.social_init_range)
-            spawn_x_max = min(x_max,target_pos[0] + self.social_init_range)
-            spawn_y_min = max(x_min,target_pos[1] - self.social_init_range)
-            spawn_y_max = min(x_max,target_pos[1] + self.social_init_range)
-            # print(spawn_x_min, spawn_x_max, spawn_y_min, spawn_y_max)
+        agent = Agent(
+                id=0,
+                position=(x, y),
+                orientation=orient,
+                max_vel=self.max_vel,
+                FOV=self.agent_fov,
+                vision_range=self.vision_range,
+                num_class_elements=self.num_class_elements,
+                vis_field_res=self.vis_field_res,
+                consumption=self.agent_consumption,
+                model=self.model,
+                boundary_endpts=self.boundary_endpts,
+                window_pad=self.window_pad,
+                radius=self.agent_radii,
+                color=colors.BLUE,
+                vis_transform=self.vis_transform,
+                percep_angle_noise_std=self.percep_angle_noise_std,
+                sim_type=self.sim_type
+            )
             
-            for i in range(0, self.N):
+            # colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
 
-                colliding_resources = [0]
-                colliding_agents = [0]
-                retries = 0
-                while len(colliding_resources) > 0 or len(colliding_agents) > 0 or dist_to_target > self.social_init_range:
-
-                    x = np.random.randint(spawn_x_min, spawn_x_max)
-                    y = np.random.randint(spawn_y_min, spawn_y_max)                
-                    orient = np.random.uniform(0, 2 * np.pi)
-
-                    agent = Agent(
-                            id=i,
-                            position=(x, y),
-                            orientation=orient,
-                            max_vel=self.max_vel,
-                            FOV=self.agent_fov,
-                            vision_range=self.vision_range,
-                            num_class_elements=self.num_class_elements,
-                            vis_field_res=self.vis_field_res,
-                            consumption=self.agent_consumption,
-                            model=self.models[i],
-                            boundary_endpts=self.boundary_endpts,
-                            window_pad=self.window_pad,
-                            radius=self.agent_radii,
-                            color=colors.BLUE,
-                            vis_transform=self.vis_transform,
-                            percep_angle_noise_std=self.percep_angle_noise_std,
-                            sim_type=self.sim_type
-                        )
-                    
-                    colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
-                    colliding_agents = pygame.sprite.spritecollide(agent, self.agents, False, supcalc.within_group_collision)
-                    dist_to_target = supcalc.distance(agent.position, target_pos)
-
-                    retries += 1
-                    if retries > 1000: print(f'Retries > 1000')
-                self.agents.add(agent)
-                if 'ghost' in self.sim_type:
-                    self.viewable_agents.add(agent)
-
-        # ghost agent
-
+            # retries += 1
+            # if retries > 10: print(f'Retries > 10')
+        self.agents.add(agent)
         if 'ghost' in self.sim_type:
-            x,y = self.res_pos
-            orient = 0
+            self.viewable_agents.add(agent)
+
+        # RW/D agents
+
+        # if self.social_init_type == '':
+
+        for i in range(1, self.N):
+
+            # colliding_resources = [0]
+            # colliding_agents = [0]
+
+            # retries = 0
+            # while len(colliding_resources) > 0 or len(colliding_agents) > 0:
+
+                # x = np.random.randint(x_min, x_max)
+                # y = np.random.randint(y_min, y_max)                
+                # orient = np.random.uniform(0, 2 * np.pi)
+            z = self.agent_init
+            x,y,orient = 1000-z, 1000-z, 0
+
             agent = Agent(
-                    id=self.N+1,
+                    id=i,
                     position=(x, y),
-                    orientation=0,
+                    orientation=orient,
                     max_vel=self.max_vel,
                     FOV=self.agent_fov,
                     vision_range=self.vision_range,
@@ -569,135 +493,300 @@ class Simulation:
                     boundary_endpts=self.boundary_endpts,
                     window_pad=self.window_pad,
                     radius=self.agent_radii,
-                    color=colors.BLUE,
+                    color=colors.CYAN,
                     vis_transform=self.vis_transform,
                     percep_angle_noise_std=self.percep_angle_noise_std,
-                    sim_type=self.sim_type,
+                    sim_type=self.sim_type
                 )
-            if self.sim_type == 'walls, social-ghostexploiter':
-                agent.mode = 'exploit'
-            elif self.sim_type == 'walls, social-ghostexplorer':
-                agent.mode = 'explore'
-            self.ghost.add(agent)
-            self.viewable_agents.add(agent)
+                
+                # colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+                # if self.agent_collide:
+                #     colliding_agents = pygame.sprite.spritecollide(agent, self.agents, False, supcalc.within_group_collision)
+                # else:
+                #     colliding_agents = []
+
+                # retries += 1
+                # if retries > 10: print(f'Retries > 10')
+            self.agents.add(agent)
+            if 'ghost' in self.sim_type:
+                self.viewable_agents.add(agent)
+        
+        # else:
+
+        #     if self.social_init_type == 'res':
+        #         target_pos = self.res_pos
+        #     elif self.social_init_type == 'ag':
+        #         target_pos = self.agents.sprites()[0].position
+
+        #     spawn_x_min = max(x_min,target_pos[0] - self.social_init_range)
+        #     spawn_x_max = min(x_max,target_pos[0] + self.social_init_range)
+        #     spawn_y_min = max(x_min,target_pos[1] - self.social_init_range)
+        #     spawn_y_max = min(x_max,target_pos[1] + self.social_init_range)
+        #     # print(spawn_x_min, spawn_x_max, spawn_y_min, spawn_y_max)
+            
+        #     for i in range(1, self.N):
+
+        #         colliding_resources = [0]
+        #         colliding_agents = [0]
+
+        #         retries = 0
+        #         while len(colliding_resources) > 0 or len(colliding_agents) > 0 or dist_to_target > self.social_init_range:
+
+        #             x = np.random.randint(spawn_x_min, spawn_x_max)
+        #             y = np.random.randint(spawn_y_min, spawn_y_max)                
+        #             orient = np.random.uniform(0, 2 * np.pi)
+                    
+
+        #             # print(x,y,i)
+
+        #             agent = Agent(
+        #                     id=i,
+        #                     position=(x, y),
+        #                     orientation=orient,
+        #                     max_vel=self.max_vel,
+        #                     FOV=self.agent_fov,
+        #                     vision_range=self.vision_range,
+        #                     num_class_elements=self.num_class_elements,
+        #                     vis_field_res=self.vis_field_res,
+        #                     consumption=self.agent_consumption,
+        #                     model=None,
+        #                     boundary_endpts=self.boundary_endpts,
+        #                     window_pad=self.window_pad,
+        #                     radius=self.agent_radii,
+        #                     color=colors.CYAN,
+        #                     vis_transform=self.vis_transform,
+        #                     percep_angle_noise_std=self.percep_angle_noise_std,
+        #                     sim_type=self.sim_type
+        #                 )
+                    
+        #             colliding_resources = pygame.sprite.spritecollide(agent, self.resources, False, pygame.sprite.collide_circle)
+        #             if self.agent_collide:
+        #                 colliding_agents = pygame.sprite.spritecollide(agent, self.agents, False, supcalc.within_group_collision)
+        #             else:
+        #                 colliding_agents = []
+        #             dist_to_target = supcalc.distance(agent.position, target_pos)
+
+        #             retries += 1
+        #             if retries > 1000: print(f'Retries > 1000')
+        #         self.agents.add(agent)
+        #         if 'ghost' in self.sim_type:
+        #             self.viewable_agents.add(agent)
+
+        # # ghost agent
+        # if 'ghost' in self.sim_type:
+
+        #     if 'offset' in self.sim_type:
+        #         x,y = 600,600
+        #     else:
+        #         x,y = self.res_pos
+
+        #     if 'exploiters' in self.sim_type or 'explorers' in self.sim_type: # multiple ghosts
+        #         spacings = [] # 5*72 degree spacings, 1.5*agent_radius away from center as minimum needed to avoid collision
+        #         for i in range(5):
+        #             angle = i * 2*np.pi/5
+        #             offset_x = x + 1.5*self.agent_radii*np.cos(angle)
+        #             offset_y = y + 1.5*self.agent_radii*np.sin(angle)
+        #             spacings.append((offset_x, offset_y))
+        #         for i,j in spacings:
+        #             agent = Agent(
+        #                     id=self.N+1,
+        #                     position=(i,j),
+        #                     orientation=0,
+        #                     max_vel=self.max_vel,
+        #                     FOV=self.agent_fov,
+        #                     vision_range=self.vision_range,
+        #                     num_class_elements=self.num_class_elements,
+        #                     vis_field_res=self.vis_field_res,
+        #                     consumption=self.agent_consumption,
+        #                     model=self.model,
+        #                     boundary_endpts=self.boundary_endpts,
+        #                     window_pad=self.window_pad,
+        #                     radius=self.agent_radii,
+        #                     color=colors.BLUE,
+        #                     vis_transform=self.vis_transform,
+        #                     percep_angle_noise_std=self.percep_angle_noise_std,
+        #                     sim_type=self.sim_type,
+        #                 )
+        #             if 'exploiter' in self.sim_type:
+        #                 agent.mode = 'exploit'
+        #             elif 'explorer' in self.sim_type:
+        #                 agent.mode = 'explore'
+        #             self.ghost.add(agent)
+        #             self.viewable_agents.add(agent)
+
+        #     else: # single ghost
+        #         agent = Agent(
+        #                 id=self.N+1,
+        #                 position=(x, y),
+        #                 orientation=0,
+        #                 max_vel=self.max_vel,
+        #                 FOV=self.agent_fov,
+        #                 vision_range=self.vision_range,
+        #                 num_class_elements=self.num_class_elements,
+        #                 vis_field_res=self.vis_field_res,
+        #                 consumption=self.agent_consumption,
+        #                 model=self.model,
+        #                 boundary_endpts=self.boundary_endpts,
+        #                 window_pad=self.window_pad,
+        #                 radius=self.agent_radii,
+        #                 color=colors.BLUE,
+        #                 vis_transform=self.vis_transform,
+        #                 percep_angle_noise_std=self.percep_angle_noise_std,
+        #                 sim_type=self.sim_type,
+        #             )
+        #         if 'exploiter' in self.sim_type:
+        #             agent.mode = 'exploit'
+        #         elif 'explorer' in self.sim_type:
+        #             agent.mode = 'explore'
+        #         self.ghost.add(agent)
+        #         self.viewable_agents.add(agent)
 
     # @timer
     def save_data_agent(self):
         agent = self.agents.sprites()[0] # only track 1st agent
         self.data_agent[self.t,:2] = agent.pt_eye
         self.data_agent[self.t,2] = agent.orientation
-        # self.data_agent[self.t,3] = agent.action * np.pi / 2
 
-### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
-
-    # @timer
-    def create_resources(self):
-
-        # creates single resource patch
-        id = 0
-        units = np.random.randint(self.min_res_units, self.max_res_units)
-        quality = np.random.uniform(self.min_res_quality, self.max_res_quality)
-
-        resource = Resource(id, self.res_radius, self.res_pos, units, quality)
-        self.resources.add(resource)
-
-        x,y = resource.position
-        pos_x = x
-        pos_y = self.y_max - y
-        self.data_res.append([pos_x, pos_y, self.res_radius])
-
-    def consume(self, agent):
-
-        # Call resource agent is on
-        resource = agent.res_to_be_consumed
-
-        # Increment remaining resource quantity
-        depl_units, destroy_res = resource.deplete(agent.consumption)
-
-        # Update agent info
-        if depl_units > 0:
-            agent.collected_r += depl_units
-            agent.mode = 'exploit'
+        if 'agent_explore' in agent.vis_field:
+            self.data_agent[self.t,3] = 1
         else:
-            agent.mode = 'explore'
+            self.data_agent[self.t,3] = 0
 
-        # Kill + regenerate patch when fully depleted
-        if destroy_res:
-            resource.kill()
-            if self.regenerate_resources:
-                # self.add_new_resource_patch_random()
-                self.add_new_resource_patch_stationary_single()
+# ### -------------------------- RESOURCE FUNCTIONS -------------------------- ###
 
-### -------------------------- COLLISION FUNCTIONS -------------------------- ###
+#     # @timer
+#     def create_resources(self):
 
-    # @timer
-    def collide_agent_res(self):
+#         # creates single resource patch
+#         id = 0
+#         units = np.random.randint(self.min_res_units, self.max_res_units)
+#         quality = np.random.uniform(self.min_res_quality, self.max_res_quality)
 
-        # Create dict of every agent that has collided : [colliding resources]
-        collision_group_ar = pygame.sprite.groupcollide(self.agents, self.resources, False, False, pygame.sprite.collide_circle)
+#         resource = Resource(id, self.res_radius, self.res_pos, units, quality)
+#         self.resources.add(resource)
 
-        # Switch on all agents currently on a resource 
-        for agent, resource_list in collision_group_ar.items():
-            for resource in resource_list:
-                # Flip bool variable if agent is within patch boundary
-                if supcalc.distance(agent.position, resource.position) <= resource.radius:
-                    agent.mode = 'exploit'
-                    agent.on_res = 1
-                    agent.res_to_be_consumed = resource
-                    break
+#         x,y = resource.position
+#         pos_x = x
+#         pos_y = self.y_max - y
+#         self.data_res.append([pos_x, pos_y, self.res_radius])
+
+#     def consume(self, agent):
+
+#         # Call resource agent is on
+#         resource = agent.res_to_be_consumed
+
+#         # Increment remaining resource quantity
+#         depl_units, destroy_res = resource.deplete(agent.consumption)
+
+#         # Update agent info
+#         if depl_units > 0:
+#             agent.collected_r += depl_units
+#             agent.mode = 'exploit'
+#         else:
+#             agent.mode = 'explore'
+
+#         # Kill + regenerate patch when fully depleted
+#         if destroy_res:
+#             resource.kill()
+#             if self.regenerate_resources:
+#                 # self.add_new_resource_patch_random()
+#                 self.add_new_resource_patch_stationary_single()
+
+# ### -------------------------- COLLISION FUNCTIONS -------------------------- ###
+
+#     # @timer
+#     def collide_agent_res(self):
+
+#         # Create dict of every agent that has collided : [colliding resources]
+#         collision_group_ar = pygame.sprite.groupcollide(self.agents, self.resources, False, False, pygame.sprite.collide_circle)
+
+#         # Switch on all agents currently on a resource 
+#         for agent, resource_list in collision_group_ar.items():
+#             for resource in resource_list:
+#                 # Flip bool variable if agent is within patch boundary
+#                 if supcalc.distance(agent.position, resource.position) <= resource.radius:
+#                     agent.mode = 'exploit'
+#                     agent.on_res = 1
+#                     agent.res_to_be_consumed = resource
+#                     break
 
 
-    def collide_agent_resarea(self): # for trajs.py where there is no self.resources
+#     def collide_agent_resarea(self): # for trajs.py where there is no self.resources
 
-        for i in range(0, self.N):
-            agent = self.agents.sprites()[i]
-            dist_to_res = supcalc.distance(agent.position, self.res_pos)
+#         for i in range(1, self.N): # other agents only
 
-            if dist_to_res <= self.res_radius:
-                agent.mode = 'exploit'
+#             agent = self.agents.sprites()[i]
+#             dist_to_res = supcalc.distance(agent.position, self.res_pos)
+
+#             if dist_to_res <= self.res_radius:
+#                 agent.mode = 'exploit'
 
 
-    def collide_agent_wall(self):
+#     def collide_agent_wall(self):
         
-        # Create dict of every agent that has collided : [colliding walls]
-        collision_group_aw = pygame.sprite.groupcollide(self.agents, self.walls, False, False)
+#         # Create dict of every agent that has collided : [colliding walls]
+#         collision_group_aw = pygame.sprite.groupcollide(self.agents, self.walls, False, False)
 
-        # Change agent mode + note points of contact (carry out velocity-stopping check later in agent.move())
-        for agent, wall_list in collision_group_aw.items():
+#         # Change agent mode + note points of contact (carry out velocity-stopping check later in agent.move())
+#         for agent, wall_list in collision_group_aw.items():
 
-            agent.mode = 'collide'
+#             agent.mode = 'collide'
 
-            for wall in wall_list:
+#             for wall in wall_list:
 
-                clip = agent.rect.clip(wall.rect)
-                if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+#                 clip = agent.rect.clip(wall.rect)
+#                 if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
 
-                # print(f'agent {agent.rect.center, agent.position} collided with {wall.id} @ {clip.center}')
+#                 # print(f'agent {agent.rect.center, agent.position} collided with {wall.id} @ {clip.center}')
 
-                agent.collided_points.append(np.array(clip.center) - self.window_pad)
+#                 agent.collided_points.append(np.array(clip.center) - self.window_pad)
 
-                # hits = [edge for edge in ['bottom', 'top', 'left', 'right'] if getattr(clip, edge) == getattr(agent.rect, edge)]
-                # text = self.font.render(f'Collision at {", ".join(hits)}', True, pygame.Color('black'))
-                # self.screen.blit(text, (self.window_pad, int(self.window_pad/2)))
+#                 # hits = [edge for edge in ['bottom', 'top', 'left', 'right'] if getattr(clip, edge) == getattr(agent.rect, edge)]
+#                 # text = self.font.render(f'Collision at {", ".join(hits)}', True, pygame.Color('black'))
+#                 # self.screen.blit(text, (self.window_pad, int(self.window_pad/2)))
 
-    def collide_agent_agent(self):
+#     def collide_agent_agent(self):
 
-        # Create dict of every agent that has collided : [colliding agents]
-        collision_group_aa = pygame.sprite.groupcollide(self.agents, self.agents, False, False, supcalc.within_group_collision)
+#         # Create dict of every agent that has collided : [colliding agents]
+#         collision_group_aa = pygame.sprite.groupcollide(self.agents, self.agents, False, False, supcalc.within_group_collision)
         
-        # Carry out agent-agent collisions + generate list of collided agents
-        for agent1, other_agents in collision_group_aa.items():
+#         # Carry out agent-agent collisions + generate list of collided agents
+#         for agent1, other_agents in collision_group_aa.items():
 
-            agent1.mode = 'collide'
+#             if not self.agent_patch_collide:
+#                 if agent1.mode == 'exploit':
+#                     continue
 
-            for agentX in other_agents:
+#             agent1.mode = 'collide'
 
-                clip = agent1.rect.clip(agentX.rect)
-                if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+#             for agentX in other_agents:
 
-                # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
+#                 if not self.agent_patch_collide:
+#                     if agentX.mode == 'exploit':
+#                         continue
 
-                agent1.collided_points.append(np.array(clip.center) - self.window_pad)
+#                 clip = agent1.rect.clip(agentX.rect)
+#                 if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+
+#                 # print(f'agent {agent.rect.center} collided with {wall.id} @ {clip.center}')
+
+#                 agent1.collided_points.append(np.array(clip.center) - self.window_pad)
+
+#         if 'offset' in self.sim_type: # ghost outside patch --> acknowledge collisions, same code as above
+#             collision_group_aa = pygame.sprite.groupcollide(self.agents, self.ghost, False, False, supcalc.within_group_collision)
+#             for agent1, other_agents in collision_group_aa.items():
+#                 if not self.agent_patch_collide:
+#                     if agent1.mode == 'exploit':
+#                         continue
+#                 agent1.mode = 'collide'
+#                 for agentX in other_agents:
+#                     if not self.agent_patch_collide:
+#                         if agentX.mode == 'exploit':
+#                             continue
+#                     clip = agent1.rect.clip(agentX.rect)
+#                     if self.with_visualization: pygame.draw.rect(self.screen, pygame.Color('red'), clip)
+#                     agent1.collided_points.append(np.array(clip.center) - self.window_pad)
+
 
 ### -------------------------- HUMAN INTERACTION FUNCTIONS -------------------------- ###
 
@@ -734,9 +823,9 @@ class Simulation:
         ### ---- INITIALIZATION ---- ###
 
         start_time = time.time()
-        self.create_walls()
-        if self.agent_init is None:
-            self.create_resources()
+        # self.create_walls()
+        # if self.agent_init is None:
+        #     self.create_resources()
         self.create_agents()
 
         ### ---- START OF SIMULATION ---- ###
@@ -749,26 +838,28 @@ class Simulation:
                 
                 ### ---- OBSERVATIONS ---- ###
 
-                # Refresh agent behavioral states
-                for agent in self.agents:
+                # # Refresh agent behavioral states
+                # for agent in self.agents:
                     
-                    agent.collided_points = []
-                    agent.mode = 'explore'
+                #     agent.collided_points = []
+                #     if agent.mode == 'collide': agent.mode = 'explore'
 
-                # Evaluate sprite interactions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
-                self.collide_agent_wall()
-                self.collide_agent_agent()
-                if self.agent_init is None:
-                    self.collide_agent_res()
-                else:
-                    self.collide_agent_resarea()
+                # # Evaluate sprite interactions + flip agent modes to 'collide'/'exploit' (latter takes precedence)
+                # self.collide_agent_wall()
+                # if self.agent_collide:
+                #     self.collide_agent_agent()
+                # if self.agent_init is None:
+                #     self.collide_agent_res()
+                # else:
+                #     self.collide_agent_resarea()
 
                 # Update visual projections
                 for agent in self.agents:
-                    if 'ghost' in self.sim_type:
-                        agent.visual_sensing(self.objs, self.viewable_agents)
-                    else:
-                        agent.visual_sensing(self.objs, self.agents)
+                    if agent.id == 0: # only ANN agent
+                        if 'ghost' in self.sim_type:
+                            agent.visual_sensing(self.objs, self.viewable_agents)
+                        else:
+                            agent.visual_sensing(self.objs, self.agents)
 
                 ### ---- VISUALIZATION ---- ###
 
@@ -794,40 +885,54 @@ class Simulation:
 
                 for agent in self.agents:
 
-                    # Food present --> track time
-                    if agent.mode == 'exploit':
-                        if agent.time_finished is None:
-                            agent.time_finished = self.t
+                    # ANN agent
+                    if agent.id == 0:
 
-                    else: # No food --> sense + move (via ANN)
+                        # # Food present --> terminate simulation
+                        # if agent.mode == 'exploit':
 
-                        # Observe + encode sensory inputs
-                        vis_input = agent.encode_one_hot(agent.vis_field)
+                        #     # self.recorder.end_recording()
+                        #     pygame.quit()
+                        #     elapsed_time = round( (time.time() - start_time) , 2)
+                        #     return self.t, 0, elapsed_time, self.data_agent
 
-                        if self.other_input == 0:
-                            agent.action, agent.hidden, _, _ = agent.model.forward(vis_input, np.array([0]), agent.hidden)
-                        elif self.other_input == 1:
-                            if agent.mode == 'collide':
-                                agent.action, agent.hidden, _, _ = agent.model.forward(vis_input, np.array([1]), agent.hidden)
-                            else:
-                                agent.action, agent.hidden, _, _ = agent.model.forward(vis_input, np.array([0]), agent.hidden)
+                        # else: # No food --> sense + move (via ANN)
+
+                        agent.move(-self.spin_angle)
+
+                    else: # RW/direct agents
+
+                        # jiggle agent around static point
+                        if self.agent_init == 0:
+                            pass
                         else:
-                            raise ValueError('Other input not recognized')
+                            agent.position = np.array([1000 - self.agent_init + np.random.uniform(-25,25), 1000 - self.agent_init + np.random.uniform(-25,25)])
+    
+                    #     # Food present --> consume
+                    #     if agent.mode == 'exploit':
+                    #         # self.consume(agent) # does not do anything important + makes trajs.py tricky, thus taken out, change for patch depletion
+                    #         pass
 
-                        action = agent.action + np.random.randn()*self.action_noise_std
-                        agent.move(action)
-                        # agent.move((2*self.rot_diff)**.5 * np.random.uniform(-1,1))
-                
-                # print(self.t, [(int(agent.position[0]),int(agent.position[1])) for agent in self.agents])
+                    #     else: # No food --> move
 
-                    # if all agents have finished (self.time_finished is not None), then stop simulation
-                    if all(agent.time_finished is not None for agent in self.agents):
-                        pygame.quit()
-                        elapsed_time = round( (time.time() - start_time) , 2)
-                        finish_times = [agent.time_finished for agent in self.agents]
-                        dist_to_res = [0]*self.N
+                    #         if agent.id < self.N_rand + 1: # (via random walk)
+                    #             agent.move((2*self.rot_diff)**.5 * np.random.uniform(-1,1))
 
-                        return finish_times, dist_to_res, elapsed_time, self.data_agent
+                    #         else: # (via direct line)
+                    #             if agent.collide_timer > 0:
+                    #                 agent.collide_timer -= 1
+                    #                 agent.move(0)
+                    #             else:
+                    #                 # turn toward res if facing away
+                    #                 angle_to_food = np.arctan2(-(self.res_pos[1] - agent.position[1]),
+                    #                                         self.res_pos[0] - agent.position[0])
+                    #                 angle_diff = angle_to_food - agent.orientation
+                    #                 angle_diff = (angle_diff - np.pi) % (2*np.pi) - np.pi
+                    #                 if np.abs(angle_diff) > 0.01: # angular tolerance
+                    #                     agent.move(angle_diff)
+                    #                 else: # or move fwd
+                    #                     agent.move(0)
+                                
 
             ### ---- BACKGROUND PROCESSES ---- ###
         
@@ -846,9 +951,8 @@ class Simulation:
 
         ### ---- END OF SIMULATION ---- ###
 
+        # self.recorder.end_recording()
         pygame.quit()
         elapsed_time = round( (time.time() - start_time) , 2)
-        finish_times = [agent.time_finished if agent.time_finished is not None else self.T for agent in self.agents]
-        dist_to_res = [supcalc.distance(agent.position, self.res_pos) for agent in self.agents]
-
-        return finish_times, dist_to_res, elapsed_time, self.data_agent
+        dist_to_res = supcalc.distance(self.agents.sprites()[0].position, self.res_pos)
+        return self.T, dist_to_res, elapsed_time, self.data_agent

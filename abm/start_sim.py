@@ -15,7 +15,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
         envconf = de.dotenv_values(Path(__file__).parent.parent / '.env')
         NN, arch = reconstruct_NN(envconf)
 
-        envconf['WITH_VISUALIZATION'] = 1
+        envconf['WITH_VISUALIZATION'] = 0
         # envconf['INIT_FRAMERATE'] = 10
         # envconf['AGENT_FOV'] = 1
         # envconf['VISUAL_FIELD_RESOLUTION'] = 32
@@ -67,6 +67,7 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
             # envconf['N_RAND'] = int(envconf['N_RAND']) + 2 # +2 random agents (needs above too)
             # envconf['SIM_TYPE'] = 'nowalls, social-ghostexploiter' # ghostexploiter in vacuum
             # envconf['SIM_TYPE'] = 'walls, social-model' # selfsocial
+            # envconf['SIM_TYPE'] = 'spin' # spin
 
             # envconf['N_RAND'] = '5'
 
@@ -83,6 +84,9 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
     # to run headless
     if int(envconf['WITH_VISUALIZATION']) == 0:
         os.environ['SDL_VIDEODRIVER'] = 'dummy'
+
+    # suppress pygame welcome msg
+    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = 'hide'
 
     # Set seed according to EA parent function to circumvent multiprocessing bug
     np.random.seed(seed)
@@ -168,6 +172,50 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
         t, dist, elapsed_time, data_agent = sim.start()
         # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, int(dist)}')
         return t, dist, data_agent
+    
+    # elif 'spin' in envconf['SIM_TYPE']:
+    #     from abm.simulation.sims_target_spin import Simulation
+    #     with ExitStack():
+    #         sim = Simulation(env_size              =tuple(eval(envconf["ENV_SIZE"])),
+    #                         window_pad             =int(envconf["WINDOW_PAD"]),
+    #                         N                      =int(envconf["N"]),
+    #                         N_rand                 =int(envconf["N_RAND"]),
+    #                         T                      =int(envconf["T"]),
+    #                         with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
+    #                         framerate              =int(envconf["INIT_FRAMERATE"]),
+    #                         save_ext               =None,
+    #                         agent_radius           =int(envconf["RADIUS_AGENT"]),
+    #                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
+    #                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
+    #                         vision_range           =int(envconf["VISION_RANGE"]),
+    #                         agent_fov              =float(envconf['AGENT_FOV']),
+    #                         show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
+    #                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
+    #                         agent_collide          =bool(int(envconf["AGENT_COLLIDE"])),
+    #                         agent_patch_collide    =bool(int(envconf["AGENT_PATCH_COLLIDE"])),
+    #                         N_res                  =int(envconf["N_RESOURCES"]),
+    #                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
+    #                         res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
+    #                         res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
+    #                         res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
+    #                         regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
+    #                         NN                     =NN,
+    #                         other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
+    #                         vis_transform          =str(envconf["VIS_TRANSFORM"]),
+    #                         percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
+    #                         percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
+    #                         action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
+    #                         boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
+    #                         sim_type               =str(envconf["SIM_TYPE"]),
+    #                         RW_rot_diff            =float(envconf["RW_ROT_DIFF"]),
+    #                         social_init_range      =float(envconf["SOCIAL_INIT_RANGE"]),
+    #                         social_init_type       =str(envconf["SOCIAL_INIT_TYPE"]),
+    #                         init_info              =init_info,
+    #                         feat_out               =feat_out,
+    #                         )
+    #     t, dist, elapsed_time, data_agent = sim.start()
+    #     # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, int(dist)}')
+    #     return t, dist, data_agent
 
     # elif envconf['SIM_TYPE'] == 'walls, social-test':
     #     from abm.simulation.sims_target_social_rand_test import Simulation
@@ -204,44 +252,6 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
     #                         boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
     #                         sim_type               =str(envconf["SIM_TYPE"]),
     #                         RW_rot_diff            =float(envconf["RW_ROT_DIFF"]),
-    #                         )
-    #         t, dist, elapsed_time = sim.start()
-    #         # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, dist}')
-    #     return t, dist
-
-    # elif envconf['SIM_TYPE'] == 'walls, social-model':
-    #     from abm.simulation.sims_target_social_model import Simulation
-    #     with ExitStack():
-    #         sim = Simulation(env_size              =tuple(eval(envconf["ENV_SIZE"])),
-    #                         window_pad             =int(envconf["WINDOW_PAD"]),
-    #                         N                      =int(envconf["N"]),
-    #                         T                      =int(envconf["T"]),
-    #                         with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
-    #                         framerate              =int(envconf["INIT_FRAMERATE"]),
-    #                         print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
-    #                         plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
-    #                         save_ext               =None,
-    #                         agent_radius           =int(envconf["RADIUS_AGENT"]),
-    #                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
-    #                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
-    #                         vision_range           =int(envconf["VISION_RANGE"]),
-    #                         agent_fov              =float(envconf['AGENT_FOV']),
-    #                         show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
-    #                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
-    #                         N_res                  =int(envconf["N_RESOURCES"]),
-    #                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
-    #                         res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
-    #                         res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
-    #                         res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
-    #                         regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
-    #                         NN                     =NN,
-    #                         other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
-    #                         vis_transform          =str(envconf["VIS_TRANSFORM"]),
-    #                         percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
-    #                         percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
-    #                         action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
-    #                         boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
-    #                         sim_type               =str(envconf["SIM_TYPE"]),
     #                         )
     #         t, dist, elapsed_time = sim.start()
     #         # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {t, dist}')
@@ -285,47 +295,6 @@ def start(model_tuple=None, pv=None, load_dir=None, seed=None, env_path=None, in
     #         t, res_collected, elapsed_time, first_consume_time = sim.start()
     #         # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {first_consume_time, res_collected}')
     #     return first_consume_time, res_collected
-
-
-    # elif envconf['SIM_TYPE'].startswith('nowalls_ghost'):
-    #     from abm.simulation.sims_target_nowalls_ghost import Simulation
-    #     with ExitStack():
-    #         sim = Simulation(env_size              =tuple(eval(envconf["ENV_SIZE"])),
-    #                         window_pad             =int(envconf["WINDOW_PAD"]),
-    #                         N                      =int(envconf["N"]),
-    #                         T                      =int(envconf["T"]),
-    #                         with_visualization     =bool(int(envconf["WITH_VISUALIZATION"])),
-    #                         framerate              =int(envconf["INIT_FRAMERATE"]),
-    #                         print_enabled          =bool(int(envconf["PRINT_ENABLED"])),
-    #                         plot_trajectory        =bool(int(envconf["PLOT_TRAJECTORY"])),
-    #                         log_zarr_file          =bool(int(envconf["LOG_ZARR_FILE"])),
-    #                         save_ext               =None,
-    #                         agent_radius           =int(envconf["RADIUS_AGENT"]),
-    #                         max_vel                =int(envconf["MAXIMUM_VELOCITY"]),
-    #                         vis_field_res          =int(envconf["VISUAL_FIELD_RESOLUTION"]),
-    #                         vision_range           =int(envconf["VISION_RANGE"]),
-    #                         agent_fov              =float(envconf['AGENT_FOV']),
-    #                         show_vision_range      =bool(int(envconf["SHOW_VISION_RANGE"])),
-    #                         agent_consumption      =int(envconf["AGENT_CONSUMPTION"]),
-    #                         N_res                  =int(envconf["N_RESOURCES"]),
-    #                         patch_radius           =float(envconf["RADIUS_RESOURCE"]),
-    #                         res_pos                =tuple(eval(envconf["RESOURCE_POS"])),
-    #                         res_units              =tuple(eval(envconf["RESOURCE_UNITS"])),
-    #                         res_quality            =tuple(eval(envconf["RESOURCE_QUALITY"])),
-    #                         regenerate_patches     =bool(int(envconf["REGENERATE_PATCHES"])),
-    #                         NN                     =NN,
-    #                         other_input            =int(envconf["RNN_OTHER_INPUT_SIZE"]),
-    #                         vis_transform          =str(envconf["VIS_TRANSFORM"]),
-    #                         percep_angle_noise_std =float(envconf["PERCEP_ANGLE_NOISE_STD"]),
-    #                         percep_dist_noise_std  =float(envconf["PERCEP_DIST_NOISE_STD"]),
-    #                         action_noise_std       =float(envconf["ACTION_NOISE_STD"]),
-    #                         boundary_scale         =int(envconf["BOUNDARY_SCALE"]),
-    #                         sim_type               =str(envconf["SIM_TYPE"]),
-    #                         )
-    #         t, res_collected, elapsed_time, first_consume_time = sim.start()
-    #         # print(f'Finished {load_dir}, runtime: {elapsed_time} sec, fitness: {first_consume_time, res_collected}')
-    #     return first_consume_time, res_collected
-
 
     # elif envconf['SIM_TYPE'] == 'LM':
     #     from abm.simulation.sims_target_LM import Simulation
@@ -414,7 +383,7 @@ def reconstruct_NN(envconf,pv=None):
 if __name__ == '__main__':
 
     import pickle
-    from abm.monitoring.trajs import find_top_val_gen
+    from abm.monitoring.util import find_top_val_gen
 
     data_dir = Path(__file__).parent / r'data/example_data/' # for running below files, downloaded from github
     # data_dir = Path(__file__).parent / r'data/simulation_data/' # for running locally trained files
@@ -422,7 +391,7 @@ if __name__ == '__main__':
 
     # EXAMPLES -->> uncomment single lines to run
     # >> individual sims
-    exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3' # indirect sequential
+    # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep3' # indirect sequential
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_rep15' # biased diffusive
     # exp_name = 'sc_CNN14_FNN2_p50e20_vis8_PGPE_ss20_mom8_dist_maxWF_n0_rep10' # direct
     # >> social sims
@@ -430,10 +399,10 @@ if __name__ == '__main__':
     # exp_name = 'sc_N4_NRW2_ND1_CNN14_FNN16_vis8_rep18' # spatial only
     # exp_name = 'sc_N6_NRW1_ND4_CNN14_FNN16_vis8_rep35' # perf only (hybrid - biased diffusive)
     # exp_name = 'sc_N6_NRW2_ND3_CNN14_FNN16_vis8_rep33' # perf + weak spatial (hybrid - indirect sequential)
-    # exp_name = 'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep18' # perf + strong spatial (follower)
+    exp_name = 'sc_N3_NRW0_ND2_CNN14_FNN16_vis8_rep18' # perf + strong spatial (follower)
 
     # find model/env params
-    gen_ext, valfit = find_top_val_gen(data_dir, exp_name, 'cen')
+    gen_ext, valfit = find_top_val_gen(exp_name, 'cen')
     NN_pv_path = fr'{data_dir}/{exp_name}/{gen_ext}_NNcen_pickle.bin'
     env_path = fr'{data_dir}/{exp_name}/.env'
 
